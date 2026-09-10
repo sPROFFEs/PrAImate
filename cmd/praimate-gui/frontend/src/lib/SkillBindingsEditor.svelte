@@ -113,9 +113,9 @@
               <label class="mode-choice">
                 <span>Execution mode</span>
                 <select bind:value={version.activation} disabled={busy} aria-label={`Execution mode for ${version.name || version.ref}`}>
-                  <option value="pinned">Always include</option>
-                  <option value="auto">Load automatically when needed</option>
-                  <option value="manual">Load only when requested</option>
+                  <option value="pinned">Always include (portable)</option>
+                  <option value="auto">Load automatically (managed runs only)</option>
+                  <option value="manual">Load when requested (managed runs only)</option>
                 </select>
               </label>
             {/if}
@@ -125,7 +125,7 @@
         {#if !busy && versions.length && !filteredVersions.length}<div class="empty-state">No skills match this search.</div>{/if}
       </div>
 
-      <p class="mode-note">“Always include” works on every supported surface. Automatic and requested loading require a managed runtime that can observe skill loading.</p>
+      <p class="mode-note"><strong>Portable:</strong> Always include sends the approved instructions in the next controlled request. <strong>Managed only:</strong> automatic/requested modes use <code>skill.load</code> and <code>skill.read</code>; native CLIs do not map these tools, so they cannot discover a skill by themselves.</p>
       <div class="skill-actions">
         <button class="btn" type="button" on:click={() => (open = false)} disabled={busy}>Cancel</button>
         <button class="btn primary" type="button" on:click={save} disabled={busy}>{busy ? 'Saving…' : 'Save skills'}</button>

@@ -291,7 +291,7 @@ output may travel with the pack, so an indexed agent can arrive pre-indexed.
 Legacy v1 skills remain separate CLI-specific prompt fragments. The opt-in v2
 agent format can embed exact locked versioned bundles and resources in agent
 packs, without exporting host trust or approvals. See
-[skills test/rollback guide](skills-p8.md#testing-this-checkout) before testing
+[skills test/rollback guide](SKILLS_TEST_GUIDE.md) before testing
 this unreleased feature.
 
 ## Skills

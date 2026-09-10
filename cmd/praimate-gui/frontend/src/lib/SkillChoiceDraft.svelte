@@ -38,11 +38,11 @@
         {#each shown as v (`${v.ref}@${v.digest}`)}
           <div class="choice" class:on={v.selected}>
             <label><input type="checkbox" checked={v.selected} disabled={!v.approved} on:change={(e) => select(v, e.currentTarget.checked)} /><span><strong>{v.name || v.ref.split('/').pop()}</strong><small>{v.description}</small>{#if !v.approved}<small class="warn">Review required in Skills → Installed</small>{/if}</span></label>
-            {#if v.selected}<select bind:value={v.activation} aria-label={`Execution mode for ${v.name || v.ref}`}><option value="pinned">Always include</option><option value="auto">Load automatically when needed</option><option value="manual">Load only when requested</option></select>{/if}
+            {#if v.selected}<select bind:value={v.activation} aria-label={`Execution mode for ${v.name || v.ref}`}><option value="pinned">Always include (portable)</option><option value="auto">Load automatically (managed runs only)</option><option value="manual">Load when requested (managed runs only)</option></select>{/if}
           </div>
         {/each}
       </div>
-      <p class="card-sub">Always include is the portable choice. Dynamic modes require a managed runtime.</p>
+      <p class="card-sub">Always include sends the instructions in the next request. Automatic and requested modes use PrAImate's managed skill tools; native CLIs cannot discover them on their own.</p>
       <div class="actions"><button class="btn" on:click={() => { choices = null; open = false }}>Use defaults</button><button class="btn primary" on:click={done}>Use selection</button></div>
     </div>
   </div>

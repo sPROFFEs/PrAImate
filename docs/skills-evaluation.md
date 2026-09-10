@@ -2,7 +2,7 @@
 
 Repository: `/home/parrot/projects/praimate`, main at `d60480482c257ad0f79d561c5657d32784aec66e` plus the uncommitted skills implementation and test-readiness review.
 
-**Verdict: controlled-path test candidate, not P0–P8 feature-complete or release-ready.**
+**Verdict: controlled-path test candidate; native dynamic skill loading is not universally supported or release-guaranteed.**
 This review supersedes the previous blanket “passed” and “complete” claims.
 A library test does not prove a GUI flow, a real CLI, or model behavior.
 
@@ -109,7 +109,7 @@ open local test servers; the authorized rerun passed. The headless fake-adapter
 test now isolates native OpenClaude configuration in its temporary home as well
 as isolating PrAImate data, so it does not modify the user's CLI profile.
 
-See [test and rollback guide](skills-p8.md#testing-this-checkout) for the
+See the [skills test and rollback guide](SKILLS_TEST_GUIDE.md) for the
 Linux candidate, isolated profile and manual checklist.
 
 The consolidated user checklist is now [SKILLS_TEST_GUIDE.md](SKILLS_TEST_GUIDE.md).

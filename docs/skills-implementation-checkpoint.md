@@ -58,11 +58,11 @@ No source version bump. Actual GUI/model/Windows behavior remains not_run.
   integration, durable scope and transport gates.
 - frontend/src/pages/AgentStudio.svelte: visible run counters/verdict scope.
 - scripts/test-skills.sh, README.md, docs/SKILLS_TEST_GUIDE.md,
-  docs/skills-evaluation.md, docs/skills-p8.md: checks and consolidated guide.
+  docs/skills-evaluation.md, docs/SKILLS_TEST_GUIDE.md: checks and consolidated guide.
 
 ## Outstanding implementation and validation
 
-P0–P8 is NOT universally complete. Remaining: progressive loading on
+The skills implementation is NOT universally complete. Remaining: progressive loading on
 non-managed surfaces; version-characterized production native discovery or
 explicit verified fallback; fully guided agent/workflow binding authoring
 without definition editing; broader evidence-verifier contracts; actual
@@ -72,4 +72,4 @@ No pending item should be reported as acceptance-passed.
 Next safe work: inspect docs/05-SURFACES-ADAPTERS-UX.md and close non-managed/
 native transport and guided-authoring gaps with payload/fake-process tests.
 Real model calls still require authorization. User manual testing starts at
-docs/SKILLS_TEST_GUIDE.md, not the earlier narrower P8 checklist.
+docs/SKILLS_TEST_GUIDE.md is the canonical test and rollback guide.
