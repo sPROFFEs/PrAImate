@@ -17,6 +17,7 @@ import (
 
 	"git.jtsec.local/lab/PrAImate/internal/agentic"
 	"git.jtsec.local/lab/PrAImate/internal/appdata"
+	"git.jtsec.local/lab/PrAImate/internal/skills"
 )
 
 type ManagedRunEvent struct {
@@ -31,48 +32,59 @@ type ManagedRunEvent struct {
 }
 
 type ManagedRunRequest struct {
-	Surface       ExecutionSurface
-	Agent         *Agent
-	CLI           string
-	Cwd           string
-	Model         string
-	Local         *ChatLocalEndpoint
-	Task          string
-	Instructions  string
-	Env           map[string]string
-	Approval      *ApprovalConfig
-	ApprovalScope string
-	ResumeRunID   string
-	OnEvent       func(ManagedRunEvent)
+	TaskBudgetID   string
+	FinishEvidence []agentic.EvidenceRequirement
+	SkillSettings  *ChatSettings
+	Surface        ExecutionSurface
+	Agent          *Agent
+	CLI            string
+	Cwd            string
+	Model          string
+	Local          *ChatLocalEndpoint
+	Task           string
+	Instructions   string
+	Env            map[string]string
+	Approval       *ApprovalConfig
+	ApprovalScope  string
+	ResumeRunID    string
+	OnEvent        func(ManagedRunEvent)
 }
 
 type managedRunSpec struct {
-	Schema       string             `json:"schema"`
-	AgentID      string             `json:"agentId"`
-	Surface      ExecutionSurface   `json:"surface"`
-	CLI          string             `json:"cli"`
-	Cwd          string             `json:"cwd"`
-	Model        string             `json:"model,omitempty"`
-	Local        *ChatLocalEndpoint `json:"local,omitempty"`
-	Task         string             `json:"task"`
-	Instructions string             `json:"instructions,omitempty"`
+	TaskBudgetID   string                        `json:"task_budget_id,omitempty"`
+	FinishEvidence []agentic.EvidenceRequirement `json:"finish_evidence,omitempty"`
+	SkillsV2       *skills.SkillConfig           `json:"skills_v2,omitempty"`
+	SkillsLock     *skills.SkillVersionLock      `json:"skills_lock,omitempty"`
+	Schema         string                        `json:"schema"`
+	AgentID        string                        `json:"agentId"`
+	Surface        ExecutionSurface              `json:"surface"`
+	CLI            string                        `json:"cli"`
+	Cwd            string                        `json:"cwd"`
+	Model          string                        `json:"model,omitempty"`
+	Local          *ChatLocalEndpoint            `json:"local,omitempty"`
+	Task           string                        `json:"task"`
+	Instructions   string                        `json:"instructions,omitempty"`
 }
 
 type ManagedRun struct {
-	ID          string                 `json:"id"`
-	AgentID     string                 `json:"agentId"`
-	AgentName   string                 `json:"agentName"`
-	State       string                 `json:"state"`
-	Turns       int                    `json:"turns"`
-	SessionID   string                 `json:"sessionId,omitempty"`
-	StartedAt   string                 `json:"startedAt"`
-	UpdatedAt   string                 `json:"updatedAt"`
-	CompletedAt string                 `json:"completedAt,omitempty"`
-	Error       string                 `json:"error,omitempty"`
-	Final       string                 `json:"final,omitempty"`
-	Artifacts   []ManagedRunArtifact   `json:"artifacts"`
-	Memory      []ManagedRunMemoryItem `json:"memory,omitempty"`
-	CanResume   bool                   `json:"canResume,omitempty"`
+	InputBytes       int64                  `json:"inputBytes,omitempty"`
+	SkillBytes       int64                  `json:"skillBytes,omitempty"`
+	InputLimitBytes  int64                  `json:"inputLimitBytes,omitempty"`
+	EvidenceVerified bool                   `json:"evidenceVerified,omitempty"`
+	ID               string                 `json:"id"`
+	AgentID          string                 `json:"agentId"`
+	AgentName        string                 `json:"agentName"`
+	State            string                 `json:"state"`
+	Turns            int                    `json:"turns"`
+	SessionID        string                 `json:"sessionId,omitempty"`
+	StartedAt        string                 `json:"startedAt"`
+	UpdatedAt        string                 `json:"updatedAt"`
+	CompletedAt      string                 `json:"completedAt,omitempty"`
+	Error            string                 `json:"error,omitempty"`
+	Final            string                 `json:"final,omitempty"`
+	Artifacts        []ManagedRunArtifact   `json:"artifacts"`
+	Memory           []ManagedRunMemoryItem `json:"memory,omitempty"`
+	CanResume        bool                   `json:"canResume,omitempty"`
 }
 
 type ManagedRunArtifact struct {
@@ -92,6 +104,24 @@ type ManagedRunMemoryItem struct {
 func (c *Core) RunManagedAgent(ctx context.Context, req ManagedRunRequest) (*ManagedRun, error) {
 	if req.Agent == nil {
 		return nil, errors.New("managed run requires an agent")
+	}
+	skillSettings := ChatSettings{}
+	if req.SkillSettings != nil {
+		skillSettings = *req.SkillSettings
+	} else {
+		var err error
+		skillSettings, err = freezeBoundSettings(req.Agent, nil, skillSettings)
+		if err != nil {
+			return nil, err
+		}
+		snapshot := CreateChatRequest{Settings: skillSettings}
+		if err := c.snapshotChatSkills(ctx, &snapshot); err != nil {
+			return nil, err
+		}
+		skillSettings = snapshot.Settings
+	}
+	if err := c.guardBoundSkills(ctx, nil, nil, skillSettings); err != nil {
+		return nil, err
 	}
 	effectiveAgent, err := c.ResolveEffectiveAgentConfig(ctx, req.Agent)
 	if err != nil {
@@ -135,6 +165,7 @@ func (c *Core) RunManagedAgent(ctx context.Context, req ManagedRunRequest) (*Man
 	execution, err := c.ResolveExecutionConfig(ctx, ExecutionRequest{
 		Surface: req.Surface, CLI: req.CLI, Cwd: req.Cwd,
 		Model: req.Model, Tools: "", Local: req.Local,
+		SkillSettings: &skillSettings, skillSnapshot: true,
 	})
 	if err != nil {
 		return nil, err
@@ -159,6 +190,9 @@ func (c *Core) RunManagedAgent(ctx context.Context, req ManagedRunRequest) (*Man
 			local = &copyLocal
 		}
 		spec := managedRunSpec{
+			TaskBudgetID:   skillTaskBudgetID(ctx, req.TaskBudgetID),
+			FinishEvidence: req.FinishEvidence,
+			SkillsV2:       skillSettings.SkillsV2, SkillsLock: skillSettings.SkillsLock,
 			Schema: "praimate.managed-run/v1", AgentID: req.Agent.ID, Surface: req.Surface,
 			CLI: req.CLI, Cwd: execution.Cwd, Model: req.Model, Local: local,
 			Task: req.Task, Instructions: req.Instructions,
@@ -200,6 +234,7 @@ func (c *Core) RunManagedAgent(ctx context.Context, req ManagedRunRequest) (*Man
 		limits.MaxTurns = manifest.Limits.MaxTurns
 		limits.MaxContextChars = manifest.Limits.MaxContextChars
 		limits.MaxOutputChars = manifest.Limits.MaxOutputChars
+		limits.MaxTotalInputBytes = manifest.Limits.MaxTotalInputBytes
 	}
 	approval := req.Approval
 	if approval == nil && c.approvalProvider != nil {
@@ -242,13 +277,31 @@ func (c *Core) RunManagedAgent(ctx context.Context, req ManagedRunRequest) (*Man
 		return nil, err
 	}
 	defer tools.Close()
+	var toolExecutor agentic.ToolExecutor = tools
+	if skillSettings.SkillsV2 != nil {
+		model.skills = &managedSkillSession{core: c, settings: skillSettings}
+		defer func() {
+			if model.skills.runtime != nil {
+				_ = model.skills.runtime.Close()
+			}
+		}()
+		toolExecutor = &managedSkillTools{base: tools, skills: model.skills}
+	}
 	instructions := strings.TrimSpace(req.Instructions)
 	if instructions == "" {
 		instructions = AgentSystemPrompt(req.Agent)
 	}
 	result, runErr := agentic.Run(ctx, agentic.Config{
-		RootDir: root, AgentID: req.Agent.ID, AgentName: req.Agent.Name,
-		Instructions: instructions, Task: req.Task, Limits: limits, Model: model, Tools: tools,
+		ReserveInput: func(ctx context.Context, input, skill, limit int64) error {
+			fallback := req.TaskBudgetID
+			if fallback == "" {
+				fallback = "managed:" + runID
+			}
+			return c.reserveSkillTaskInput(ctx, skillTaskBudgetID(ctx, fallback), input, skill, limit)
+		},
+		FinishEvidence: req.FinishEvidence,
+		RootDir:        root, AgentID: req.Agent.ID, AgentName: req.Agent.Name,
+		Instructions: instructions, Task: req.Task, Limits: limits, Model: model, Tools: toolExecutor,
 		RunID: runID, ResumeRunID: req.ResumeRunID,
 		OnEvent: func(ev agentic.Event) {
 			if req.OnEvent != nil {
@@ -325,18 +378,29 @@ func (c *Core) ResumeManagedRun(ctx context.Context, runID string, onEvent func(
 		return nil, err
 	}
 	return c.RunManagedAgent(ctx, ManagedRunRequest{
-		Surface: spec.Surface, Agent: agent, CLI: spec.CLI, Cwd: spec.Cwd, Model: spec.Model,
+		TaskBudgetID:   spec.TaskBudgetID,
+		FinishEvidence: spec.FinishEvidence,
+		SkillSettings:  &ChatSettings{SkillsV2: spec.SkillsV2, SkillsLock: spec.SkillsLock},
+		Surface:        spec.Surface, Agent: agent, CLI: spec.CLI, Cwd: spec.Cwd, Model: spec.Model,
 		Local: spec.Local, Task: spec.Task, Instructions: spec.Instructions,
 		ApprovalScope: runID, ResumeRunID: runID, OnEvent: onEvent,
 	})
 }
 
 type managedCLIModel struct {
+	skills    *managedSkillSession
 	adapter   CLIAdapter
 	cwd       string
 	model     string
 	env       map[string]string
 	sessionID string
+}
+
+func (m *managedCLIModel) PrepareInput(ctx context.Context, input agentic.ModelInput) (agentic.ModelInput, error) {
+	if m.skills != nil {
+		return m.skills.prepare(ctx, input)
+	}
+	return input, nil
 }
 
 func (m *managedCLIModel) Turn(ctx context.Context, input agentic.ModelInput, emit agentic.EventSink) (*agentic.ModelOutput, error) {
@@ -346,7 +410,9 @@ func (m *managedCLIModel) Turn(ctx context.Context, input agentic.ModelInput, em
 		}
 		emit(agentic.Event{Type: "model." + ev.Type, Tool: ev.Tool, Detail: ev.Detail, OK: ev.OK})
 	}
-	first := m.sessionID == "" || !m.adapter.SupportsResume()
+	// V2 requests carry the complete measured payload each time. Starting a
+	// fresh safe CLI call prevents private native history duplicating it.
+	first := m.skills != nil || m.sessionID == "" || !m.adapter.SupportsResume()
 	var reply *Reply
 	var err error
 	if streaming, ok := m.adapter.(streamingAdapter); ok {
@@ -384,6 +450,12 @@ func (m *managedCLIModel) Turn(ctx context.Context, input agentic.ModelInput, em
 	}
 	if reply.SessionID != "" {
 		m.sessionID = reply.SessionID
+	}
+	if m.skills != nil && m.skills.state != nil {
+		m.skills.state.Status = "delivered"
+		if emit != nil {
+			emit(agentic.Event{Type: "skills.delivered", OK: true, Payload: map[string]any{"receipt": m.skills.state}})
+		}
 	}
 	return &agentic.ModelOutput{Text: reply.Text, SessionID: m.sessionID}, nil
 }
@@ -478,6 +550,7 @@ func managedRunFromInstance(instance *agentic.Instance, memory *agentic.Memory) 
 		return nil
 	}
 	out := &ManagedRun{
+		InputBytes: instance.InputBytes, SkillBytes: instance.SkillBytes, InputLimitBytes: instance.InputLimitBytes, EvidenceVerified: instance.EvidenceVerified,
 		ID: instance.ID, AgentID: instance.AgentID, AgentName: instance.AgentName,
 		State: string(instance.State), Turns: instance.Turns, SessionID: instance.SessionID,
 		StartedAt: instance.StartedAt.Format(time.RFC3339Nano), UpdatedAt: instance.UpdatedAt.Format(time.RFC3339Nano),

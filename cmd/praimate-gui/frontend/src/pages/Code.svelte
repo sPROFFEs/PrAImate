@@ -4,10 +4,11 @@
   import { FitAddon } from '@xterm/addon-fit'
   import '@xterm/xterm/css/xterm.css'
   import { api } from '../lib/api.js'
-  import SkillsPicker from '../lib/SkillsPicker.svelte'
+  import SkillBindingsEditor from '../lib/SkillBindingsEditor.svelte'
+  import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
   import { term, onTermData, onTermExit, decodeBase64Bytes, findTerminalForChat } from '../lib/terminal.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
-  import { pendingTerm } from '../lib/stores.js'
+  import { pendingTerm, showSkillPreparationToast } from '../lib/stores.js'
   import { get } from 'svelte/store'
 
 
@@ -113,12 +114,10 @@
       localApiKey: chat.Settings?.local?.api_key || '',
       localModel: chat.Settings?.local?.model || '',
       suggestions: [], modelLoading: true,
-      skills: (chat.Settings?.skills || []).slice(), skillsCatalogue: [],
       mcps: (chat.Settings?.mcp_servers || []).slice(),
     }
     if (clis.length === 0) api.listCLIs().then(r => clis = r || []).catch(() => {})
     api.listCLIModels(chat.CLIAgent).then(r => { if (cfg && cfg.chat.ID === chat.ID) { cfg.suggestions = r || []; cfg.modelLoading = false } }).catch(() => {})
-    api.skillsList().then(r => { if (cfg && cfg.chat.ID === chat.ID) cfg.skillsCatalogue = r || [] }).catch(() => {})
     api.mcpServers().then(r => { mcpServers = (r || []).filter(s => s.enabled) }).catch(() => {})
   }
   async function saveConfig() {
@@ -129,7 +128,6 @@
       if (cfg.name.trim() && cfg.name.trim() !== cfg.chat.Title) {
         await api.renameChat(cfg.chat.ID, cfg.name.trim())
       }
-      try { await api.setChatSkills(cfg.chat.ID, cfg.skills || []) } catch (e) {}
       await api.setChatMCPServers(cfg.chat.ID, cfg.mcps || [])
       cfg = null
       await load()
@@ -213,12 +211,6 @@
   // to the chat row through SetChatSkills on Done).
   let sessionChatId = ''
   let sessionSkills = []
-  let skillsPickerOpen = false
-  async function saveSessionSkills(ids) {
-    sessionSkills = ids
-    if (!sessionChatId) return
-    try { await api.setChatSkills(sessionChatId, ids) } catch {}
-  }
   let exited = false
   let termId = null
   let el            // xterm host div
@@ -266,6 +258,7 @@
     cli = (a.supports && a.supports[0]) || 'claude'
     model = ''
     error = ''
+    initialSkillChoices = null
   }
 
   // Start a clean session — no agent persona, just CLI + model + folder.
@@ -273,6 +266,7 @@
     agent = null
     model = ''
     error = ''
+    initialSkillChoices = null
     if (!cli) {
       const firstAvail = clis.find((c) => c.available)
       cli = firstAvail ? firstAvail.id : (clis[0]?.id ?? 'claude')
@@ -280,6 +274,16 @@
     cleanSetup = true
   }
   let cleanSetup = false
+  let initialSkillChoices = null
+
+  async function notifyTerminalSkills(chatID) {
+    if (!chatID) return
+    try {
+      const selection = await api.chatSkillsV2(chatID)
+      const refs = (selection?.config?.bindings || []).map((binding) => binding.ref)
+      showSkillPreparationToast(refs, 'Terminal')
+    } catch { /* the terminal remains usable if the evidence lookup fails */ }
+  }
 
   async function chooseFolder() {
     try {
@@ -302,17 +306,17 @@
     try {
       // agent.id when launched from an agent; '' for a clean session
       // (StartTerminal skips the persona/context-file write).
-      termId = await term.start(
+      const created = await api.startCodeSessionWithSkills(
         agent ? agent.id : '',
         cli,
         local ? '' : (modelSupported ? model.trim() : ''),
         cwd,
         local ? localOpt.endpoint : '',
-        '',
         local ? localModel.trim() : '',
-        false,
-        sessionSkills
+        initialSkillChoices
       )
+      termId = created.termId
+      sessionChatId = created.chatId
     } catch (e) {
       error = String(e)
       return
@@ -321,22 +325,12 @@
     // Persist and bind before yielding control, otherwise a quick navigation
     // can leave a live PTY that the Sessions panel cannot find again.
     try {
-      const chatId = await api.recordCodeSession(
-        agent ? agent.id : '',
-        cli,
-        local ? '' : (modelSupported ? model.trim() : ''),
-        cwd,
-        local ? localOpt.endpoint : '',
-        '',
-        local ? localModel.trim() : '',
-      )
-      sessionChatId = chatId || ''
-      if (sessionChatId && termId) await api.bindChatToTerminal(termId, sessionChatId)
       if (sessionChatId && sessionName.trim()) {
         await api.renameChat(sessionChatId, sessionName.trim())
       }
       if (sessionChatId) {
         try { sessionSkills = (await api.chatSkills(sessionChatId)) || [] } catch {}
+        await notifyTerminalSkills(sessionChatId)
       }
     } catch { /* recording must not stop the terminal */ }
     started = true
@@ -483,6 +477,7 @@
     sessionChatId = p.chatId || ''
     if (sessionChatId) {
       try { sessionSkills = (await api.chatSkills(sessionChatId)) || [] } catch { sessionSkills = [] }
+      await notifyTerminalSkills(sessionChatId)
     }
     if (p.termId) {
       // Live PTY — just reattach xterm to the existing stream.
@@ -500,14 +495,16 @@
       }
       return
     }
-    // No live PTY — start the recorded CLI with its native resume flag.
-    // Mirrors the normal start() flow without the agent/local-LLM
-    // bells; those came off the original chat record.
+    // No live PTY — start from the persisted chat truth. This restores the
+    // local route and the exact versioned skill bindings atomically.
     try {
-      termId = await term.start(
-        p.agentId || '', cli, p.model || '', cwd,
-        p.localEndpoint || '', p.localApiKey || '', p.localModel || '', true, sessionSkills)
-      if (sessionChatId) await api.bindChatToTerminal(termId, sessionChatId)
+      if (sessionChatId) {
+        termId = await api.startTerminalForChat(sessionChatId, true)
+      } else {
+        termId = await term.start(
+          p.agentId || '', cli, p.model || '', cwd,
+          p.localEndpoint || '', p.localApiKey || '', p.localModel || '', true, sessionSkills)
+      }
     } catch (e) {
       error = String(e)
       return
@@ -640,6 +637,7 @@
         <input class="field grow" bind:value={cwd} placeholder="/path/to/your/project" />
         <button class="btn" on:click={chooseFolder}>Browse…</button>
       </div>
+      <SkillChoiceDraft bind:choices={initialSkillChoices} />
       <div class="row" style="margin-top:14px">
         <button class="btn primary" on:click={launch} disabled={!cwd || !cli}>Launch {cli || 'CLI'} here</button>
         <button class="btn" on:click={() => (cleanSetup = false)}>Cancel</button>
@@ -706,6 +704,7 @@
       <input class="field grow" bind:value={cwd} placeholder="/path/to/your/project" />
       <button class="btn" on:click={chooseFolder}>Browse…</button>
     </div>
+    <SkillChoiceDraft bind:choices={initialSkillChoices} />
     <div style="margin-top:16px">
       <button class="btn primary" on:click={launch} disabled={!cwd}>Launch {cli} here</button>
     </div>
@@ -716,20 +715,8 @@
     </p>
   {/if}
 {:else}
-  <SkillsPicker
-    bind:open={skillsPickerOpen}
-    {cli}
-    selected={sessionSkills}
-    title={`Skills for ${sessionLabel}`}
-    on:close={(e) => saveSessionSkills(e.detail)}
-    on:change={(e) => (sessionSkills = e.detail)} />
   <div class="row" style="margin-bottom:10px">
     <div class="grow"><strong>{sessionLabel}</strong> <span class="pill">{cli}</span>{#if model}<span class="pill">{model}</span>{/if} <span class="card-sub mono">{cwd}</span></div>
-    {#if sessionChatId}
-      <button class="btn" on:click={() => (skillsPickerOpen = true)} title="Configure skills for this chat">
-        {sessionSkills.length ? `★ ${sessionSkills.length} skills` : 'Skills…'}
-      </button>
-    {/if}
     {#if exited}<button class="btn primary" on:click={reset}>New session</button>{/if}
     <button class="btn" on:click={detachTerminal} disabled={exited} title="Move this terminal into its own window">Detach</button>
     <button class="btn danger" on:click={reset}>Stop</button>
@@ -750,14 +737,6 @@
 
 
 {#if cfg}
-  <SkillsPicker
-    bind:open={skillsPickerOpen}
-    cli={cfg.cli}
-    selected={cfg.skills || []}
-    title={`Skills for "${cfg.chat.Title || cfg.chat.WorkspacePath}"`}
-    on:change={(e) => (cfg.skills = e.detail)}
-    on:close={(e) => (cfg.skills = e.detail)} />
-
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="picker-backdrop" on:click={() => (cfg = null)}>
     <div class="picker" on:click|stopPropagation role="dialog" style="max-width:640px; max-height:90vh; overflow-y:auto; display:flex; flex-direction:column;">
@@ -810,15 +789,7 @@
             <button class="btn sm" on:click={() => { cfg.localEndpoint = ''; cfg.localModel = ''; cfg = cfg }}>Clear local route</button>
           </div>
         {/if}
-        <label class="lbl" style="margin-top:10px">Skills</label>
-        <div class="row">
-          <button class="btn" on:click={() => (skillsPickerOpen = true)}>
-            {cfg.skills?.length ? `★ ${cfg.skills.length} skill${cfg.skills.length === 1 ? '' : 's'} enabled` : '+ Choose skills…'}
-          </button>
-          {#if cfg.skills?.length}
-            <button class="btn sm" on:click={() => (cfg.skills = [])} title="Clear all skills for this chat">Clear</button>
-          {/if}
-        </div>
+        {#key cfg.chat.ID}<SkillBindingsEditor chatID={cfg.chat.ID} />{/key}
         <label class="lbl" style="margin-top:10px">MCP servers</label>
         {#if mcpServers.length === 0}
           <div class="card-sub">No enabled MCP servers.</div>

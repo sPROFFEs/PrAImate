@@ -9,6 +9,7 @@
   import { activePage, pageRevision, openChatId, pendingTerm, agentStudio, showToast } from '../lib/stores.js'
   import CodeEditor from '../lib/CodeEditor.svelte'
   import WorkflowRunner from '../lib/WorkflowRunner.svelte'
+  import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
   import { LOCAL_ROUTABLE_CLIS, localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
 
   let agents = []
@@ -22,6 +23,9 @@
   let requirementsLogEl = null
   let requirementsTimer = null
   let unsubscribeRequirements = () => {}
+  let agentImportReview = null
+  let agentImportApproved = false
+  let importingAgent = false
 
   function duration(ms) {
     const total = Math.max(0, Math.floor(ms / 1000))
@@ -130,6 +134,7 @@
       capabilities: null,
       preflight: null,
       preflightChecked: false,
+      skillChoices: null,
     }
     if (localOpt === null) {
       api.localLLMModels().then((r) => { localOpt = r }).catch(() => { localOpt = { configured: false } })
@@ -238,6 +243,7 @@
       })
       if (surface === 'chat') {
         const c = await api.startChat(agent.id, cli, folder)
+        if (dlg.skillChoices !== null) await api.saveChatSkillChoicesV2(c.ID, dlg.skillChoices)
         if (sessionName) await api.renameChat(c.ID, sessionName)
         if (local) await api.updateChatConfig(c.ID, cli, '', '', lEnd, lKey, lModel)
         else if (model) await api.updateChatConfig(c.ID, cli, model, '', '', '', '')
@@ -248,15 +254,11 @@
         return
       }
       if (surface === 'terminal') {
-        const termId = await api.startTerminal(agent ? agent.id : '', cli, local ? '' : model, folder, lEnd, lKey, lModel)
-        let chatId = ''
-        try {
-          chatId = await api.recordCodeSession(agent ? agent.id : '', cli, local ? '' : model, folder, lEnd, lKey, lModel)
-          if (chatId) {
-            await api.bindChatToTerminal(termId, chatId)
-            if (sessionName) await api.renameChat(chatId, sessionName)
-          }
-        } catch { /* the live terminal remains usable even if persistence fails */ }
+        const created = await api.startCodeSessionWithSkills(
+          agent ? agent.id : '', cli, local ? '' : model, folder, lEnd, lModel, dlg.skillChoices)
+        const termId = created.termId
+        const chatId = created.chatId
+        if (sessionName && chatId) await api.renameChat(chatId, sessionName)
         dlg = null
         showToast({ title: 'Terminal ready', message: `${agentLabel} is running through ${cli}.`, tone: 'ok' })
         pendingTerm.set({ termId, chatId, cli, cwd: folder, label: sessionName || ((agent ? agent.name : cli) + (local ? ' · local' : '')), note: '' })
@@ -265,7 +267,8 @@
         return
       }
       // studio
-      const createdChatId = await api.openEditorWindow(folder, agent ? agent.id : '', cli, local ? '' : model, '', lEnd, lKey, lModel)
+      const createdChatId = await api.prepareStudioChat(folder, agent ? agent.id : '', cli, local ? '' : model, lEnd, lModel, dlg.skillChoices)
+      await api.openEditorWindow(folder, agent ? agent.id : '', cli, local ? '' : model, createdChatId, lEnd, lKey, lModel)
       if (sessionName && createdChatId) await api.renameChat(createdChatId, sessionName)
       dlg = null
       notice = 'Studio window opened.'
@@ -414,10 +417,36 @@
   }
 
   async function importYAML() {
+	if (importingAgent) return
+	importingAgent = true
+	error = ''
     try {
-      const a = await api.importAgentDialog()
-      if (a) { notice = `Imported ${a.name}`; await load() }
+      const review = await api.reviewAgentImportDialog()
+      if (!review) return
+      if (!review.review_digest) {
+        notice = `Imported ${review.agent.name}`
+        await load()
+        return
+      }
+      agentImportReview = review
+      agentImportApproved = false
     } catch (e) { error = String(e) }
+	finally { importingAgent = false }
+  }
+
+  async function approveAgentImport() {
+    if (!agentImportReview || !agentImportApproved || importingAgent) return
+    importingAgent = true
+    error = ''
+    try {
+      const agent = await api.importReviewedAgentPack(agentImportReview.path, agentImportReview.review_digest)
+      const count = (agentImportReview.skills || []).length
+      notice = `Imported ${agent.name} with ${count} reviewed skill bundle${count === 1 ? '' : 's'}.`
+      agentImportReview = null
+      agentImportApproved = false
+      await load()
+    } catch (e) { error = String(e) }
+    finally { importingAgent = false }
   }
 
   async function exportYAML(a) {
@@ -492,6 +521,7 @@
   </div>
   {#if error}<div class="banner">{error}</div>{/if}
   {#if notice}<div class="card card-sub">{notice}</div>{/if}
+
   <div class="edit-stack">
   <div class="agent-editor">
     <CodeEditor bind:this={editorRef} value={yamlText} lang="yaml" />
@@ -603,13 +633,46 @@
   <div class="row" style="margin-bottom: 4px">
     <h1 class="grow" style="margin:0">Agents</h1>
     <button class="btn" on:click={() => openLaunch(null, 'studio')} title="Open the document studio without an agent persona">Open studio…</button>
-    <button class="btn" on:click={importYAML}>Import…</button>
+    <button class="btn" disabled={importingAgent} on:click={importYAML}>{importingAgent ? 'Importing…' : 'Import…'}</button>
     <button class="btn primary" on:click={() => agentStudio.set({ id: '' })}>+ New agent</button>
   </div>
   <p class="subtitle">Portable YAML agents. Launch them in a Chat, a live Terminal, or the document Studio — each agent declares which surfaces it allows.</p>
 
   {#if error}<div class="banner">{error}</div>{/if}
   {#if notice}<div class="card card-sub">{notice}</div>{/if}
+
+  {#if agentImportReview}
+    <div class="modal-backdrop" style="z-index:12000" on:click|self={() => !importingAgent && (agentImportReview = null)}>
+      <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="agent-import-title" style="max-width:680px">
+        <h2 id="agent-import-title">Review agent package</h2>
+        <p><strong>{agentImportReview.agent.name}</strong> · <span class="mono">{agentImportReview.agent.id}</span></p>
+        <p class="card-sub">Import installs the agent, knowledge and requirements, then approves only the immutable skill versions listed here. It does not execute scripts or grant tools.</p>
+        <div style="max-height:46vh;overflow:auto">
+          {#if !(agentImportReview.skills || []).length}<p class="card-sub">No skills are bundled.</p>{/if}
+          {#each agentImportReview.skills || [] as skill}
+            <div class="card">
+              <strong>{skill.ref}</strong><br><code>{skill.digest}</code>
+              {#each skill.files || [] as file}
+                <details>
+                  <summary>{file.path} · {file.bytes} bytes{file.executable ? ' · executable intent (not permission)' : ''}</summary>
+                  <code>{file.sha256}</code>
+                  {#if file.binary}<p class="card-sub">Binary resource preserved by digest; it is never executed by import.</p>{:else}<pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto">{file.text}</pre>{/if}
+                </details>
+              {/each}
+            </div>
+          {/each}
+        </div>
+        <label class="row" style="align-items:flex-start;margin:14px 0">
+          <input type="checkbox" bind:checked={agentImportApproved} />
+          <span>I reviewed this exact package and approve its listed skill digests for automatic use by this agent.</span>
+        </label>
+        <div class="row" style="justify-content:flex-end">
+          <button class="btn" disabled={importingAgent} on:click={() => (agentImportReview = null)}>Cancel</button>
+          <button class="btn primary" disabled={importingAgent || !agentImportApproved} on:click={approveAgentImport}>Import agent and skills</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   {#if dlg}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -665,6 +728,7 @@
           <button class="btn" on:click={dlgPickFolder}>Browse…</button>
         </div>
       {/if}
+      <SkillChoiceDraft bind:choices={dlg.skillChoices} />
       <div class="row" style="margin-top:12px">
         <button class="btn primary" on:click={dlgGo} disabled={dlg.busy}>{dlg.busy ? 'Starting…' : 'Launch'}</button>
         <button class="btn" on:click={() => (dlg = null)} disabled={dlg.busy}>Cancel</button>

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"git.jtsec.local/lab/PrAImate/internal/skills"
 	"time"
 )
 
@@ -45,6 +46,12 @@ type Chat struct {
 // Add fields with `omitempty` so older rows round-trip without
 // schema migration.
 type ChatSettings struct {
+	SkillsV2   *skills.SkillConfig      `json:"skills_v2,omitempty"`
+	SkillsLock *skills.SkillVersionLock `json:"skills_lock,omitempty"`
+	// SkillRuntime is the latest controlled-payload receipt for this chat. It
+	// intentionally contains identity/size metadata only, never prompt bodies,
+	// resources, commands, private paths, or model reasoning.
+	SkillRuntime *SkillRuntimeState `json:"skill_runtime,omitempty"`
 	// Model, if set, pins the CLI's model for every turn of this chat
 	// (claude/openclaude --model, codex -m, opencode/praimate-code
 	// --model provider/model, gemini -m). Empty means the CLI's own
@@ -91,6 +98,25 @@ type ChatSettings struct {
 	// resolved at launch for OpenClaude, OpenCode, and PrAImate Code.
 	// Claude Code and Codex local routing are deliberately unsupported.
 	Local *ChatLocalEndpoint `json:"local,omitempty"`
+}
+
+type SkillRuntimeDelivery struct {
+	Ref    string                `json:"ref,omitempty"`
+	Digest string                `json:"digest,omitempty"`
+	Kind   skills.SkillBlockKind `json:"kind,omitempty"`
+	Tokens int                   `json:"tokens,omitempty"`
+	Bytes  int                   `json:"bytes,omitempty"`
+}
+type SkillRuntimeState struct {
+	Diagnostics  []skills.SkillDiagnostic  `json:"diagnostics,omitempty"`
+	Status       string                    `json:"status,omitempty"` // prepared | delivered | failed
+	Coverage     skills.ContextCoverage    `json:"coverage,omitempty"`
+	Measurement  skills.ContextMeasurement `json:"measurement,omitempty"`
+	ContextEpoch int                       `json:"context_epoch,omitempty"`
+	Delivered    []SkillRuntimeDelivery    `json:"delivered,omitempty"`
+	SkillsTokens int                       `json:"skills_tokens,omitempty"`
+	TotalTokens  int                       `json:"total_tokens,omitempty"`
+	ErrorCode    string                    `json:"error_code,omitempty"`
 }
 
 // ChatLocalEndpoint is a per-chat local-LLM route.
@@ -146,6 +172,12 @@ func (c *Core) CreateChat(ctx context.Context, req CreateChatRequest) (*Chat, er
 	id := req.ID
 	if id == "" {
 		id = chatID(now, req.Title)
+	}
+	if err := c.snapshotChatSkills(ctx, &req); err != nil {
+		return nil, err
+	}
+	if err := c.retainSkillSelections(ctx, "chat:"+id, []skills.SkillScope{chatSkillScope(req.Settings)}); err != nil {
+		return nil, err
 	}
 	settings, err := json.Marshal(req.Settings)
 	if err != nil {

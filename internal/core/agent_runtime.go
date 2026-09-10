@@ -62,9 +62,10 @@ type AgentRuntimePermissions struct {
 }
 
 type AgentRuntimeLimits struct {
-	MaxTurns        int `json:"max_turns,omitempty"`
-	MaxContextChars int `json:"max_context_chars,omitempty"`
-	MaxOutputChars  int `json:"max_output_chars,omitempty"`
+	MaxTotalInputBytes int64 `json:"max_total_input_bytes,omitempty"`
+	MaxTurns           int   `json:"max_turns,omitempty"`
+	MaxContextChars    int   `json:"max_context_chars,omitempty"`
+	MaxOutputChars     int   `json:"max_output_chars,omitempty"`
 }
 
 type AgentRuntimeManifest struct {
@@ -188,6 +189,9 @@ func (m *AgentRuntimeManifest) Validate() error {
 	}
 	if m.Mode == RuntimeAgentic && len(requiredAgenticFeatures(m.Features)) == 0 {
 		return errors.New("agentic runtime must request at least one managed feature")
+	}
+	if m.Limits.MaxTotalInputBytes < 0 {
+		return errors.New("runtime max_total_input_bytes must not be negative")
 	}
 	if m.Limits.MaxTurns < 0 || m.Limits.MaxTurns > 100 {
 		return errors.New("runtime max_turns must be between 1 and 100 when set")

@@ -20,7 +20,7 @@ func withSystemContext(systemPrompt, context string) string {
 
 func WorkflowSystemContext(cwd string) string {
 	parts := []string{
-		"Workflow execution policy: apply requested changes directly. Do not ask the user for permission or approval before editing files, running commands, or completing workflow steps.",
+		"Workflow execution context: respect the agent, workflow and configured tool-approval policy. Do not infer permission to edit files, run commands, publish changes or contact external services.",
 	}
 	cwd = strings.TrimSpace(cwd)
 	if cwd != "" && cwd != "." {

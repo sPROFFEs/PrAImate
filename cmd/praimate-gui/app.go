@@ -282,13 +282,15 @@ func (a *App) PickProjectFolder() (string, error) {
 	})
 }
 
-// StartTerminal launches a third-party CLI live in a PTY for an agent.
-// The agent's preferred CLI is used unless `cli` overrides it, run in
-// `cwd`. The agent's instructions are exported into the folder's native
-// context file (CLAUDE.md / AGENTS.md) so the CLI adopts the persona,
-// without us reimplementing its loop. Returns the terminal session id;
-// output streams over "term:data:<id>" events.
+// StartTerminal launches a third-party CLI live in a PTY for an agent. The
+// existing project instructions are never overwritten. Persona and controlled
+// pinned-skill context is temporary and exclusive. Returns the
+// terminal session id; output streams over "term:data:<id>" events.
 func (a *App) StartTerminal(agentID, cli, model, cwd, localEndpoint, _ string, localModel string, resume bool, skills []string) (string, error) {
+	return a.startTerminal(agentID, cli, model, cwd, localEndpoint, localModel, resume, skills, nil)
+}
+
+func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel string, resume bool, skills []string, skillSettings *core.ChatSettings) (string, error) {
 	c, err := a.requireCore()
 	if err != nil {
 		return "", err
@@ -329,20 +331,70 @@ func (a *App) StartTerminal(agentID, cli, model, cwd, localEndpoint, _ string, l
 		// normal launch rather than opening an interactive picker unexpectedly.
 		_ = supported
 	}
+	// Interactive CLIs do not expose their final prompt. PrAImate therefore
+	// uses an explicit compatible fallback: the exact reviewed pinned bodies go
+	// into the CLI's temporary project context and resources into a private,
+	// per-launch root. This never claims observable native activation.
+	prefix := core.ResolveSkillsPrefix(skills)
+	var nativePrefix string
+	var nativeSkills *core.NativeSkillMaterialization
+	var configured bool
+	if skillSettings != nil {
+		nativePrefix, nativeSkills, configured, err = c.PrepareTerminalSkillFallbackForSettings(a.ctx, *skillSettings)
+	} else {
+		nativePrefix, nativeSkills, configured, err = c.PrepareTerminalSkillFallback(a.ctx, agent)
+	}
+	if err != nil {
+		return "", err
+	}
+	if configured {
+		if len(skills) > 0 {
+			_ = nativeSkills.Cleanup()
+			return "", fmt.Errorf("legacy and versioned skill selections cannot be combined")
+		}
+		prefix = nativePrefix
+	}
+	legacyCleanup, err := prepareLegacyTerminalContext(cwd, cli, agent, prefix)
+	if err != nil {
+		if nativeSkills != nil {
+			_ = nativeSkills.Cleanup()
+		}
+		return "", err
+	}
+	started := false
+	defer func() {
+		if !started {
+			if legacyCleanup != nil {
+				legacyCleanup()
+			}
+			if nativeSkills != nil {
+				_ = nativeSkills.Cleanup()
+			}
+		}
+	}()
 	// Validate the concrete terminal command before PrepareExecution writes
 	// project-scoped MCP or provider configuration.
 	if err := c.PrepareExecution(a.ctx, effective); err != nil {
 		return "", err
 	}
 	env := appendEnvMap(nil, effective.Env)
-	var skillsPrefix string
-	if len(skills) > 0 {
-		skillsPrefix = core.ResolveSkillsPrefix(skills)
+	if nativeSkills != nil {
+		env = appendEnvMap(env, nativeSkills.Env)
 	}
-	if agent != nil || skillsPrefix != "" {
-		_ = exportAgentContext(cwd, cli, agent, skillsPrefix)
+	cleanup := func() {
+		if legacyCleanup != nil {
+			legacyCleanup()
+		}
+		if nativeSkills != nil {
+			_ = nativeSkills.Cleanup()
+		}
 	}
-	return a.terms.start(name, args, cwd, env, a.emitTerminalEvent)
+	termID, err := a.terms.startWithCleanup(name, args, cwd, env, a.emitTerminalEvent, cleanup)
+	if err != nil {
+		cleanup()
+	}
+	started = err == nil
+	return termID, err
 }
 
 // WriteTerminal forwards a base64-encoded chunk of keystrokes to the
@@ -496,7 +548,6 @@ func (a *App) StartChat(agentID, cli, cwd string) (*core.Chat, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.applyDefaultSkills(chat.ID)
 	return redactChatCredential(chat), nil
 }
 
@@ -709,7 +760,6 @@ func (a *App) StartCleanChat(cli, model, cwd string) (*core.Chat, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.applyDefaultSkills(chat.ID)
 	return redactChatCredential(chat), nil
 }
 
@@ -866,6 +916,41 @@ func (a *App) ImportAgentDialog() (*core.Agent, error) {
 		return nil, err
 	}
 	return c.ImportAgentAuto(a.ctx, path)
+}
+
+// ReviewAgentImportDialog returns an immutable pack inventory for one explicit
+// host review. Bare YAML remains a compatibility import and carries no bundled
+// code or trust decision.
+func (a *App) ReviewAgentImportDialog() (*core.AgentPackReview, error) {
+	c, err := a.requireCore()
+	if err != nil {
+		return nil, err
+	}
+	path, err := wruntime.OpenFileDialog(a.ctx, wruntime.OpenDialogOptions{
+		Title:   "Import agent",
+		Filters: []wruntime.FileFilter{{DisplayName: "Agents", Pattern: "*.yaml;*.yml;*" + core.AgentPackExt + ";*.zip"}},
+	})
+	if err != nil || path == "" {
+		return nil, err
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case core.AgentPackExt, ".zip":
+		return c.InspectAgentPack(a.ctx, path)
+	default:
+		agent, err := c.ImportAgent(a.ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		return &core.AgentPackReview{Agent: agent}, nil
+	}
+}
+
+func (a *App) ImportReviewedAgentPack(path, reviewDigest string) (*core.Agent, error) {
+	c, err := a.requireCore()
+	if err != nil {
+		return nil, err
+	}
+	return c.ImportReviewedAgentPack(a.ctx, path, reviewDigest)
 }
 
 // dirExists reports whether path is an existing directory.

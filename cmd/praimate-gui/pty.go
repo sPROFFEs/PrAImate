@@ -35,6 +35,7 @@ type termSession struct {
 	name         string
 	pty          pty.Pty
 	cmd          *pty.Cmd
+	cleanup      func()
 	once         sync.Once
 	history      []byte
 	historyStart int64
@@ -194,6 +195,13 @@ func (tm *termManager) snapshot(id string) (TerminalSnapshot, error) {
 // inherited environment. emit fans PTY output into the main Wails window and
 // any detached renderer until the child exits.
 func (tm *termManager) start(name string, args []string, cwd string, env []string, emit func(string, any)) (string, error) {
+	return tm.startWithCleanup(name, args, cwd, env, emit, nil)
+}
+
+// startWithCleanup owns a per-session resource alongside the PTY. Cleanup runs
+// exactly once after either normal exit or an explicit Stop; it is never used
+// for project/global configuration.
+func (tm *termManager) startWithCleanup(name string, args []string, cwd string, env []string, emit func(string, any), cleanup func()) (string, error) {
 	if cwd == "" {
 		if home, err := os.UserHomeDir(); err == nil {
 			cwd = home
@@ -243,7 +251,7 @@ func (tm *termManager) start(name string, args []string, cwd string, env []strin
 	tm.mu.Lock()
 	tm.seq++
 	id := fmt.Sprintf("term-%d", tm.seq)
-	tm.sessions[id] = &termSession{id: id, pty: p, cmd: c, cwd: cwd, name: name}
+	tm.sessions[id] = &termSession{id: id, pty: p, cmd: c, cwd: cwd, name: name, cleanup: cleanup}
 	tm.mu.Unlock()
 
 	go func() {
@@ -393,6 +401,9 @@ func (tm *termManager) close(id string) {
 		}
 		if s.pty != nil {
 			_ = s.pty.Close()
+		}
+		if s.cleanup != nil {
+			s.cleanup()
 		}
 	})
 }

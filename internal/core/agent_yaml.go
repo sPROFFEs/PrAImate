@@ -1,11 +1,14 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"git.jtsec.local/lab/PrAImate/internal/agentic"
+	"git.jtsec.local/lab/PrAImate/internal/skills"
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,32 +16,38 @@ import (
 // Bumped only on breaking format changes; minor additions are made
 // backward-compatibly with omitempty.
 const AgentSchema = "praimate.agent/v1"
+const AgentSchemaV2 = "praimate.agent/v2"
 
 // agentYAML is the on-disk shape; it mirrors Agent but with snake_case
 // keys and a leading schema field so future format versions can be
 // detected before unmarshalling.
 type agentYAML struct {
-	Schema          string             `yaml:"schema"`
-	ID              string             `yaml:"id"`
-	Name            string             `yaml:"name"`
-	Description     string             `yaml:"description,omitempty"`
-	Icon            string             `yaml:"icon,omitempty"`
-	Instructions    string             `yaml:"instructions"`
-	Supports        []string           `yaml:"supports"`
-	Tools           []string           `yaml:"tools,omitempty"`
-	MCPServers      []string           `yaml:"mcp_servers,omitempty"`
-	Workflows       []workflowYAML     `yaml:"workflows,omitempty"`
-	DefaultWorkflow string             `yaml:"default_workflow,omitempty"`
-	Surfaces        []string           `yaml:"surfaces,omitempty"`
-	Knowledge       string             `yaml:"knowledge,omitempty"`
-	Requirements    *AgentRequirements `yaml:"requirements,omitempty"`
+	Skills          *skills.SkillConfig      `yaml:"skills,omitempty"`
+	SkillsLock      *skills.SkillVersionLock `yaml:"skills_lock,omitempty"`
+	Schema          string                   `yaml:"schema"`
+	ID              string                   `yaml:"id"`
+	Name            string                   `yaml:"name"`
+	Description     string                   `yaml:"description,omitempty"`
+	Icon            string                   `yaml:"icon,omitempty"`
+	Instructions    string                   `yaml:"instructions"`
+	Supports        []string                 `yaml:"supports"`
+	Tools           []string                 `yaml:"tools,omitempty"`
+	MCPServers      []string                 `yaml:"mcp_servers,omitempty"`
+	Workflows       []workflowYAML           `yaml:"workflows,omitempty"`
+	DefaultWorkflow string                   `yaml:"default_workflow,omitempty"`
+	Surfaces        []string                 `yaml:"surfaces,omitempty"`
+	Knowledge       string                   `yaml:"knowledge,omitempty"`
+	Requirements    *AgentRequirements       `yaml:"requirements,omitempty"`
 }
 
 type workflowYAML struct {
-	Name        string              `yaml:"name"`
-	Description string              `yaml:"description,omitempty"`
-	Inputs      []workflowInputYAML `yaml:"inputs,omitempty"`
-	Steps       []workflowStepYAML  `yaml:"steps"`
+	FinishEvidence []agentic.EvidenceRequirement `yaml:"finish_evidence,omitempty"`
+	Skills         *skills.SkillConfig           `yaml:"skills,omitempty"`
+	SkillsLock     *skills.SkillVersionLock      `yaml:"skills_lock,omitempty"`
+	Name           string                        `yaml:"name"`
+	Description    string                        `yaml:"description,omitempty"`
+	Inputs         []workflowInputYAML           `yaml:"inputs,omitempty"`
+	Steps          []workflowStepYAML            `yaml:"steps"`
 }
 
 type workflowInputYAML struct {
@@ -60,13 +69,39 @@ type workflowStepYAML struct {
 // it. Returns a fully-populated Agent or a user-facing error explaining
 // the first invalid field.
 func ParseAgentYAML(r io.Reader) (*Agent, error) {
-	body, err := io.ReadAll(r)
+	return ParseAgentYAMLForSchema(r, AgentSchemaV2)
+}
+
+// Explicit reader capability prevents downgrading a v2 definition to v1.
+func ParseAgentYAMLForSchema(r io.Reader, maxSchema string) (*Agent, error) {
+	body, err := io.ReadAll(io.LimitReader(r, (4<<20)+1))
 	if err != nil {
 		return nil, fmt.Errorf("read agent yaml: %w", err)
 	}
 	var raw agentYAML
-	if err := yaml.Unmarshal(body, &raw); err != nil {
+	if len(body) > 4<<20 {
+		return nil, fmt.Errorf("agent YAML exceeds 4 MiB limit")
+	}
+	var sentinel struct {
+		Schema string `yaml:"schema"`
+	}
+	if err := yaml.Unmarshal(body, &sentinel); err != nil {
+		return nil, err
+	}
+	if maxSchema != AgentSchema && maxSchema != AgentSchemaV2 {
+		return nil, fmt.Errorf("unsupported reader schema")
+	}
+	if maxSchema == AgentSchema && sentinel.Schema != AgentSchema {
+		return nil, fmt.Errorf("unsupported schema for v1 reader")
+	}
+	d := yaml.NewDecoder(bytes.NewReader(body))
+	d.KnownFields(sentinel.Schema == AgentSchemaV2)
+	if err := d.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("parse agent yaml: %w", err)
+	}
+	var extra yaml.Node
+	if err := d.Decode(&extra); err != io.EOF {
+		return nil, fmt.Errorf("agent requires exactly one YAML document")
 	}
 	return raw.toAgent()
 }
@@ -109,8 +144,16 @@ func MarshalAgentYAML(a *Agent) ([]byte, error) {
 		Knowledge:       a.Knowledge,
 		Requirements:    a.Requirements,
 	}
+	if a.Schema == AgentSchemaV2 {
+		out.Schema = AgentSchemaV2
+	}
+	out.Skills = a.Skills
+	out.SkillsLock = a.SkillsLock
 	for _, w := range a.Workflows {
 		wy := workflowYAML{Name: w.Name, Description: w.Description}
+		wy.FinishEvidence = w.FinishEvidence
+		wy.Skills = w.Skills
+		wy.SkillsLock = w.SkillsLock
 		for _, in := range w.Inputs {
 			wy.Inputs = append(wy.Inputs, workflowInputYAML{
 				Name: in.Name, Prompt: in.Prompt, Type: in.Type,
@@ -131,7 +174,7 @@ func (raw *agentYAML) toAgent() (*Agent, error) {
 	if raw.Schema == "" {
 		return nil, fmt.Errorf("missing schema field; expected %q", AgentSchema)
 	}
-	if raw.Schema != AgentSchema {
+	if raw.Schema != AgentSchema && raw.Schema != AgentSchemaV2 {
 		return nil, fmt.Errorf("unsupported schema %q; this binary speaks %q", raw.Schema, AgentSchema)
 	}
 	a := &Agent{
@@ -147,6 +190,11 @@ func (raw *agentYAML) toAgent() (*Agent, error) {
 		Knowledge:       raw.Knowledge,
 		Requirements:    raw.Requirements,
 	}
+	if raw.Schema == AgentSchemaV2 {
+		a.Schema = raw.Schema
+	}
+	a.Skills = raw.Skills
+	a.SkillsLock = raw.SkillsLock
 
 	// Standardize MCP Server IDs (snake_case, kebab-case, mixed-case -> kebab-case slug)
 	// so that user-written agent YAML resolves reliably to the correct backend IDs.
@@ -158,6 +206,9 @@ func (raw *agentYAML) toAgent() (*Agent, error) {
 	}
 	for _, wy := range raw.Workflows {
 		w := Workflow{Name: wy.Name, Description: wy.Description}
+		w.Skills = wy.Skills
+		w.SkillsLock = wy.SkillsLock
+		w.FinishEvidence = wy.FinishEvidence
 		for _, in := range wy.Inputs {
 			w.Inputs = append(w.Inputs, WorkflowInput{
 				Name: in.Name, Prompt: in.Prompt, Type: in.Type,
@@ -181,6 +232,18 @@ func (raw *agentYAML) toAgent() (*Agent, error) {
 // is one this binary understands. Returns the FIRST problem found so
 // users iterate one fix at a time rather than getting a paragraph.
 func (a *Agent) Validate() error {
+	if a.Schema == AgentSchemaV2 && (len(a.ID) > 128 || sanitizeAgentID(a.ID) != a.ID || a.ID == "") {
+		return fmt.Errorf("v2 agent id must be a portable lowercase slug")
+	}
+	if a.Schema != "" && a.Schema != AgentSchema && a.Schema != AgentSchemaV2 {
+		return fmt.Errorf("unsupported agent schema")
+	}
+	if a.Schema != AgentSchemaV2 && (a.Skills != nil || a.SkillsLock != nil) {
+		return fmt.Errorf("skills require agent/v2; v1 cannot silently discard them")
+	}
+	if _, err := skills.SelectionScope(a.Skills, a.SkillsLock); err != nil {
+		return err
+	}
 	if a.ID == "" {
 		return fmt.Errorf("agent: id is required")
 	}
@@ -201,6 +264,15 @@ func (a *Agent) Validate() error {
 	seenWorkflow := map[string]bool{}
 	for i := range a.Workflows {
 		w := &a.Workflows[i]
+		if err := agentic.ValidateEvidenceRequirements(w.FinishEvidence); err != nil {
+			return fmt.Errorf("workflow %s: %w", w.Name, err)
+		}
+		if a.Schema != AgentSchemaV2 && (w.Skills != nil || w.SkillsLock != nil || len(w.FinishEvidence) > 0) {
+			return fmt.Errorf("workflow skills require agent/v2")
+		}
+		if _, err := skills.SelectionScope(w.Skills, w.SkillsLock); err != nil {
+			return err
+		}
 		if w.Name == "" {
 			return fmt.Errorf("agent %q: workflow #%d missing name", a.ID, i+1)
 		}

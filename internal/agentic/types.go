@@ -40,6 +40,13 @@ type EventSink func(Event)
 type ModelInput struct {
 	SystemPrompt string
 	Message      string
+	SkillBytes   int
+}
+
+// InputPreparer runs before durable accounting, so wrappers and skill bodies
+// are included. It must not invoke the model or execute task tools.
+type InputPreparer interface {
+	PrepareInput(context.Context, ModelInput) (ModelInput, error)
 }
 
 type ModelOutput struct {
@@ -61,13 +68,17 @@ type ToolExecutor interface {
 }
 
 type Limits struct {
-	MaxTurns        int `json:"maxTurns"`
-	MaxContextChars int `json:"maxContextChars"`
-	MaxOutputChars  int `json:"maxOutputChars"`
-	MaxArtifactSize int `json:"maxArtifactSize"`
+	MaxTotalInputBytes int64 `json:"maxTotalInputBytes,omitempty"`
+	MaxTurns           int   `json:"maxTurns"`
+	MaxContextChars    int   `json:"maxContextChars"`
+	MaxOutputChars     int   `json:"maxOutputChars"`
+	MaxArtifactSize    int   `json:"maxArtifactSize"`
 }
 
 func (l Limits) withDefaults() Limits {
+	if l.MaxTotalInputBytes == 0 {
+		l.MaxTotalInputBytes = 8 << 20
+	}
 	if l.MaxTurns == 0 {
 		l.MaxTurns = 12
 	}
@@ -84,33 +95,40 @@ func (l Limits) withDefaults() Limits {
 }
 
 type Config struct {
-	RootDir      string
-	AgentID      string
-	AgentName    string
-	Instructions string
-	Task         string
-	Limits       Limits
-	Model        Model
-	Tools        ToolExecutor
-	OnEvent      EventSink
-	RunID        string
-	ResumeRunID  string
+	ReserveInput   func(context.Context, int64, int64, int64) error
+	FinishEvidence []EvidenceRequirement
+	RootDir        string
+	AgentID        string
+	AgentName      string
+	Instructions   string
+	Task           string
+	Limits         Limits
+	Model          Model
+	Tools          ToolExecutor
+	OnEvent        EventSink
+	RunID          string
+	ResumeRunID    string
 }
 
 type Instance struct {
-	ID          string     `json:"id"`
-	AgentID     string     `json:"agentId"`
-	AgentName   string     `json:"agentName"`
-	State       State      `json:"state"`
-	Turns       int        `json:"turns"`
-	SessionID   string     `json:"sessionId,omitempty"`
-	StartedAt   time.Time  `json:"startedAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
-	CompletedAt *time.Time `json:"completedAt,omitempty"`
-	Error       string     `json:"error,omitempty"`
-	Final       string     `json:"final,omitempty"`
-	Artifacts   []Artifact `json:"artifacts,omitempty"`
-	PendingTool string     `json:"pendingTool,omitempty"`
+	FinishEvidence   []EvidenceRequirement `json:"finishEvidence,omitempty"`
+	EvidenceVerified bool                  `json:"evidenceVerified,omitempty"`
+	InputBytes       int64                 `json:"inputBytes,omitempty"`
+	SkillBytes       int64                 `json:"skillBytes,omitempty"`
+	InputLimitBytes  int64                 `json:"inputLimitBytes,omitempty"`
+	ID               string                `json:"id"`
+	AgentID          string                `json:"agentId"`
+	AgentName        string                `json:"agentName"`
+	State            State                 `json:"state"`
+	Turns            int                   `json:"turns"`
+	SessionID        string                `json:"sessionId,omitempty"`
+	StartedAt        time.Time             `json:"startedAt"`
+	UpdatedAt        time.Time             `json:"updatedAt"`
+	CompletedAt      *time.Time            `json:"completedAt,omitempty"`
+	Error            string                `json:"error,omitempty"`
+	Final            string                `json:"final,omitempty"`
+	Artifacts        []Artifact            `json:"artifacts,omitempty"`
+	PendingTool      string                `json:"pendingTool,omitempty"`
 }
 
 type Result struct {

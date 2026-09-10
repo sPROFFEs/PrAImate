@@ -21,6 +21,15 @@
 
   let error = ''
   let notice = ''
+  let skillsPreview = ''
+  let skillsPreviewBusy = false
+  async function previewSkills() {
+    skillsPreviewBusy = true
+    skillsPreview = ''
+    try { skillsPreview = JSON.stringify(await api.previewAgentSkillsV2(tabs.find(t => t.key === DEF)?.content || ''), null, 2) }
+    catch (e) { skillsPreview = String(e) }
+    finally { skillsPreviewBusy = false }
+  }
 
   function dismissError() {
     error = ''
@@ -835,6 +844,10 @@
         <button class="xbtn" aria-label="Close run details" on:click={closeRunInspector}>×</button>
       </div></div>
       <div class="run-summary"><span class="run-state {selectedRun.state}">{selectedRun.state}</span><span>{selectedRun.turns} turn(s)</span><span>{new Date(selectedRun.startedAt).toLocaleString()}</span></div>
+      {#if selectedRun.inputLimitBytes}
+        <p>Controlled input: {selectedRun.inputBytes || 0} / {selectedRun.inputLimitBytes} bytes across attempts; skill content: {selectedRun.skillBytes || 0} bytes. These are not provider tokens, cost, or private CLI context.</p>
+      {/if}
+      {#if selectedRun.evidenceVerified}<p>Required artifact presence, size and configured hashes verified. This is not a code-quality verdict.</p>{/if}
       {#each approvals.filter((ap) => ap.chatId === selectedRun.id) as ap (ap.id)}
         <div class="approval"><div>⚠ Managed tool approval: <strong>{ap.tool}</strong></div>
           {#if ap.detail}<div class="mono approval-detail">{ap.detail}</div>{/if}
@@ -1126,6 +1139,7 @@
       <button class="xbtn" title="Close other tabs" on:click={closeOtherTabs} disabled={tabs.length < 2}>↹</button>
       <button class="xbtn" title="Close all tabs" on:click={closeAllTabs} disabled={tabs.length < 2}>✕</button>
       <button class="btn primary" on:click={saveActive}>{activeTab?.isDef ? 'Save agent' : activeTab?.isRuntime ? 'Save runtime' : 'Save file'}</button>
+      <button class="btn" disabled={skillsPreviewBusy} on:click={previewSkills}>Preview skills</button>
     </div>
     {#if error}
       <div class="banner error-banner" role="alert">
@@ -1134,6 +1148,11 @@
       </div>
     {/if}
     {#if notice}<div class="note">{notice}</div>{/if}
+    {#if skillsPreview}
+      <details open><summary>Skill resolution — not runtime loading</summary>
+        <pre role="status" style="max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere">{skillsPreview}</pre>
+      </details>
+    {/if}
     <div class="editor-stack">
       {#each tabs as t (t.key)}
         <div class="editor-host" style:display={t.key === active ? 'flex' : 'none'}>

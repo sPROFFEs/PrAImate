@@ -1,5 +1,10 @@
 package core
 
+import (
+	"git.jtsec.local/lab/PrAImate/internal/agentic"
+	"git.jtsec.local/lab/PrAImate/internal/skills"
+)
+
 // Agent is the canonical in-memory representation of a PrAImate agent.
 // It is what the TUI/GUI receive from Core and what `praimate agent
 // import/export` round-trips against the YAML wire format defined in
@@ -9,16 +14,19 @@ package core
 // by side is readable. Empty-but-non-nil slices intentionally encode as
 // `[]` in YAML so users see they can be edited.
 type Agent struct {
-	ID              string     `json:"id"`
-	Name            string     `json:"name"`
-	Description     string     `json:"description"`
-	Icon            string     `json:"icon,omitempty"`
-	Instructions    string     `json:"instructions"`
-	Supports        []string   `json:"supports"`
-	Tools           []string   `json:"tools"`
-	MCPServers      []string   `json:"mcp_servers"`
-	Workflows       []Workflow `json:"workflows"`
-	DefaultWorkflow string     `json:"default_workflow,omitempty"`
+	Schema          string                   `json:"schema,omitempty"`
+	Skills          *skills.SkillConfig      `json:"skills,omitempty"`
+	SkillsLock      *skills.SkillVersionLock `json:"skills_lock,omitempty"`
+	ID              string                   `json:"id"`
+	Name            string                   `json:"name"`
+	Description     string                   `json:"description"`
+	Icon            string                   `json:"icon,omitempty"`
+	Instructions    string                   `json:"instructions"`
+	Supports        []string                 `json:"supports"`
+	Tools           []string                 `json:"tools"`
+	MCPServers      []string                 `json:"mcp_servers"`
+	Workflows       []Workflow               `json:"workflows"`
+	DefaultWorkflow string                   `json:"default_workflow,omitempty"`
 
 	// Surfaces gates where the agent can be launched from in the GUI:
 	// "chat" (interpreter chat), "terminal" (live CLI terminal),
@@ -59,10 +67,13 @@ type AgentRequirements struct {
 // Conditional / loop step kinds are explicitly out of scope for 1.0
 // (plan §4); only `user_message` and `wait_for_assistant` are valid.
 type Workflow struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Inputs      []WorkflowInput `json:"inputs"`
-	Steps       []WorkflowStep  `json:"steps"`
+	FinishEvidence []agentic.EvidenceRequirement `json:"finish_evidence,omitempty"`
+	Skills         *skills.SkillConfig           `json:"skills,omitempty"`
+	SkillsLock     *skills.SkillVersionLock      `json:"skills_lock,omitempty"`
+	Name           string                        `json:"name"`
+	Description    string                        `json:"description,omitempty"`
+	Inputs         []WorkflowInput               `json:"inputs"`
+	Steps          []WorkflowStep                `json:"steps"`
 }
 
 // WorkflowInput is one prompt the user fills in before launch. Type is

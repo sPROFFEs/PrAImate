@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"git.jtsec.local/lab/PrAImate/internal/agentic"
 	"strings"
 	"time"
 )
@@ -215,6 +216,15 @@ type workflowRunConfig struct {
 }
 
 func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, plans []workflowRunPlan) *RunResult {
+	// One task identity for all workflow subruns; an external caller may supply
+	// its durable retry identity before entering this sequence.
+	if skillTaskBudgetID(ctx, "") == "" {
+		id, err := agentic.NewRunID()
+		if err != nil {
+			return &RunResult{Outcome: OutcomeAdapterErr, Err: err}
+		}
+		ctx = WithSkillTaskBudget(ctx, "workflow:"+id)
+	}
 	res := &RunResult{Outcome: OutcomeAdapterErr}
 	if err := validateWorkflowRunConfig(cfg); err != nil {
 		res.Err = err
@@ -235,6 +245,10 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 			res.Err = fmt.Errorf("agent %q: nil workflow in run plan", cfg.Agent.ID)
 			return res
 		}
+		if err := c.guardNewBoundSkills(ctx, cfg.Agent, p.Workflow, cfg.ChatSettings); err != nil {
+			res.Err = err
+			return res
+		}
 	}
 
 	if !contains(cfg.Agent.Supports, cfg.CLI) {
@@ -250,6 +264,12 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 	if runtimeConfig.Mode == RuntimeAgentic {
 		return c.runManagedWorkflowSequence(ctx, cfg, plans, res)
 	}
+	for _, plan := range plans {
+		if len(plan.Workflow.FinishEvidence) > 0 {
+			res.Err = fmt.Errorf("workflow %q requires managed artifact verification; native CLI finish is not observable", plan.Workflow.Name)
+			return res
+		}
+	}
 
 	adapter, err := GetCLIAdapter(cfg.CLI)
 	if err != nil {
@@ -261,6 +281,7 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 		return res
 	}
 	effective, err := c.ResolveExecutionConfig(ctx, ExecutionRequest{
+		Workflow: plans[0].Workflow, SkillSettings: &cfg.ChatSettings,
 		Surface: SurfaceWorkflow, Agent: cfg.Agent, CLI: cfg.CLI, Cwd: cfg.Cwd,
 		Model: cfg.Model, Tools: cfg.Tools, ToolsConfigured: true,
 		Local: cfg.ChatSettings.Local,
@@ -304,8 +325,30 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 
 	turnIdx := 0
 	var lastReply *Reply
+	var previousResults strings.Builder
+	previousV2 := false
 	tools := cfg.Tools
-	for _, workflow := range rendered {
+	for workflowIndex, workflow := range rendered {
+		settings, err := c.workflowSkillSettings(ctx, cfg.Agent, plans[workflowIndex].Workflow, cfg.ChatSettings)
+		if err != nil {
+			res.Err = err
+			return res
+		}
+		v2 := settings.SkillsV2 != nil
+		if workflowIndex > 0 && (v2 || previousV2) {
+			lastReply = nil
+		}
+		previousV2 = v2
+		if chatID != "" && v2 {
+			if err := c.UpdateChatSettings(ctx, chatID, func(s *ChatSettings) {
+				s.SkillsV2 = settings.SkillsV2
+				s.SkillsLock = settings.SkillsLock
+				s.Skills = nil
+			}); err != nil {
+				res.Err = err
+				return res
+			}
+		}
 		emitWorkflowEvent(cfg.OnEvent, WorkflowRunEvent{
 			WorkflowName: workflow.Name, Type: "workflow_start", OK: true,
 		})
@@ -330,7 +373,35 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 
 			body := step.Body
 
-			adapterBody, _ := privacy.Redact(body)
+			adapterBody := body
+			if workflowIndex > 0 && lastReply == nil && previousResults.Len() > 0 {
+				adapterBody = "Previous workflow results (task context):\n" + previousResults.String() + "\nCurrent task:\n" + adapterBody
+			}
+			adapterBody, _ = privacy.Redact(adapterBody)
+			skillPayload, skillState, skillErr := c.BuildChatSkillPayload(ctx, settings, systemPrompt+"\n"+adapterBody)
+			if skillErr != nil {
+				res.Err = skillErr
+				c.maybeEndChat(ctx, chatID, res.Outcome)
+				return res
+			}
+			turnSystem := systemPrompt
+			if skillPayload != "" && lastReply == nil {
+				turnSystem = withSystemContext(turnSystem, skillPayload)
+			}
+			if skillPayload != "" && lastReply != nil {
+				adapterBody = skillPayload + "\n\n" + adapterBody
+			}
+			if err := validateControlledSkillRequest(settings, turnSystem, adapterBody); err != nil {
+				res.Err = err
+				c.maybeEndChat(ctx, chatID, res.Outcome)
+				return res
+			}
+			if settings.SkillsV2 != nil {
+				if err := c.reserveSkillTaskInput(ctx, skillTaskBudgetID(ctx, "workflow:"+res.ChatID), int64(len(turnSystem)+len(adapterBody)), int64(len(skillPayload)), 8<<20); err != nil {
+					res.Err = err
+					return res
+				}
+			}
 			c.maybeAddMessage(ctx, chatID, "user", body)
 
 			emitWorkflowEvent(cfg.OnEvent, WorkflowRunEvent{
@@ -339,7 +410,7 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 
 			start := time.Now()
 			reply, runErr := runWorkflowTurn(ctx, adapter, workflow.Name, turnIdx, cfg, tools,
-				systemPrompt, adapterBody, lastReply, cfg.OnEvent)
+				turnSystem, adapterBody, lastReply, cfg.OnEvent)
 			if runErr != nil {
 				res.Outcome = OutcomeAdapterErr
 				res.Err = runErr
@@ -385,6 +456,11 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 				WorkflowName: workflow.Name, TurnIndex: turnIdx, Type: "turn_finish", OK: true,
 			})
 			lastReply = reply
+			previousResults.WriteString(workflow.Name + ":\n" + reply.Text + "\n")
+			if chatID != "" && skillState != nil {
+				skillState.Status = "delivered"
+				_ = c.UpdateChatSettings(ctx, chatID, func(s *ChatSettings) { s.SkillRuntime = skillState })
+			}
 			turnIdx++
 		}
 		emitWorkflowEvent(cfg.OnEvent, WorkflowRunEvent{
@@ -496,6 +572,11 @@ func (c *Core) maybeCreateChat(ctx context.Context, opts RunOptions) string {
 		title = opts.Agent.Name + " · " + opts.WorkflowName
 	}
 	settings := opts.ChatSettings
+	var err error
+	settings, err = freezeBoundSettings(opts.Agent, opts.Agent.FindWorkflow(opts.WorkflowName), settings)
+	if err != nil {
+		return ""
+	}
 	settings.Tools = opts.Tools
 	if settings.Model == "" {
 		settings.Model = opts.Model

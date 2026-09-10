@@ -8,11 +8,12 @@
   // the agent's next turn reads what's on screen.
   import { onMount, onDestroy, tick } from 'svelte'
   import { api, onChatStream, onApproval } from '../lib/api.js'
-  import SkillsPicker from '../lib/SkillsPicker.svelte'
+  import SkillBindingsEditor from '../lib/SkillBindingsEditor.svelte'
   import CodeEditor from '../lib/CodeEditor.svelte'
   import ContextMenu from '../lib/ContextMenu.svelte'
   import { langOf as fileLang } from '../lib/langOf.js'
   import { renderMarkdown } from '../lib/markdown.js'
+  import { showSkillDeliveryToast } from '../lib/stores.js'
 
   export let folder = ''
   export let chatId = ''
@@ -400,17 +401,6 @@
   // --- chat pane ---------------------------------------------------------
 
   let chat = null
-  let editorSkills = []
-  let skillsPickerOpen = false
-  async function refreshEditorSkills() {
-    if (!chatId) return
-    try { editorSkills = (await api.chatSkills(chatId)) || [] } catch {}
-  }
-  async function saveEditorSkills(ids) {
-    editorSkills = ids
-    if (!chatId) return
-    try { await api.setChatSkills(chatId, ids) } catch {}
-  }
   let messages = []
   let draft = ''
   let sending = false
@@ -484,6 +474,11 @@
         await api.sendChatStream(chatId, text + focused, [])
       }
       messages = (await api.chatMessages(chatId)) || messages
+      const refreshed = ((await api.listChats().catch(() => [])) || []).find((item) => item.ID === chatId)
+      if (refreshed) {
+        chat = refreshed
+        showSkillDeliveryToast(refreshed.Settings?.skill_runtime, 'Studio')
+      }
     } catch (e) {
       error = String(e)
       messages = messages.filter((m) => !m._pending)
@@ -614,7 +609,6 @@
         document.title = `PrAImate Studio — ${agentName} — ${folder.split(/[\\/]/).pop()}`
       }
     } catch {}
-    await refreshEditorSkills()
     // Open the first markdown file so the window isn't empty.
     const first = files.find((f) => /\.md$/i.test(f)) || files[0]
     if (first) await open(first)
@@ -771,23 +765,23 @@
   {#if !chatOpen}
     <button class="rail" title="Show agent chat" on:click={() => (chatOpen = true)}>◂<span class="rail-label">Chat</span></button>
   {:else}
-  <SkillsPicker
-    bind:open={skillsPickerOpen}
-    cli={chat?.CLIAgent || 'claude'}
-    selected={editorSkills}
-    title={`Skills for "${chat?.Title || 'editor chat'}"`}
-    on:close={(e) => saveEditorSkills(e.detail)}
-    on:change={(e) => (editorSkills = e.detail)} />
   <aside class="chatpane">
     <div class="chat-head">
       <strong class="grow">{chat?.Title || 'Agent chat'}</strong>
       {#if chat?.AgentID}<span class="pill">Agent: {agentName || chat.AgentID}</span>{/if}
-      <span class="pill">{chat?.CLIAgent || ''}</span>
-      <button class="btn sm" title={editorSkills.length ? `${editorSkills.length} skill${editorSkills.length === 1 ? '' : 's'} enabled` : 'Configure skills'} on:click={() => (skillsPickerOpen = true)}>
-        {editorSkills.length ? `★ ${editorSkills.length}` : '★'}
-      </button>
+        <span class="pill">{chat?.CLIAgent || ''}</span>
+        {#if chat?.Settings?.skill_runtime}
+          <span class="pill" title="Controlled payload evidence; native private context is not inspected">
+            skills: {chat.Settings.skill_runtime.status || 'unknown'} · {chat.Settings.skill_runtime.coverage || 'unknown'}
+          </span>
+        {/if}
       <button class="btn sm" title="Hide chat" on:click={() => (chatOpen = false)}>▸</button>
     </div>
+    {#if chatId}
+      <div style="max-height:35vh;overflow:auto;padding:0 10px">
+        <SkillBindingsEditor chatID={chatId} on:saved={loadChat} />
+      </div>
+    {/if}
     <div class="thread" bind:this={threadEl}>
       {#each messages as m}
         <div class="msg {m.Role === 'user' ? 'user' : 'assistant'}" class:pending={m._pending}>

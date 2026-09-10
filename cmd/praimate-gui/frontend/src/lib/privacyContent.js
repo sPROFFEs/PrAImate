@@ -11,6 +11,10 @@ export const privacyDisclosures = [
     body: 'Prompts, selected files, and tool output go to the CLI and model provider you choose. Built-in redaction catches common secrets but cannot guarantee that every sensitive value is removed.',
   },
   {
+    title: 'Skill delivery receipts are local metadata',
+    body: 'When a skill is delivered, the encrypted chat record retains only its ref, digest, block type, size estimate, context epoch, and delivery state so the interface can show observable evidence. It does not store the skill body again, resource text, prompt, command arguments, private paths, model reasoning, or provider telemetry.',
+  },
+  {
     title: 'Agents can change files',
     body: 'Tool-enabled sessions may read, create, edit, or execute files in the working folder according to the permission level you select. Review the folder and permissions before starting.',
   },

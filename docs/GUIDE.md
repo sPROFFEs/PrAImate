@@ -288,27 +288,33 @@ an import invisibly.
 Import validates a staged copy before replacing live agent data. Graphify
 output may travel with the pack, so an indexed agent can arrive pre-indexed.
 
-Skills are not embedded in agent packs in 1.2.2. Skills remain separate,
-CLI-specific resources selected on Chats.
+Legacy v1 skills remain separate CLI-specific prompt fragments. The opt-in v2
+agent format can embed exact locked versioned bundles and resources in agent
+packs, without exporting host trust or approvals. See
+[skills test/rollback guide](skills-p8.md#testing-this-checkout) before testing
+this unreleased feature.
 
 ## Skills
 
 Skills are reusable prompt/instruction resources. The Skills page can:
 
-- browse built-in and user-added entries;
-- filter by supported CLI;
-- enable or disable a skill;
-- add from a Git/HTTP URL;
-- import a local ZIP;
-- define a skill manually;
-- remove user-added entries;
-- assign skills to existing chats.
+- browse and search built-in, imported and locally authored skills;
+- import a local folder, ZIP archive or pinned GitHub repository;
+- review and approve exact package content;
+- create and publish a skill locally;
+- assign skills and their loading mode to existing sessions.
 
-Skills are CLI-specific. A skill designed for one host may refer to tools or
-loading conventions another CLI does not have.
-
-URL/ZIP extraction rejects path traversal. Downloaded resources are cached so
-reopening the same chat does not needlessly download them again.
+Portable instruction-only skills can be selected across supported PrAImate
+CLIs and surfaces. A skill that names host-specific tools or loading conventions
+still depends on that runtime. Every import route enters the same immutable
+package library; agent packs carry their selected skills and the generic agent
+importer reviews and installs them together. The PrAImate library is separate
+from each CLI's native skill catalogue: a Chat may receive a skill in its
+controlled request payload without that skill appearing in the CLI's own
+`/skills` listing. Skills loaded only by a CLI are not automatically registered
+or approved by PrAImate. Delivery receipts describe controlled payloads, not
+native private context or proof the model followed a procedure. See the
+[acceptance audit](skills-evaluation.md) for the current support boundary.
 
 ## CLI & Tools
 
@@ -462,6 +468,9 @@ PrAImate itself:
 - writes no application diagnostics log;
 - writes no Graphify query log;
 - writes no Code-terminal output log.
+- stores only sanitized versioned-skill delivery receipts in the encrypted chat
+  record (identity, digest, block kind/size, epoch, and state; never skill body,
+  prompt, resource text, paths, command arguments, or reasoning).
 
 The selected CLI/model provider receives prompts and context necessary to
 perform the user's request. Agent instructions can authorize filesystem or

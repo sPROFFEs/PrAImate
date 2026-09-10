@@ -35,6 +35,17 @@ func TestTerminalSnapshotRetainsOutputAndOffsets(t *testing.T) {
 	}
 }
 
+func TestTerminalCloseRunsPerSessionCleanupOnce(t *testing.T) {
+	tm := newTermManager()
+	calls := 0
+	tm.sessions["term-cleanup"] = &termSession{id: "term-cleanup", cleanup: func() { calls++ }}
+	tm.close("term-cleanup")
+	tm.close("term-cleanup")
+	if calls != 1 {
+		t.Fatalf("cleanup calls = %d, want 1", calls)
+	}
+}
+
 func TestTerminalSnapshotKeepsBoundedTail(t *testing.T) {
 	tm := newTermManager()
 	tm.sessions["term-1"] = &termSession{id: "term-1"}

@@ -104,6 +104,10 @@ func (a agentPromptTestAdapter) SingleShot(_ context.Context, opts core.SingleSh
 
 func TestRunAgentPromptProducesStableJSONAndRemovesTemporaryChat(t *testing.T) {
 	root := t.TempDir()
+	// Execution prepares native CLI configuration independently of PRAIMATE_HOME.
+	// Keep the fake adapter test away from the user's real OpenClaude profile.
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
 	t.Setenv("PRAIMATE_HOME", root)
 	st, err := store.InitializeWithPassword(filepath.Join(root, "db.sqlite"), "correct horse battery staple")
 	if err != nil {

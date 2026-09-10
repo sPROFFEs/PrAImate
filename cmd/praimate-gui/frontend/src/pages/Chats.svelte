@@ -1,13 +1,13 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte'
   import { api, onChatStream, onApproval } from '../lib/api.js'
-  import { activePage, pageRevision, openChatId, pendingTerm } from '../lib/stores.js'
-  import SkillsPicker from '../lib/SkillsPicker.svelte'
+  import { activePage, pageRevision, openChatId, pendingTerm, showSkillDeliveryToast } from '../lib/stores.js'
+  import SkillBindingsEditor from '../lib/SkillBindingsEditor.svelte'
+  import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
   import { renderMarkdown } from '../lib/markdown.js'
   import { findTerminalForChat } from '../lib/terminal.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
 
-  let skillsPickerOpen = false
 
   let chats = []
   let agents = []
@@ -79,6 +79,7 @@
   let newLocalModel = ''
   let mcpServers = []
   let newMCPs = []
+  let newSkillChoices = null
 
   // Per-chat settings editor (CLI / model / tools). Works on the open
   // thread and from list rows.
@@ -180,8 +181,6 @@
       localModel: chat.Settings?.local?.model || '',
       suggestions: [],
       modelLoading: true,
-      skills: (chat.Settings?.skills || []).slice(),
-      skillsCatalogue: [],
       mcps: (chat.Settings?.mcp_servers || []).slice(),
     }
     if (clis.length === 0) {
@@ -190,9 +189,6 @@
     api.listCLIModels(chat.CLIAgent)
       .then((r) => { if (cfg && cfg.chat.ID === chat.ID) { cfg.suggestions = r || []; cfg.modelLoading = false; cfg = cfg } })
       .catch(() => { if (cfg && cfg.chat.ID === chat.ID) { cfg.modelLoading = false; cfg = cfg } })
-    api.skillsList()
-      .then((r) => { if (cfg && cfg.chat.ID === chat.ID) { cfg.skillsCatalogue = r || []; cfg = cfg } })
-      .catch(() => {})
     api.mcpServers()
       .then((r) => {
         mcpServers = (r || []).filter((s) => s.enabled)
@@ -226,7 +222,6 @@
       if (cfg.name.trim() && cfg.name.trim() !== cfg.chat.Title) {
         await api.renameChat(cfg.chat.ID, cfg.name.trim())
       }
-      try { await api.setChatSkills(cfg.chat.ID, cfg.skills || []) } catch (e) { /* non-fatal */ }
       await api.setChatMCPServers(cfg.chat.ID, cfg.mcps || [])
       const id = cfg.chat.ID
       cfg = null
@@ -250,6 +245,7 @@
     newUseLocal = false
     newLocalModel = ''
     newMCPs = []
+    newSkillChoices = null
     try {
       clis = (await api.listCLIs()) || []
       const firstAvailable = clis.find((c) => c.available)
@@ -299,6 +295,7 @@
         await api.setChatTools(chat.ID, tools)
       }
       if (newMCPs.length) await api.setChatMCPServers(chat.ID, newMCPs)
+      if (newSkillChoices !== null) await api.saveChatSkillChoicesV2(chat.ID, newSkillChoices)
       creating = false
       await load()
       const c = chats.find((x) => x.ID === chat.ID) || chat
@@ -459,6 +456,13 @@
       }
       // Replace the optimistic copy with the persisted pair.
       if (selected?.ID === chatID) messages = (await api.chatMessages(chatID)) || messages
+      if (selected?.ID === chatID) {
+        const refreshed = ((await api.listChats().catch(() => [])) || []).find((chat) => chat.ID === chatID)
+        if (refreshed) {
+          selected = refreshed
+          showSkillDeliveryToast(refreshed.Settings?.skill_runtime, 'Chat')
+        }
+      }
     } catch (e) {
       error = String(e)
       try {
@@ -598,13 +602,6 @@
 </script>
 
 {#if cfg}
-  <SkillsPicker
-    bind:open={skillsPickerOpen}
-    cli={cfg.cli}
-    selected={cfg.skills || []}
-    title={`Skills for "${cfg.chat.Title}"`}
-    on:change={(e) => (cfg.skills = e.detail)}
-    on:close={(e) => (cfg.skills = e.detail)} />
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="picker-backdrop" on:click={() => (cfg = null)}>
     <div class="picker" on:click|stopPropagation role="dialog" style="max-width:640px; max-height:90vh; overflow-y:auto; display:flex; flex-direction:column;">
@@ -661,16 +658,18 @@
       </div>
     {/if}
 
-    <label class="lbl" style="margin-top:10px">Skills <span class="card-sub" style="font-weight:400">— prepended to the chat's system prompt. Designed per-CLI; mixing across CLIs may produce odd output.</span></label>
-    <div class="row">
-      <button class="btn" on:click={() => (skillsPickerOpen = true)}>
-        {cfg.skills?.length ? `★ ${cfg.skills.length} skill${cfg.skills.length === 1 ? '' : 's'} enabled` : '+ Choose skills…'}
-      </button>
-      {#if cfg.skills?.length}
-        <button class="btn sm" on:click={() => (cfg.skills = [])} title="Clear all skills for this chat">Clear</button>
-      {/if}
-    </div>
-
+    {#key cfg.chat.ID}
+      <SkillBindingsEditor chatID={cfg.chat.ID} on:saved={(e) => { if (e.detail.config) cfg.skills = [] }} />
+    {/key}
+    {#if cfg.chat.Settings?.skill_runtime}
+      {@const runtime = cfg.chat.Settings.skill_runtime}
+      <div class="card-sub" role="status" style="margin-top:8px">
+        Skills: {runtime.status || 'unknown'} · {runtime.coverage || 'unknown'} · epoch {runtime.context_epoch || 0}
+        {#if runtime.delivered?.length} · {runtime.delivered.length} controlled block{runtime.delivered.length === 1 ? '' : 's'}{/if}
+        {#if runtime.status === 'prepared'} — pending delivery{/if}
+        {#if runtime.error_code} — {runtime.error_code}{/if}
+      </div>
+    {/if}
     <label class="lbl" style="margin-top:10px">MCP servers <span class="card-sub" style="font-weight:400">— exposed only to this chat.</span></label>
     {#if mcpServers.length === 0}
       <div class="card-sub">No enabled MCP servers. Connect and enable one on the MCP page first.</div>
@@ -711,6 +710,13 @@
       <span class="pill">{selected.CLIAgent}</span>
       {#if selected.Settings?.model}<span class="pill">{selected.Settings.model}</span>{/if}
       {#if selected.ExitKind}<span class="pill" class:ok={selected.ExitKind === 'completed'}>{selected.ExitKind}</span>{/if}
+      {#if selected.Settings?.skill_runtime}
+        {@const runtime = selected.Settings.skill_runtime}
+        <span class="pill" title="PrAImate payload evidence; this does not prove the model followed the skill">
+          Skills: {runtime.status || 'unknown'}
+          {#if runtime.delivered?.length} · {runtime.delivered.map((skill) => skill.ref).join(', ')}{/if}
+        </span>
+      {/if}
     </div>
     <div class="toolpick" title="How much the CLI agent may do: edit files, run commands">
       <span class="lbl-inline">Tools</span>
@@ -953,6 +959,7 @@
           {/each}
         </div>
       {/if}
+      <SkillChoiceDraft bind:choices={newSkillChoices} />
       <div class="row" style="margin-top:12px">
         <button class="btn primary" on:click={startClean} disabled={starting || !newCli}>
           {starting ? 'Starting…' : 'Start chat'}

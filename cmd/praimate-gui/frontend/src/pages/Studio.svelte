@@ -1,9 +1,10 @@
 <script>
   import { onMount } from 'svelte'
   import { api } from '../lib/api.js'
+  import SkillBindingsEditor from '../lib/SkillBindingsEditor.svelte'
+  import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
   import { activePage, openChatId, pageRevision, showToast } from '../lib/stores.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
-  import SkillsPicker from '../lib/SkillsPicker.svelte'
 
   let chats = []
   let agents = []
@@ -16,7 +17,6 @@
 
   let cfg = null
   let cfgSaving = false
-  let skillsPickerOpen = false
   let mcpServers = []
 
   function normalizeToolsForCli(cli, tools) {
@@ -41,12 +41,10 @@
       localApiKey: chat.Settings?.local?.api_key || '',
       localModel: chat.Settings?.local?.model || '',
       suggestions: [], modelLoading: true,
-      skills: (chat.Settings?.skills || []).slice(), skillsCatalogue: [],
       mcps: (chat.Settings?.mcp_servers || []).slice(),
     }
     if (clis.length === 0) api.listCLIs().then((r) => { clis = r || [] }).catch(() => {})
     if (localOpt === null) api.localLLMModels().then((r) => { localOpt = r }).catch(() => { localOpt = { configured: false } })
-    api.skillsList().then((r) => { if (cfg) cfg.skillsCatalogue = r || [] }).catch(() => {})
     api.listMCPServers().then((r) => { mcpServers = (r || []).filter((s) => s.enabled) }).catch(() => {})
     cfgCliChanged()
   }
@@ -67,7 +65,6 @@
       if (cfg.name.trim() && cfg.name.trim() !== cfg.chat.Title) {
         await api.renameChat(cfg.chat.ID, cfg.name.trim())
       }
-      try { await api.setChatSkills(cfg.chat.ID, cfg.skills || []) } catch (e) {}
       await api.setChatMCPServers(cfg.chat.ID, cfg.mcps || [])
       cfg = null
       await load()
@@ -128,7 +125,7 @@
       form = {
         agentID: '', cli: first?.id || '', model: '', folder: '', useLocal: false,
         name: '',
-        localModel: '', suggestions: [], busy: false, preflight: null, preflightChecked: false,
+        localModel: '', suggestions: [], busy: false, preflight: null, preflightChecked: false, skillChoices: null,
       }
       await cliChanged()
     } catch (e) {
@@ -209,7 +206,8 @@
       const cli = form.cli
       const folder = form.folder
       showToast({ title: 'Opening Studio', message: `Starting ${agentName({ AgentID: form.agentID })} with ${cli} in ${folder}`, tone: 'busy', duration: 0, dismissible: false })
-      const createdChatId = await api.openEditorWindow(folder, form.agentID, cli, model, '', endpoint, '', localModel)
+      const createdChatId = await api.prepareStudioChat(folder, form.agentID, cli, model, endpoint, localModel, form.skillChoices)
+      await api.openEditorWindow(folder, form.agentID, cli, model, createdChatId, endpoint, '', localModel)
       if (form.name && createdChatId) await api.renameChat(createdChatId, form.name)
       form = null
       await load()
@@ -321,6 +319,8 @@
         <button class="btn" on:click={pickFolder}>Browse…</button>
       </div>
 
+      <SkillChoiceDraft bind:choices={form.skillChoices} />
+
       <div class="row actions" style="margin-top:20px">
         <button class="btn" on:click={() => (form = null)} disabled={form.busy}>Cancel</button>
         <button class="btn primary" on:click={launch} disabled={form.busy}>{form.busy ? 'Opening…' : 'Open Studio'}</button>
@@ -351,14 +351,6 @@
 {/if}
 
 {#if cfg}
-  <SkillsPicker
-    bind:open={skillsPickerOpen}
-    cli={cfg.cli}
-    selected={cfg.skills || []}
-    title={`Skills for "${cfg.chat.Title || cfg.chat.WorkspacePath}"`}
-    on:change={(e) => (cfg.skills = e.detail)}
-    on:close={(e) => (cfg.skills = e.detail)} />
-
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <div class="picker-backdrop" on:click={() => (cfg = null)}>
@@ -407,15 +399,7 @@
             <datalist id="cfg-local-models">{#each localOpt.models || [] as m}<option value={m}></option>{/each}</datalist>
           {/if}
         {/if}
-        <label class="lbl" style="margin-top:10px">Skills</label>
-        <div class="row">
-          <button class="btn" on:click={() => (skillsPickerOpen = true)}>
-            {cfg.skills?.length ? `★ ${cfg.skills.length} skill${cfg.skills.length === 1 ? '' : 's'} enabled` : '+ Choose skills…'}
-          </button>
-          {#if cfg.skills?.length}
-            <button class="btn sm" on:click={() => (cfg.skills = [])} title="Clear all skills for this chat">Clear</button>
-          {/if}
-        </div>
+        {#key cfg.chat.ID}<SkillBindingsEditor chatID={cfg.chat.ID} />{/key}
         <label class="lbl" style="margin-top:10px">MCP servers</label>
         {#if mcpServers.length === 0}
           <div class="card-sub">No enabled MCP servers.</div>

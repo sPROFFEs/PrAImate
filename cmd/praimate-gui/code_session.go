@@ -15,6 +15,86 @@ import (
 	"git.jtsec.local/lab/PrAImate/internal/core"
 )
 
+type StartedCodeSession struct {
+	TermID string `json:"termId"`
+	ChatID string `json:"chatId"`
+}
+
+// StartCodeSessionWithSkills freezes the new chat and its optional skill
+// choices before launching the native CLI. A failed launch removes the unused
+// chat row, so the Sessions list is not polluted by half-created terminals.
+func (a *App) StartCodeSessionWithSkills(agentID, cli, model, cwd, localEndpoint, localModel, choices string) (StartedCodeSession, error) {
+	var out StartedCodeSession
+	chatID, err := a.RecordCodeSession(agentID, cli, model, cwd, localEndpoint, "", localModel)
+	if err != nil {
+		return out, err
+	}
+	c, err := a.requireCore()
+	if err != nil {
+		return out, err
+	}
+	fail := func(cause error) (StartedCodeSession, error) {
+		_ = c.DeleteChat(a.ctx, chatID)
+		return StartedCodeSession{}, cause
+	}
+	if choices != "" {
+		if _, err := a.SaveChatSkillChoicesV2(chatID, choices); err != nil {
+			return fail(err)
+		}
+	}
+	chat, err := c.GetChat(a.ctx, chatID)
+	if err != nil {
+		return fail(err)
+	}
+	termID, err := a.startTerminal(agentID, cli, model, cwd, localEndpoint, localModel, false, nil, &chat.Settings)
+	if err != nil {
+		return fail(err)
+	}
+	if err := a.BindChatToTerminal(termID, chatID); err != nil {
+		a.CloseTerminal(termID)
+		return fail(err)
+	}
+	return StartedCodeSession{TermID: termID, ChatID: chatID}, nil
+}
+
+// StartTerminalForChat starts a replacement PTY from the persisted chat truth.
+// In particular, it consumes the chat's frozen, versioned skill selection so
+// edits made in the session settings govern the next native CLI process.
+func (a *App) StartTerminalForChat(chatID string, resume bool) (string, error) {
+	c, err := a.requireCore()
+	if err != nil {
+		return "", err
+	}
+	chat, err := c.GetChat(a.ctx, chatID)
+	if err != nil {
+		return "", err
+	}
+	var endpoint, localModel string
+	if chat.Settings.Local != nil {
+		endpoint = chat.Settings.Local.Endpoint
+		localModel = chat.Settings.Local.Model
+	}
+	termID, err := a.startTerminal(
+		chat.AgentID,
+		chat.CLIAgent,
+		chat.Settings.Model,
+		chat.WorkspacePath,
+		endpoint,
+		localModel,
+		resume,
+		nil,
+		&chat.Settings,
+	)
+	if err != nil {
+		return "", err
+	}
+	if err := a.BindChatToTerminal(termID, chatID); err != nil {
+		a.CloseTerminal(termID)
+		return "", err
+	}
+	return termID, nil
+}
+
 // RecordCodeSession persists a surface="code" chat pointer for a freshly
 // launched terminal session and returns its id. agentID preserves the persona
 // used to launch the PTY so every reopening surface can identify and restore

@@ -63,13 +63,17 @@ type ExecutionPreflight struct {
 // never accepted from the renderer; an empty Local.APIKey is filled from the
 // encrypted store.
 type ExecutionRequest struct {
-	Surface ExecutionSurface
-	Agent   *Agent
-	ChatID  string
-	CLI     string
-	Cwd     string
-	Model   string
-	Tools   string
+	Workflow      *Workflow
+	SkillSettings *ChatSettings
+	// skillSnapshot prevents current defaults from changing a persisted run.
+	skillSnapshot bool
+	Surface       ExecutionSurface
+	Agent         *Agent
+	ChatID        string
+	CLI           string
+	Cwd           string
+	Model         string
+	Tools         string
 	// ToolsConfigured prevents an explicit empty/safe policy from being
 	// replaced by the agent runtime's default tool level.
 	ToolsConfigured bool
@@ -157,6 +161,29 @@ func ValidateLocalRoutingCLI(cli string) error {
 }
 
 func (c *Core) ResolveExecutionConfig(ctx context.Context, req ExecutionRequest) (*EffectiveExecutionConfig, error) {
+	if req.ChatID != "" && c.store != nil {
+		chat, err := c.GetChat(ctx, req.ChatID)
+		if err != nil {
+			return nil, err
+		}
+		if err := c.guardBoundSkills(ctx, nil, nil, chat.Settings); err != nil {
+			return nil, err
+		}
+	} else {
+		state := ChatSettings{}
+		if req.SkillSettings != nil {
+			state = *req.SkillSettings
+		}
+		var err error
+		if req.skillSnapshot {
+			err = c.guardBoundSkills(ctx, nil, nil, state)
+		} else {
+			err = c.guardNewBoundSkills(ctx, req.Agent, req.Workflow, state)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
 	req.CLI = strings.TrimSpace(req.CLI)
 	req.Cwd = strings.TrimSpace(req.Cwd)
 	req.Model = strings.TrimSpace(req.Model)

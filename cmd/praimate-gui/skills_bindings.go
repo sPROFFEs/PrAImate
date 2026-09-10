@@ -166,23 +166,6 @@ func (a *App) ChatSkills(chatID string) []string {
 	return chat.Settings.Skills
 }
 
-// applyDefaultSkills writes the user's "default skills" list into a
-// freshly-created chat's settings. Best-effort — failure to apply
-// defaults never blocks chat creation.
-func (a *App) applyDefaultSkills(chatID string) {
-	ids := a.SkillsDefaults()
-	if len(ids) == 0 {
-		return
-	}
-	c, err := a.requireCore()
-	if err != nil {
-		return
-	}
-	_ = c.UpdateChatSettings(a.ctx, chatID, func(s *core.ChatSettings) {
-		s.Skills = append([]string(nil), ids...)
-	})
-}
-
 // SetChatSkills overwrites the skills list on a chat.
 func (a *App) SetChatSkills(chatID string, ids []string) error {
 	if a.detachedClient != nil {

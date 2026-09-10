@@ -113,11 +113,22 @@ func (c *Core) upsertAgent(ctx context.Context, a *Agent) (*Agent, error) {
 	if err := a.Validate(); err != nil {
 		return nil, err
 	}
+	if err := c.retainSkillSelections(ctx, "agent:"+a.ID, agentSkillScopes(a)); err != nil {
+		return nil, err
+	}
 	tools, _ := json.Marshal(orEmpty(a.Tools))
 	mcps, _ := json.Marshal(orEmpty(a.MCPServers))
 	supports, _ := json.Marshal(orEmpty(a.Supports))
 	surfaces, _ := json.Marshal(orEmpty(a.Surfaces))
 	requirements, _ := json.Marshal(a.Requirements)
+	skillConfig, err := json.Marshal(a.Skills)
+	if err != nil {
+		return nil, err
+	}
+	skillLock, err := json.Marshal(a.SkillsLock)
+	if err != nil {
+		return nil, err
+	}
 	wfs, err := json.Marshal(orEmptyWorkflows(a.Workflows))
 	if err != nil {
 		return nil, fmt.Errorf("marshal workflows: %w", err)
@@ -128,6 +139,7 @@ func (c *Core) upsertAgent(ctx context.Context, a *Agent) (*Agent, error) {
 		a.ID, a.Name, a.Description, nullableText(a.Icon),
 		a.Instructions, string(tools), string(mcps), string(wfs), string(supports),
 		string(surfaces), a.Knowledge, string(requirements), a.DefaultWorkflow, nullableText(a.SourcePath), now, now,
+		a.Schema, string(skillConfig), string(skillLock),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("upsert agent %s: %w", a.ID, err)
@@ -141,6 +153,7 @@ func scanAgent(scan func(...any) error) (*Agent, error) {
 		toolsJSON, mcpsJSON, wfsJSON, supportsJSON, surfacesJSON, requirementsJSON string
 		icon, sourcePath                                                           sql.NullString
 		createdAt, updatedAt                                                       string
+		skillConfigJSON, skillLockJSON                                             string
 	)
 	_ = createdAt
 	_ = updatedAt
@@ -148,6 +161,7 @@ func scanAgent(scan func(...any) error) (*Agent, error) {
 		&a.ID, &a.Name, &a.Description, &icon,
 		&a.Instructions, &toolsJSON, &mcpsJSON, &wfsJSON, &supportsJSON,
 		&surfacesJSON, &a.Knowledge, &requirementsJSON, &a.DefaultWorkflow, &sourcePath, &createdAt, &updatedAt,
+		&a.Schema, &skillConfigJSON, &skillLockJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -178,6 +192,15 @@ func scanAgent(scan func(...any) error) (*Agent, error) {
 			return nil, fmt.Errorf("decode requirements_json: %w", err)
 		}
 	}
+	if err := json.Unmarshal([]byte(skillConfigJSON), &a.Skills); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(skillLockJSON), &a.SkillsLock); err != nil {
+		return nil, err
+	}
+	if err := a.Validate(); err != nil {
+		return nil, err
+	}
 	return &a, nil
 }
 
@@ -205,7 +228,8 @@ func nullableText(s string) any {
 const (
 	agentColumns = `id, name, description, icon, instructions,
 		tools_json, mcp_servers_json, workflows_json, supports_json,
-		surfaces_json, knowledge, requirements_json, default_workflow, source_path, created_at, updated_at`
+		surfaces_json, knowledge, requirements_json, default_workflow, source_path, created_at, updated_at,
+		agent_schema, skill_config_json, skill_lock_json`
 
 	agentSelectAll  = `SELECT ` + agentColumns + ` FROM agents ORDER BY name`
 	agentSelectByID = `SELECT ` + agentColumns + ` FROM agents WHERE id = ?`
@@ -213,8 +237,9 @@ const (
 	agentUpsert = `INSERT INTO agents (
 		id, name, description, icon, instructions,
 		tools_json, mcp_servers_json, workflows_json, supports_json,
-		surfaces_json, knowledge, requirements_json, default_workflow, source_path, created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		surfaces_json, knowledge, requirements_json, default_workflow, source_path, created_at, updated_at,
+		agent_schema, skill_config_json, skill_lock_json
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		name             = excluded.name,
 		description      = excluded.description,
@@ -229,5 +254,8 @@ const (
 		requirements_json = excluded.requirements_json,
 		default_workflow = excluded.default_workflow,
 		source_path      = excluded.source_path,
-		updated_at       = excluded.updated_at`
+		updated_at       = excluded.updated_at,
+		agent_schema = excluded.agent_schema,
+		skill_config_json = excluded.skill_config_json,
+		skill_lock_json = excluded.skill_lock_json`
 )

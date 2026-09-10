@@ -333,6 +333,62 @@ func (a *App) startEditorWatcher() {
 
 // --- launching the studio from the main window -------------------------------
 
+// PrepareStudioChat creates the backing chat and freezes an optional explicit
+// skill selection before any detached Studio process can send a turn.
+func (a *App) PrepareStudioChat(folder, agentID, cli, model, localEndpoint, localModel, choices string) (string, error) {
+	c, err := a.requireCore()
+	if err != nil {
+		return "", err
+	}
+	if folder == "" {
+		return "", errors.New("a folder is required")
+	}
+	var chat *core.Chat
+	if agentID != "" {
+		agent, getErr := c.GetAgent(a.ctx, agentID)
+		if getErr != nil {
+			return "", getErr
+		}
+		if !agent.AllowsSurface("editor") {
+			return "", fmt.Errorf("agent %q is not allowed on the editor surface", agent.Name)
+		}
+		chat, err = c.StartInteractiveChat(a.ctx, agentID, cli, folder)
+	} else {
+		if cli == "" {
+			cli = "claude"
+		}
+		startModel := model
+		if localEndpoint != "" {
+			startModel = ""
+		}
+		chat, err = c.StartCleanChat(a.ctx, cli, startModel, folder)
+	}
+	if err != nil {
+		return "", err
+	}
+	fail := func(cause error) (string, error) {
+		_ = c.DeleteChat(a.ctx, chat.ID)
+		return "", cause
+	}
+	if choices != "" {
+		if _, err := a.SaveChatSkillChoicesV2(chat.ID, choices); err != nil {
+			return fail(err)
+		}
+	}
+	if err := c.UpdateChatSettings(a.ctx, chat.ID, func(s *core.ChatSettings) {
+		s.Tools = "edits"
+		s.Surface = "studio"
+		if localEndpoint != "" {
+			s.Local = &core.ChatLocalEndpoint{Endpoint: localEndpoint, Model: localModel}
+		} else if model != "" {
+			s.Model = model
+		}
+	}); err != nil {
+		return fail(err)
+	}
+	return chat.ID, nil
+}
+
 // OpenEditorWindow creates (or reuses) a chat scoped to folder and
 // spawns the studio window as a second process of this binary. model,
 // when non-empty, pins the chat's model. Returns the chat id backing

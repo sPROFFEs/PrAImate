@@ -625,6 +625,28 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 			return nil, err
 		}
 		return nil, d.app.SetChatSkills(w.sessionID, ids)
+	case "skills.v2.versions", "skills.v2.build", "chat.skills.v2", "chat.skills.v2.preview", "chat.skills.v2.set":
+		if w.kind != "chat" && w.kind != "studio" {
+			return nil, errors.New("operation is outside this window's scope")
+		}
+		if req.Method == "skills.v2.versions" {
+			return d.app.InstalledSkillVersionsV2()
+		}
+		if req.Method == "chat.skills.v2" {
+			return d.app.ChatSkillsV2(w.sessionID)
+		}
+		var body string
+		if err := decodeRPCBody(req.Body, &body); err != nil {
+			return nil, err
+		}
+		switch req.Method {
+		case "skills.v2.build":
+			return d.app.BuildInstalledSkillSelectionV2(body)
+		case "chat.skills.v2.preview":
+			return d.app.PreviewChatSkillsV2(w.sessionID, body)
+		default:
+			return nil, d.app.SetChatSkillsV2(w.sessionID, body)
+		}
 	case "chat.send":
 		if w.kind != "chat" && w.kind != "studio" {
 			return nil, errors.New("operation is outside this window's scope")

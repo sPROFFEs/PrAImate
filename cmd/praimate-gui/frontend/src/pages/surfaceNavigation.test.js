@@ -7,6 +7,7 @@ const app = await readFile(new URL('../App.svelte', import.meta.url), 'utf8')
 const agents = await readFile(new URL('./Agents.svelte', import.meta.url), 'utf8')
 const chats = await readFile(new URL('./Chats.svelte', import.meta.url), 'utf8')
 const clis = await readFile(new URL('./CLIs.svelte', import.meta.url), 'utf8')
+const skills = await readFile(new URL('./Skills.svelte', import.meta.url), 'utf8')
 const studio = await readFile(new URL('./Studio.svelte', import.meta.url), 'utf8')
 const code = await readFile(new URL('./Code.svelte', import.meta.url), 'utf8')
 const detached = await readFile(new URL('./DetachedSession.svelte', import.meta.url), 'utf8')
@@ -29,7 +30,32 @@ test('agent surface launch uses a modal and app-wide completion toast', () => {
   assert.match(agents, /showToast\(\{ title: 'Studio opened'/)
 })
 
-test('agent terminal launch matches backend arguments and keeps session state after closing the modal', async () => {
+test('external agents and bundled skills share the reviewed package importer', () => {
+  assert.match(agents, /api\.reviewAgentImportDialog\(\)/)
+  assert.match(agents, /agentImportReview\.skills/)
+  assert.match(agents, /api\.importReviewedAgentPack\(agentImportReview\.path, agentImportReview\.review_digest\)/)
+  assert.doesNotMatch(agents, /Install FORGE kit/)
+  assert.doesNotMatch(agents, /inspectForgeKit/)
+})
+
+test('skills page exposes one shared system and installs shipped built-ins on enable', () => {
+  assert.match(skills, /api\.skillsV2RolloutState\(\)/)
+  assert.match(skills, /api\.setSkillsV2RolloutState\(true\)/)
+  assert.match(skills, /built-in versions shipped with this PrAImate binary/)
+  assert.doesNotMatch(skills, /Catalogue|Your skills|Copy built-in and legacy/)
+})
+
+test('agent pack import reviews and approves exact bundled digests once', () => {
+  assert.match(agents, /api\.reviewAgentImportDialog\(\)/)
+  assert.match(agents, /agentImportReview\.review_digest/)
+  assert.match(agents, /api\.importReviewedAgentPack\(agentImportReview\.path, agentImportReview\.review_digest\)/)
+  assert.match(agents, /approve its listed skill digests for automatic use/)
+  assert.doesNotMatch(chats, /SkillsPicker/)
+  assert.doesNotMatch(studio, /SkillsPicker/)
+  assert.doesNotMatch(code, /SkillsPicker/)
+})
+
+test('agent terminal launch freezes skills before starting and keeps session state after closing the modal', async () => {
   globalThis.window = {
     go: { main: { App: { StartTerminal: (...args) => Promise.resolve(args) } } },
   }
@@ -40,9 +66,18 @@ test('agent terminal launch matches backend arguments and keeps session state af
   } finally {
     delete globalThis.window
   }
-  assert.match(agents, /api\.recordCodeSession\(agent \? agent\.id : '', cli,/)
+  assert.match(agents, /api\.startCodeSessionWithSkills\(/)
+  assert.match(agents, /dlg\.skillChoices/)
+  assert.doesNotMatch(agents, /api\.recordCodeSession\(agent \? agent\.id : '', cli,/)
   assert.match(agents, /const sessionName = dlg\.name\.trim\(\)/)
   assert.doesNotMatch(agents, /dlg = null[\s\S]{0,300}dlg\.name/)
+})
+
+test('new and resumed code terminals use the unified skill selection', () => {
+  assert.match(code, /api\.startCodeSessionWithSkills\(/)
+  assert.match(code, /bind:choices=\{initialSkillChoices\}/)
+  assert.match(code, /api\.startTerminalForChat\(sessionChatId, true\)/)
+  assert.match(code, /showSkillPreparationToast\(refs, 'Terminal'\)/)
 })
 
 test('CLI installation remains modal through PATH refresh and detection', () => {
@@ -61,6 +96,12 @@ test('chat and terminal sessions can detach without stopping their backend work'
   assert.match(detached, /Move this terminal|Connected to PrAImate|praimate:detached-disconnected/)
   assert.match(detached, /if \(!disconnectTimer\) disconnectTimer = setTimeout/)
   assert.match(detached, /async function stopTerminal[\s\S]*window\.runtime\?\.Quit\?\.\(\)/)
+})
+
+test('Chats exposes delivery evidence without claiming model compliance', () => {
+  assert.match(chats, /PrAImate payload evidence/)
+  assert.match(chats, /runtime\.delivered\.map\(\(skill\) => skill\.ref\)/)
+  assert.match(chats, /does not prove the model followed the skill/)
 })
 
 test('detached mode is resolved before database unlock and heavy pages are lazy-loaded', () => {

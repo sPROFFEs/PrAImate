@@ -1,16 +1,16 @@
 package main
 
 // Resolution from a PrAImate CLI name to the actual interactive
-// command to spawn in a PTY, plus exporting an agent's instructions
-// into the project folder's native context file so the launched CLI
-// adopts the agent persona without us touching its loop.
+// command to spawn in a PTY. Versioned native discovery is capability-gated;
+// legacy persona context is an exclusively owned, temporary project file.
 
 import (
+	"bytes"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"git.jtsec.local/lab/PrAImate/internal/core"
 )
@@ -42,6 +42,60 @@ func terminalCommand(cli, model string) (name string, args []string, err error) 
 	default:
 		return "", nil, fmt.Errorf("unknown CLI %q", cli)
 	}
+}
+
+// prepareLegacyTerminalContext preserves the old native persona convention
+// without refreshing/overwriting user files or another live session's context.
+// Creation is exclusive; cleanup uses the open root and removes only the same
+// regular file with the exact original contents. No native read is asserted.
+func prepareLegacyTerminalContext(cwd, cli string, agent *core.Agent, prefix string) (func(), error) {
+	var body strings.Builder
+	if agent != nil {
+		body.WriteString(core.AgentSystemPrompt(agent))
+	}
+	if prefix != "" {
+		body.WriteString("\n\n" + prefix)
+	}
+	if strings.TrimSpace(body.String()) == "" {
+		return nil, nil
+	}
+	file := "AGENTS.md"
+	if cli == "claude" || cli == "openclaude" {
+		file = "CLAUDE.md"
+	}
+	root, err := os.OpenRoot(cwd)
+	if err != nil {
+		return nil, err
+	}
+	f, err := root.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		root.Close()
+		return nil, fmt.Errorf("terminal context: cannot exclusively create %s; preserve the existing project instructions or close the other agent terminal, then use a clean project or a Chat/Studio session: %w", file, err)
+	}
+	content := []byte("<!-- praimate:temporary-agent-context -->\n" + body.String() + "\n")
+	_, writeErr := f.Write(content)
+	info, statErr := f.Stat()
+	closeErr := f.Close()
+	if writeErr != nil || statErr != nil || closeErr != nil {
+		// No recursive deletion; this file was created exclusively above.
+		_ = root.Remove(file)
+		root.Close()
+		return nil, fmt.Errorf("terminal context write failed: %v %v %v", writeErr, statErr, closeErr)
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			defer root.Close()
+			named, err := root.Lstat(file)
+			if err != nil || !named.Mode().IsRegular() || !os.SameFile(info, named) {
+				return
+			}
+			current, err := root.ReadFile(file)
+			if err == nil && bytes.Equal(current, content) {
+				_ = root.Remove(file)
+			}
+		})
+	}, nil
 }
 
 // terminalResumeCommand reopens the most recent native interactive session in
@@ -93,49 +147,4 @@ func appendEnvMap(env []string, extra map[string]string) []string {
 		env = append(env, kv)
 	}
 	return env
-}
-
-// exportAgentContext writes the agent's instructions into the project
-// folder's native context file for the chosen CLI, so the launched CLI
-// picks them up automatically. We do NOT clobber an existing file the
-// user authored — only create it when absent, and tag PrAImate-written
-// ones so a later run can refresh them.
-//
-//	claude / openclaude           → CLAUDE.md
-//	codex / opencode/praimate-code → AGENTS.md
-//	others                        → no native convention; skipped
-func exportAgentContext(cwd, cli string, agent *core.Agent, skillsPrefix string) error {
-	if (agent == nil || strings.TrimSpace(agent.Instructions) == "") && skillsPrefix == "" {
-		return nil
-	}
-	var fname string
-	switch cli {
-	case "claude", "openclaude":
-		fname = "CLAUDE.md"
-	case "codex", "opencode", "praimate-code":
-		fname = "AGENTS.md"
-	default:
-		return nil
-	}
-	path := filepath.Join(cwd, fname)
-
-	const marker = "<!-- praimate:agent -->"
-	if existing, err := os.ReadFile(path); err == nil {
-		// Only refresh files we wrote; never overwrite the user's own.
-		if !strings.Contains(string(existing), marker) {
-			return nil
-		}
-	}
-
-	body := marker + "\n"
-	if agent != nil {
-		body += fmt.Sprintf("# %s\n\n%s\n", agent.Name, strings.TrimSpace(core.AgentSystemPrompt(agent)))
-	}
-	if skillsPrefix != "" {
-		if agent != nil && strings.TrimSpace(agent.Instructions) != "" {
-			body += "\n---\n\n"
-		}
-		body += skillsPrefix + "\n"
-	}
-	return os.WriteFile(path, []byte(body), 0o644)
 }

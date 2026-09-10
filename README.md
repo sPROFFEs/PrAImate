@@ -181,8 +181,14 @@ command is still a real process on the host. Team/delegation and manifests that
 claim `sandbox` remain fail-closed. Team is not offered in guided creation until
 that coordinator exists. Interactive Terminal execution remains native.
 
-Skills are not currently embedded in agent packs. They remain independently
-managed, CLI-tagged resources selected per chat.
+Skills are managed in PrAImate's shared immutable library and can be bundled
+inside reviewed agent packs. The generic agent importer installs and approves
+the exact bundled digests, so a new Chat, Studio or Terminal opened from that
+agent inherits its skills without a second activation step. This library is
+separate from each CLI's native skill catalogue: a Chat can receive an
+approved skill in PrAImate's controlled request payload without the skill
+appearing in the CLI's `/skills` listing. Skills loaded only by a CLI or copied
+into a project are not automatically registered or approved by PrAImate.
 
 ## MCP
 
@@ -328,6 +334,7 @@ asset matrix and checksum process.
 | Document | Scope |
 |---|---|
 | [Full guide](docs/GUIDE.md) | Installation, every GUI page, storage, privacy, agents, skills, MCP, local LLMs, sessions, backup, and deletion. |
+| [Skills test guide](docs/SKILLS_TEST_GUIDE.md) | Numbered end-to-end checks for the shared library, reviewed agent packs, Chat, Studio, workflows, Terminal, budgets, portability and rollback. |
 | [Agent creation manual](docs/AGENT_GUIDE.md) | Create, configure, test, package, and share agents; complete `praimate.agent/v1` YAML reference. |
 | [Workpath quickstart](docs/QUICKSTART.md) | Create and compile a workpath with `wpc`. |
 | [Workpath schema](docs/SCHEMA.md) | Source files, imports, hooks, tools, and subagents. |

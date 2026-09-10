@@ -20,10 +20,13 @@ func (c *Core) continueManagedChat(
 ) (*ChatTurn, error) {
 	start := time.Now()
 	managed, runErr := c.RunManagedAgent(ctx, ManagedRunRequest{
-		Surface: surface, Agent: agent, CLI: chat.CLIAgent, Cwd: cwd,
+		TaskBudgetID:  "chat:" + chat.ID,
+		SkillSettings: &chat.Settings,
+		Surface:       surface, Agent: agent, CLI: chat.CLIAgent, Cwd: cwd,
 		Model: chat.Settings.Model, Local: chat.Settings.Local,
 		Task: task, Instructions: systemPrompt, ApprovalScope: chat.ID,
 		OnEvent: func(event ManagedRunEvent) {
+			c.persistManagedSkillReceipt(ctx, chat.ID, event)
 			if emit != nil {
 				emit(managedStreamEvent(event))
 			}
@@ -67,6 +70,19 @@ func (c *Core) continueManagedChat(
 		UserMessage: userMessage, Reply: final, SessionID: managed.SessionID, ManagedRunID: managed.ID,
 		DurationMs: time.Since(start).Milliseconds(),
 	}, nil
+}
+
+// Only the host model transport creates this typed receipt. Model text and
+// tool claims cannot mark skills as delivered.
+func (c *Core) persistManagedSkillReceipt(ctx context.Context, chatID string, event ManagedRunEvent) {
+	if chatID == "" || event.Type != "skills.delivered" || !event.OK {
+		return
+	}
+	state, ok := event.Payload["receipt"].(*SkillRuntimeState)
+	if !ok || state == nil || state.Status != "delivered" {
+		return
+	}
+	_ = c.UpdateChatSettings(ctx, chatID, func(s *ChatSettings) { s.SkillRuntime = state })
 }
 
 // managedChatTask rebuilds bounded on-chat context from the encrypted message

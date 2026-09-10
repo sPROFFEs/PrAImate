@@ -30,6 +30,31 @@ export function dismissToast() {
   toast.set(null)
 }
 
+// Runtime evidence toast. This deliberately says “delivered” rather than
+// “used”: the host can prove the payload crossed the adapter boundary, but it
+// cannot prove that a model followed the instructions.
+export function showSkillDeliveryToast(runtime, surface = 'Chat') {
+  if (!runtime || runtime.status !== 'delivered' || !runtime.delivered?.length) return
+  const refs = runtime.delivered.map((skill) => skill.ref).filter(Boolean)
+  showToast({
+    title: `Skill${refs.length === 1 ? '' : 's'} delivered`,
+    message: `${surface}: ${refs.join(', ')} · payload sent to the CLI`,
+    tone: 'ok',
+    duration: 5000,
+  })
+}
+
+export function showSkillPreparationToast(refs, surface = 'Terminal') {
+  const names = (refs || []).filter(Boolean)
+  if (!names.length) return
+  showToast({
+    title: 'Skills prepared',
+    message: `${surface}: ${names.join(', ')} · CLI reading is not observable`,
+    tone: 'ok',
+    duration: 5000,
+  })
+}
+
 // agentStudio, when set, opens the full-screen agent authoring studio.
 // Value: { id } for an existing agent, or { id: '' } / { new: true } for
 // a brand-new agent. null = studio closed (main shell shown).

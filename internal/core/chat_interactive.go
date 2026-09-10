@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"git.jtsec.local/lab/PrAImate/internal/skills"
 	"os"
 	"strings"
 	"time"
@@ -54,7 +55,19 @@ func (c *Core) UpdateChatSettings(ctx context.Context, chatID string, fn func(*C
 	if err != nil {
 		return err
 	}
+	previous, _ := json.Marshal([]any{chat.Settings.SkillsV2, chat.Settings.SkillsLock})
+	hadV2 := chat.Settings.SkillsV2 != nil
 	fn(&chat.Settings)
+	next, _ := json.Marshal([]any{chat.Settings.SkillsV2, chat.Settings.SkillsLock})
+	if chat.SessionID != "" && (hadV2 || chat.Settings.SkillsV2 != nil) && string(previous) != string(next) {
+		return errors.New("context_resync_required: change v2 skills in a fresh session; native context cannot be revoked here")
+	}
+	if err := validateChatSkills(chat.Settings); err != nil {
+		return err
+	}
+	if err := c.retainSkillSelections(ctx, "chat:"+chatID, []skills.SkillScope{chatSkillScope(chat.Settings)}); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(chat.Settings)
 	if err != nil {
 		return fmt.Errorf("UpdateChatSettings: marshal: %w", err)
@@ -170,6 +183,32 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	if err != nil {
 		return nil, err
 	}
+	var agent *Agent
+	managedChat := false
+	if chat.AgentID != "" {
+		agent, _ = c.GetAgent(ctx, chat.AgentID)
+		if agent != nil {
+			runtimeConfig, runtimeErr := c.ResolveEffectiveAgentConfig(ctx, agent)
+			if runtimeErr != nil {
+				return nil, runtimeErr
+			}
+			managedChat = runtimeConfig.Mode == RuntimeAgentic && chat.Settings.Surface != "agent-helper"
+		}
+	}
+	var skillPayload string
+	var skillState *SkillRuntimeState
+	if !managedChat {
+		skillPayload, skillState, err = c.BuildChatSkillPayload(ctx, chat.Settings, systemPrompt+"\n"+userMessage)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if skillState != nil {
+		if err := c.UpdateChatSettings(ctx, chatID, func(s *ChatSettings) { s.SkillRuntime = skillState }); err != nil {
+			return nil, err
+		}
+		chat.Settings.SkillRuntime = skillState
+	}
 	adapter, err := GetCLIAdapter(chat.CLIAgent)
 	if err != nil {
 		return nil, err
@@ -197,6 +236,13 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 			b.WriteString("- " + p + "\n")
 		}
 		outbound = b.String()
+	}
+	// The first controlled payload is placed in the adapter's observable system
+	// field. Resume APIs do not expose that field, so a new controlled payload is
+	// explicitly prepended to the resumed user request rather than claiming the
+	// private native session still contains a resident block.
+	if skillPayload != "" && chat.SessionID != "" && adapter.SupportsResume() {
+		outbound = skillPayload + "\n\n" + outbound
 	}
 
 	var meta map[string]any
@@ -250,22 +296,14 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	if chat.Settings.Surface == "studio" || chat.Settings.Surface == "agent-helper" {
 		surface = SurfaceStudio
 	}
-	var agent *Agent
-	if chat.AgentID != "" {
-		agent, _ = c.GetAgent(ctx, chat.AgentID)
-	}
 	if agent != nil {
 		if !contains(agent.Supports, chat.CLIAgent) {
 			return nil, fmt.Errorf("agent %q does not support CLI %q", agent.ID, chat.CLIAgent)
 		}
-		runtimeConfig, runtimeErr := c.ResolveEffectiveAgentConfig(ctx, agent)
-		if runtimeErr != nil {
-			return nil, runtimeErr
-		}
 		// Agent Studio's authoring helper edits the definition itself and must
 		// remain on the native authoring path. A normal document-studio chat
 		// still uses the managed runtime.
-		if runtimeConfig.Mode == RuntimeAgentic && chat.Settings.Surface != "agent-helper" {
+		if managedChat {
 			managedTask, historyErr := c.managedChatTask(ctx, chat.ID, attachments)
 			if historyErr != nil {
 				return nil, historyErr
@@ -302,13 +340,25 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	shotOpts := SingleShotOpts{
 		Cwd:          cwd,
 		Message:      outbound,
-		SystemPrompt: privacyRedactPlain(privacy, systemPrompt),
+		SystemPrompt: privacyRedactPlain(privacy, withSystemContext(systemPrompt, skillPayload)),
 		Model:        effective.Model,
 		Tools:        effective.Tools,
 		Approval:     effective.Approval,
 		Env:          effective.Env,
 	}
 	resuming := chat.SessionID != "" && adapter.SupportsResume()
+	requestSystem := shotOpts.SystemPrompt
+	if resuming {
+		requestSystem = "" // Native/private system context is outside our coverage.
+	}
+	if err := validateControlledSkillRequest(chat.Settings, requestSystem, outbound); err != nil {
+		return nil, err
+	}
+	if chat.Settings.SkillsV2 != nil {
+		if err := c.reserveSkillTaskInput(ctx, skillTaskBudgetID(ctx, "chat:"+chat.ID), int64(len(requestSystem)+len(outbound)), int64(len(skillPayload)), 8<<20); err != nil {
+			return nil, err
+		}
+	}
 
 	start := time.Now()
 	var reply *Reply
@@ -396,6 +446,10 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	}
 	if reply.SessionID != "" && reply.SessionID != chat.SessionID {
 		_ = c.SetChatSessionID(ctx, chatID, reply.SessionID)
+	}
+	if skillState != nil {
+		skillState.Status = "delivered"
+		_ = c.UpdateChatSettings(ctx, chatID, func(s *ChatSettings) { s.SkillRuntime = skillState })
 	}
 
 	return &ChatTurn{

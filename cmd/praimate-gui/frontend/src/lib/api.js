@@ -19,6 +19,18 @@ function call(method, ...args) {
 }
 
 export const api = {
+  skillLibraryV2: (request) => call('SkillLibraryV2', JSON.stringify(request)),
+  pickSkillSourceV2: (kind) => call('PickSkillSourceV2', kind),
+  exportSkillPackageV2: (ref, digest) => call('ExportSkillPackageV2', ref, digest),
+  previewAgentSkillsV2: (body) => call('PreviewAgentSkillsV2', body),
+  skillsV2RolloutState: () => call('SkillsV2RolloutState'),
+  setSkillsV2RolloutState: (enabled) => call('SetSkillsV2RolloutState', !!enabled),
+  chatSkillsV2: (id) => call('ChatSkillsV2', id),
+  previewChatSkillsV2: (id, body) => call('PreviewChatSkillsV2', id, body),
+  setChatSkillsV2: (id, body) => call('SetChatSkillsV2', id, body),
+  installedSkillVersionsV2: () => call('InstalledSkillVersionsV2'),
+  buildInstalledSkillSelectionV2: (choices) => call('BuildInstalledSkillSelectionV2', JSON.stringify(choices)),
+  saveChatSkillChoicesV2: (id, choices) => call('SaveChatSkillChoicesV2', id, JSON.stringify(choices || [])),
   databaseLockStatus: () => call('DatabaseLockStatus'),
   detachedMode: () => call('DetachedMode'),
   detachSession: (kind, sessionID, title) => call('DetachSession', kind, sessionID, title || ''),
@@ -65,6 +77,8 @@ export const api = {
 
   listAgents: () => call('ListAgents'),
   importAgentDialog: () => call('ImportAgentDialog'),
+  reviewAgentImportDialog: () => call('ReviewAgentImportDialog'),
+  importReviewedAgentPack: (path, reviewDigest) => call('ImportReviewedAgentPack', path, reviewDigest),
   exportAgentDialog: (id) => call('ExportAgentDialog', id),
   deleteAgent: (id) => call('DeleteAgent', id),
   agentYAML: (id) => call('AgentYAML', id),
@@ -141,11 +155,16 @@ export const api = {
   openAgentKnowledgeFolder: (id) => call('OpenAgentKnowledgeFolder', id),
   openEditorWindow: (folder, agentID, cli, model, chatID, localEndpoint, localApiKey, localModel) =>
     call('OpenEditorWindow', folder, agentID, cli, model || '', chatID, localEndpoint || '', localApiKey || '', localModel || ''),
+  prepareStudioChat: (folder, agentID, cli, model, localEndpoint, localModel, choices) =>
+    call('PrepareStudioChat', folder, agentID || '', cli, model || '', localEndpoint || '', localModel || '', choices === null ? '' : JSON.stringify(choices)),
   startTerminal: (agentID, cli, model, cwd, localEndpoint, localApiKey, localModel, resume = false, skills = []) =>
     call('StartTerminal', agentID, cli, model || '', cwd, localEndpoint || '', localApiKey || '', localModel || '', !!resume, skills || []),
   localLLMModels: () => call('LocalLLMModels'),
   recordCodeSession: (agentID, cli, model, cwd, localEndpoint, localApiKey, localModel) =>
     call('RecordCodeSession', agentID || '', cli, model || '', cwd, localEndpoint || '', localApiKey || '', localModel || ''),
+  startCodeSessionWithSkills: (agentID, cli, model, cwd, localEndpoint, localModel, choices) =>
+    call('StartCodeSessionWithSkills', agentID || '', cli, model || '', cwd, localEndpoint || '', localModel || '', choices === null ? '' : JSON.stringify(choices)),
+  startTerminalForChat: (chatID, resume = false) => call('StartTerminalForChat', chatID, !!resume),
   bindChatToTerminal: (termID, chatID) => call('BindChatToTerminal', termID, chatID),
   listTerminalSessions: () => call('ListTerminalSessions'),
   startAgentHelperChat: (cli, model, cwd, agentID) => call('StartAgentHelperChat', cli, model || '', cwd || '', agentID || ''),

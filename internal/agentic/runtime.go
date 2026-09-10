@@ -35,7 +35,10 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		return nil, errors.New("agentic runtime requires a task")
 	}
 	limits := cfg.Limits.withDefaults()
-	if limits.MaxTurns < 1 || limits.MaxTurns > 100 || limits.MaxContextChars < 2000 || limits.MaxOutputChars < 500 || limits.MaxArtifactSize < 1024 {
+	if err := ValidateEvidenceRequirements(cfg.FinishEvidence); err != nil {
+		return nil, err
+	}
+	if limits.MaxTotalInputBytes < 1 || limits.MaxTurns < 1 || limits.MaxTurns > 100 || limits.MaxContextChars < 2000 || limits.MaxOutputChars < 500 || limits.MaxArtifactSize < 1024 {
 		return nil, errors.New("agentic runtime limits are outside safe bounds")
 	}
 	runID := strings.TrimSpace(cfg.ResumeRunID)
@@ -93,8 +96,14 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		}
 		bus.emit("run.resumed", instance.Turns, "", "managed run resumed from durable checkpoint", true, nil)
 	} else {
+		instance.FinishEvidence = append([]EvidenceRequirement(nil), cfg.FinishEvidence...)
 		contextWindow.add("user task", cfg.Task)
 	}
+	if instance.InputLimitBytes == 0 {
+		instance.InputLimitBytes = limits.MaxTotalInputBytes
+	}
+	// Resume may tighten but cannot reset or widen the original task ceiling.
+	instance.InputLimitBytes = min(instance.InputLimitBytes, limits.MaxTotalInputBytes)
 	if err := saveRunState(runDir, instance, memory, contextWindow); err != nil {
 		return nil, err
 	}
@@ -104,6 +113,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	bus.emit("agent.started", 0, "", cfg.AgentName, true, nil)
 
 	invalidDecisions := 0
+	var finishError error
 	for turn := startTurn; turn <= endTurn; turn++ {
 		if err := ctx.Err(); err != nil {
 			return finishRun(runDir, instance, memory, contextWindow, StateStopped, "", err, bus)
@@ -128,10 +138,39 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		if cfg.Tools != nil {
 			toolInstructions = strings.TrimSpace(cfg.Tools.Instructions())
 		}
-		out, turnErr := cfg.Model.Turn(ctx, ModelInput{
+		if len(instance.FinishEvidence) > 0 {
+			raw, _ := json.Marshal(instance.FinishEvidence)
+			toolInstructions += "\nBefore finish, produce these required artifacts with artifact.write. Host validates presence, size and optional exact hash, not the correctness of your claims: " + string(raw)
+		}
+		input := ModelInput{
 			SystemPrompt: strings.TrimSpace(cfg.Instructions) + "\n\n---\n\n" + protocol + "\n\n" + toolInstructions,
 			Message:      contextWindow.render(memory),
-		}, modelEvents)
+		}
+		if preparer, ok := cfg.Model.(InputPreparer); ok {
+			var err error
+			input, err = preparer.PrepareInput(ctx, input)
+			if err != nil {
+				return finishRun(runDir, instance, memory, contextWindow, StateFailed, "", err, bus)
+			}
+		}
+		bytes := int64(len(input.SystemPrompt)) + int64(len(input.Message))
+		if input.SkillBytes < 0 || int64(input.SkillBytes) > bytes || instance.InputBytes < 0 || bytes > instance.InputLimitBytes-instance.InputBytes {
+			return finishRun(runDir, instance, memory, contextWindow, StateStalled, "", errors.New("cumulative controlled input byte budget exhausted; retries and resumed attempts share this limit"), bus)
+		}
+		if cfg.ReserveInput != nil {
+			if err := cfg.ReserveInput(ctx, bytes, int64(input.SkillBytes), instance.InputLimitBytes); err != nil {
+				return finishRun(runDir, instance, memory, contextWindow, StateStalled, "", err, bus)
+			}
+		}
+		instance.InputBytes += bytes
+		instance.SkillBytes += int64(input.SkillBytes)
+		// Charge before transport. Failed requests and interrupted calls are not
+		// refunded: their delivery/usage may be unknown. No prompt text is logged.
+		if err := saveRunState(runDir, instance, memory, contextWindow); err != nil {
+			return nil, err
+		}
+		bus.emit("context.reserved", turn, "", "cumulative controlled input bytes (not provider tokens or cost)", true, map[string]any{"inputBytes": instance.InputBytes, "skillBytes": instance.SkillBytes, "limitBytes": instance.InputLimitBytes, "coverage": "controlled_payload", "measurement": "bytes"})
+		out, turnErr := cfg.Model.Turn(ctx, input, modelEvents)
 		if turnErr != nil {
 			return finishRun(runDir, instance, memory, contextWindow, StateFailed, "", turnErr, bus)
 		}
@@ -201,6 +240,15 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			}
 			contextWindow.add("agent continuation", preview)
 		case "finish":
+			if err := verifyFinishEvidence(artifacts, instance, instance.FinishEvidence); err != nil {
+				finishError = fmt.Errorf("quality_gate_unmet: %w", err)
+				bus.emit("finish.rejected", turn, "", finishError.Error(), false, nil)
+				contextWindow.add("runtime", finishError.Error())
+				if err := saveRunState(runDir, instance, memory, contextWindow); err != nil {
+					return nil, err
+				}
+				continue
+			}
 			if strings.TrimSpace(decision.Message) == "" {
 				contextWindow.add("runtime", "finish requires a non-empty final message")
 				if err := saveRunState(runDir, instance, memory, contextWindow); err != nil {
@@ -218,11 +266,18 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 				final += "\nartifact://" + artifact.Name
 				bus.emit("artifact.created", turn, "output.bounding", artifact.Name, true, map[string]any{"size": artifact.Size})
 			}
+			instance.EvidenceVerified = len(instance.FinishEvidence) > 0
+			if instance.EvidenceVerified {
+				bus.emit("evidence.verified", turn, "", "required artifact presence, size and configured hashes verified; not a code-quality verdict", true, nil)
+			}
 			return finishRun(runDir, instance, memory, contextWindow, StateCompleted, final, nil, bus)
 		}
 		if err := saveRunState(runDir, instance, memory, contextWindow); err != nil {
 			return finishRun(runDir, instance, memory, contextWindow, StateFailed, "", err, bus)
 		}
+	}
+	if finishError != nil {
+		return finishRun(runDir, instance, memory, contextWindow, StateStalled, "", finishError, bus)
 	}
 	return finishRun(runDir, instance, memory, contextWindow, StateStalled, "", errors.New("managed run reached its per-attempt turn limit without agent_finish"), bus)
 }
@@ -269,7 +324,11 @@ func finishRun(runDir string, instance *Instance, memory Memory, contextWindow c
 	if runErr != nil {
 		instance.Error = runErr.Error()
 	}
-	_ = saveRunState(runDir, instance, memory, contextWindow)
+	if err := saveRunState(runDir, instance, memory, contextWindow); err != nil {
+		instance.State = StateFailed
+		instance.Error = "save managed checkpoint: " + err.Error()
+		state, runErr = StateFailed, errors.New(instance.Error)
+	}
 	ok := state == StateCompleted
 	bus.emit("agent.finished", instance.Turns, "", string(state), ok, nil)
 	bus.emit("run.finished", instance.Turns, "", string(state), ok, nil)
@@ -335,6 +394,10 @@ func writeJSON(path string, value any) error {
 		return err
 	}
 	if _, err := tmp.Write(raw); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
 		return err
 	}

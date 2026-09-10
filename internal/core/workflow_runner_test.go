@@ -123,7 +123,7 @@ func TestRunWorkflow_SingleStep_UsesSingleShot(t *testing.T) {
 		t.Fatalf("workflow silently elevated permissions: tools=%q", mock.shots[0].Tools)
 	}
 	prompt := mock.shots[0].SystemPrompt
-	for _, want := range []string{"be terse", "Workflow execution policy", `Working directory: "/tmp"`} {
+	for _, want := range []string{"be terse", "Workflow execution context", `Working directory: "/tmp"`} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("system prompt missing %q: %q", want, prompt)
 		}

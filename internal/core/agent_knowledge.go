@@ -20,6 +20,9 @@ package core
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -27,8 +30,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
+	"bytes"
 	"git.jtsec.local/lab/PrAImate/internal/appdata"
+	"git.jtsec.local/lab/PrAImate/internal/skills"
 )
 
 // AgentDir returns the agent's on-disk root: <config>/praimate/agents/<id>/.
@@ -298,11 +304,31 @@ func (c *Core) ExportAgentPack(ctx context.Context, id, path string) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.Create(path)
+	var skillFiles []skills.PackageFile
+	if agent.Schema == AgentSchemaV2 {
+		skillFiles, err = exportAgentSkillFiles(ctx, agent)
+		if err != nil {
+			return err
+		}
+	}
+	parent := filepath.Dir(path)
+	f, err := os.CreateTemp(parent, ".praimate-agent-export-*")
 	if err != nil {
 		return err
 	}
+	tempPath := f.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(tempPath)
+		}
+	}()
 	zw := zip.NewWriter(f)
+	if err := writeAgentSkillFiles(zw, skillFiles); err != nil {
+		zw.Close()
+		f.Close()
+		return err
+	}
 	w, err := zw.Create("agent.yaml")
 	if err == nil {
 		_, err = w.Write(raw)
@@ -336,61 +362,68 @@ func (c *Core) ExportAgentPack(ctx context.Context, id, path string) error {
 		}
 	}
 
-	dir, err := AgentKnowledgeDir(id)
-	if err == nil {
-		_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, werr error) error {
-			if werr != nil || d.IsDir() {
+	addDir := func(root, prefix string) error {
+		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() {
 				return nil
 			}
-			rel, rerr := filepath.Rel(dir, p)
-			if rerr != nil {
-				return nil
+			if d.Type()&os.ModeSymlink != 0 || !d.Type().IsRegular() {
+				return fmt.Errorf("refusing non-regular pack resource %q", p)
 			}
-			zf, zerr := zw.Create("knowledge/" + filepath.ToSlash(rel))
-			if zerr != nil {
-				return zerr
+			rel, relErr := filepath.Rel(root, p)
+			if relErr != nil {
+				return relErr
 			}
-			in, oerr := os.Open(p)
-			if oerr != nil {
-				return oerr
+			in, openErr := os.Open(p)
+			if openErr != nil {
+				return openErr
 			}
 			defer in.Close()
-			_, cerr := io.Copy(zf, in)
-			return cerr
+			zf, createErr := zw.Create(prefix + "/" + filepath.ToSlash(rel))
+			if createErr != nil {
+				return createErr
+			}
+			_, copyErr := io.Copy(zf, in)
+			return copyErr
 		})
-	}
-	requirementsDir, err := AgentRequirementsDir(id)
-	if err == nil {
-		if walkErr := filepath.WalkDir(requirementsDir, func(p string, d fs.DirEntry, werr error) error {
-			if werr != nil || d.IsDir() {
-				return nil
-			}
-			rel, rerr := filepath.Rel(requirementsDir, p)
-			if rerr != nil {
-				return nil
-			}
-			zf, zerr := zw.Create("requirements/" + filepath.ToSlash(rel))
-			if zerr != nil {
-				return zerr
-			}
-			in, oerr := os.Open(p)
-			if oerr != nil {
-				return oerr
-			}
-			defer in.Close()
-			_, cerr := io.Copy(zf, in)
-			return cerr
-		}); walkErr != nil && !os.IsNotExist(walkErr) {
-			_ = zw.Close()
-			_ = f.Close()
-			return fmt.Errorf("write requirements pack files: %w", walkErr)
+		if os.IsNotExist(err) {
+			return nil
 		}
+		return err
+	}
+	if dir, dirErr := AgentKnowledgeDir(id); dirErr != nil {
+		_ = zw.Close()
+		_ = f.Close()
+		return dirErr
+	} else if err := addDir(dir, "knowledge"); err != nil {
+		_ = zw.Close()
+		_ = f.Close()
+		return fmt.Errorf("write knowledge pack files: %w", err)
+	}
+	if dir, dirErr := AgentRequirementsDir(id); dirErr != nil {
+		_ = zw.Close()
+		_ = f.Close()
+		return dirErr
+	} else if err := addDir(dir, "requirements"); err != nil {
+		_ = zw.Close()
+		_ = f.Close()
+		return fmt.Errorf("write requirements pack files: %w", err)
 	}
 	if err := zw.Close(); err != nil {
 		_ = f.Close()
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("publish agent pack: %w", err)
+	}
+	committed = true
+	return nil
 }
 
 // ImportAgentPack imports a .praimate-agent zip. The pack is fully parsed and
@@ -399,14 +432,134 @@ func (c *Core) ExportAgentPack(ctx context.Context, id, path string) error {
 // knowledge, and requirements are swapped with rollback protection and the
 // agent is upserted.
 func (c *Core) ImportAgentPack(ctx context.Context, path string) (*Agent, error) {
+	return c.importAgentPack(ctx, path, "", false)
+}
+
+// AgentPackSkillReview is a non-authoritative inventory shown before import.
+// ReviewDigest binds the decision to every byte in the selected pack.
+type AgentPackSkillReview struct {
+	Ref    string                `json:"ref"`
+	Digest string                `json:"digest"`
+	Files  []AgentPackFileReview `json:"files"`
+}
+
+type AgentPackFileReview struct {
+	Path       string `json:"path"`
+	SHA256     string `json:"sha256"`
+	Bytes      int    `json:"bytes"`
+	Text       string `json:"text,omitempty"`
+	Binary     bool   `json:"binary,omitempty"`
+	Executable bool   `json:"executable,omitempty"`
+}
+
+type AgentPackReview struct {
+	Path         string                 `json:"path"`
+	ReviewDigest string                 `json:"review_digest"`
+	Agent        *Agent                 `json:"agent"`
+	Skills       []AgentPackSkillReview `json:"skills,omitempty"`
+}
+
+// InspectAgentPack reads and validates the portable agent identity and exposes
+// the exact bundled skill inventory without installing or approving anything.
+func (c *Core) InspectAgentPack(ctx context.Context, path string) (*AgentPackReview, error) {
+	files, body, err := readAgentPackFiles(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	byName := make(map[string][]byte, len(files))
+	for _, file := range files {
+		byName[file.Path] = file.Content
+	}
+	agentBody := byName["agent.yaml"]
+	if len(agentBody) == 0 {
+		return nil, fmt.Errorf("%s has no agent.yaml at its root", filepath.Base(path))
+	}
+	agent, err := ParseAgentYAML(bytes.NewReader(agentBody))
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(body)
+	review := &AgentPackReview{Path: path, ReviewDigest: "sha256:" + hex.EncodeToString(sum[:]), Agent: agent}
+	if agent.Schema != AgentSchemaV2 {
+		return review, nil
+	}
+	var inventory agentSkillInventory
+	if err := skills.DecodePortableSkillRecord(byName["skill-bundles.json"], &inventory); err != nil {
+		return nil, err
+	}
+	if inventory.Schema != "praimate.agent-skill-bundles/v1" {
+		return nil, errors.New("invalid skill bundle inventory")
+	}
+	var reviewBytes int
+	for _, version := range inventory.Versions {
+		archive := byName["skills/"+strings.TrimPrefix(version.Digest, "sha256:")+".zip"]
+		candidates, _, err := skills.InspectPackageZIP(ctx, bytes.NewReader(archive), int64(len(archive)))
+		if err != nil || len(candidates) != 1 || candidates[0].Digest != version.Digest {
+			return nil, errors.New("skill bundle digest mismatch")
+		}
+		selected, err := skills.SelectPackages(ctx, candidates, []skills.PackageSelection{{Candidate: 0, ExpectedDigest: version.Digest}}, skills.PackageLimits{})
+		if err != nil {
+			return nil, err
+		}
+		item := AgentPackSkillReview{Ref: version.Ref, Digest: version.Digest}
+		for _, file := range selected[0].Files() {
+			reviewBytes += len(file.Content)
+			if reviewBytes > 8<<20 {
+				return nil, errors.New("bundled skills exceed the 8 MiB interactive review limit")
+			}
+			sum := sha256.Sum256(file.Content)
+			entry := AgentPackFileReview{Path: file.Path, SHA256: "sha256:" + hex.EncodeToString(sum[:]), Bytes: len(file.Content), Executable: file.Executable}
+			if utf8.Valid(file.Content) && !bytes.ContainsRune(file.Content, '\x00') {
+				entry.Text = string(file.Content)
+			} else {
+				entry.Binary = true
+			}
+			item.Files = append(item.Files, entry)
+		}
+		sort.Slice(item.Files, func(i, j int) bool { return item.Files[i].Path < item.Files[j].Path })
+		review.Skills = append(review.Skills, item)
+	}
+	sort.Slice(review.Skills, func(i, j int) bool { return review.Skills[i].Ref < review.Skills[j].Ref })
+	return review, nil
+}
+
+// ImportReviewedAgentPack installs and approves only skill digests covered by
+// the explicit review of this exact pack. Package contents cannot self-grant
+// host trust; approval comes from this separate host-side argument.
+func (c *Core) ImportReviewedAgentPack(ctx context.Context, path, expectedReview string) (*Agent, error) {
+	if expectedReview == "" {
+		return nil, errors.New("agent_pack_review_required")
+	}
+	agent, err := c.importAgentPack(ctx, path, expectedReview, true)
+	if err != nil {
+		return nil, err
+	}
+	if agent.Schema == AgentSchemaV2 {
+		if err := c.SetSkillsV2RolloutState(ctx, true); err != nil {
+			return nil, fmt.Errorf("agent imported but versioned skills could not be enabled: %w", err)
+		}
+	}
+	return agent, nil
+}
+
+func (c *Core) importAgentPack(ctx context.Context, path, expectedReview string, approveReviewed bool) (*Agent, error) {
 	if c.store == nil {
 		return nil, fmt.Errorf("ImportAgentPack: no store configured")
 	}
-	zr, err := zip.OpenReader(path)
+	verifiedFiles, packBytes, err := readAgentPackFiles(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if expectedReview != "" {
+		sum := sha256.Sum256(packBytes)
+		if "sha256:"+hex.EncodeToString(sum[:]) != expectedReview {
+			return nil, errors.New("agent_pack_review_changed: inspect and approve the exact pack again")
+		}
+	}
+	zr, err := zip.NewReader(bytes.NewReader(packBytes), int64(len(packBytes)))
 	if err != nil {
 		return nil, fmt.Errorf("open pack: %w", err)
 	}
-	defer zr.Close()
 
 	var yamlEntry, runtimeEntry *zip.File
 	for _, zf := range zr.File {
@@ -424,7 +577,7 @@ func (c *Core) ImportAgentPack(ctx context.Context, path string) (*Agent, error)
 	if err != nil {
 		return nil, err
 	}
-	body, err := io.ReadAll(io.LimitReader(yr, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(yr, (4<<20)+1))
 	_ = yr.Close()
 	if err != nil {
 		return nil, err
@@ -439,7 +592,7 @@ func (c *Core) ImportAgentPack(ctx context.Context, path string) (*Agent, error)
 		if openErr != nil {
 			return nil, openErr
 		}
-		runtimeBody, err = io.ReadAll(io.LimitReader(rr, 1<<20))
+		runtimeBody, err = io.ReadAll(io.LimitReader(rr, (1<<20)+1))
 		_ = rr.Close()
 		if err != nil {
 			return nil, err
@@ -447,8 +600,22 @@ func (c *Core) ImportAgentPack(ctx context.Context, path string) (*Agent, error)
 		if _, err := ParseAgentRuntime(runtimeBody); err != nil {
 			return nil, err
 		}
+		if len(runtimeBody) > 1<<20 {
+			return nil, fmt.Errorf("runtime.json exceeds pack limit")
+		}
 	}
 
+	if agent.Schema == AgentSchemaV2 {
+		if err := importAgentSkillFiles(ctx, agent, verifiedFiles, approveReviewed); err != nil {
+			return nil, err
+		}
+	} else {
+		for _, file := range verifiedFiles {
+			if file.Path == "skill-bundles.json" || file.Path == "skills.lock.json" || strings.HasPrefix(file.Path, "skill-locks/") || strings.HasPrefix(file.Path, "skills/") {
+				return nil, fmt.Errorf("versioned skill bundles require praimate.agent/v2")
+			}
+		}
+	}
 	agentDir, err := AgentDir(agent.ID)
 	if err != nil {
 		return nil, err

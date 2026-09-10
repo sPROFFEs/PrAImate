@@ -6,7 +6,7 @@ import (
 	"git.jtsec.local/lab/PrAImate/internal/launcher"
 )
 
-const privacyNoticeVersion = "4"
+const privacyNoticeVersion = "5"
 
 // PrivacyNoticeInfo is the first-run disclosure rendered by the desktop app.
 type PrivacyNoticeInfo struct {

@@ -306,6 +306,7 @@ func runAgentPrompt(opts agentPromptOptions) int {
 	}
 
 	started := time.Now()
+	ctx = core.WithSkillTaskBudget(ctx, "external:"+opts.RunID)
 	if workflow != "" {
 		var onEvent func(core.WorkflowRunEvent)
 		if opts.Output == "jsonl" {
