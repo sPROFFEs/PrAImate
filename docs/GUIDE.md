@@ -2,7 +2,7 @@
   <img src="assets/monke-icon.png" alt="PrAImate" width="120" />
 </p>
 
-# PrAImate 1.2.2 user guide
+# PrAImate 1.2.6 user guide
 
 PrAImate is a Linux and Windows desktop harness around supported agent CLIs.
 It provides a shared GUI, but the chosen CLI still performs model requests,
