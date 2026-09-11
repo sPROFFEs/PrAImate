@@ -33,22 +33,21 @@
 
 <section class="card skill-help" aria-labelledby="skill-loading-title">
   <div class="card-title" id="skill-loading-title">How skills reach the model</div>
-  <p class="card-sub">PrAImate owns the approved skill library. A CLI does not need to list a skill in its own catalogue for PrAImate to deliver it.</p>
+  <p class="card-sub">PrAImate manages your approved skill library. Both native CLIs and managed agent sessions discover and load skills automatically via the internal MCP bridge or portable system prompts.</p>
   <div class="loading-grid">
     <div class="loading-item">
       <span class="loading-badge">1</span>
-      <div><strong>Always include</strong><p>PrAImate reads the approved skill and includes its instructions in the next controlled request. This is the most portable option.</p></div>
+      <div><strong>Automatic (MCP)</strong><p>The model discovers active skills via the internal MCP tools <code>load_skill</code> and <code>list_available_skills</code>, loading instructions on-demand without exhausting context.</p></div>
     </div>
     <div class="loading-item">
       <span class="loading-badge">2</span>
-      <div><strong>Load automatically</strong><p>Only managed/agentic runs can do this. The model receives <code>skill.load</code> and <code>skill.read</code> tools and requests a skill when the task needs it.</p></div>
+      <div><strong>Always include</strong><p>PrAImate embeds the approved skill body directly in the prompt context from turn 1. Best for fundamental guidelines and rules.</p></div>
     </div>
     <div class="loading-item">
       <span class="loading-badge">3</span>
-      <div><strong>Load when requested</strong><p>Only managed/agentic runs can do this. The skill is not loaded until the model or workflow explicitly requests the approved reference.</p></div>
+      <div><strong>Workflow-scoped</strong><p>Skills attached to specific workflows activate only when running that workflow, keeping each specialized task focused and isolated.</p></div>
     </div>
   </div>
-  <div class="skill-boundary"><strong>Important:</strong> native CLI sessions do not expose a verified skill broker today. On those sessions, dynamic modes are rejected or omitted; use <strong>Always include</strong> when the surface supports controlled delivery. A delivery receipt proves that PrAImate sent the payload, not that the model followed it.</div>
 </section>
 
 {#if error}<div class="banner" role="alert">{error}</div>{/if}
@@ -60,10 +59,6 @@
     <button class="btn primary" disabled={busy} on:click={enable}>{busy ? 'Enabling…' : 'Enable skills'}</button>
   </div>
 {:else}
-  <div class="card">
-    <div class="card-title">Skills enabled</div>
-    <p class="card-sub">Agent packages carry their skills. Imported and authored skills can be reused from every supported surface.</p>
-  </div>
   <SkillLibrary />
 {/if}
 

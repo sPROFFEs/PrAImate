@@ -5,7 +5,7 @@
   import { onMount, onDestroy } from 'svelte'
   import { get } from 'svelte/store'
   import { api } from '../lib/api.js'
-  import { cliCache, prefetchCLIs } from '../lib/stores.js'
+  import { cliCache, prefetchCLIs, showConfirm } from '../lib/stores.js'
 
   let clis = []
   let error = ''
@@ -84,9 +84,13 @@
     const methodID = toolChosen[t.id]
     if (!methodID) return
     if (methodID === 'npm' || methodID === 'pnpm') {
-      if (!confirm(`SECURITY WARNING\n\nnpm packages can execute arbitrary code during installation via postinstall scripts.\n\nOnly install packages you trust.\n\nProceed with installing ${t.label}?`)) {
-        return
-      }
+      const ok = await showConfirm({
+        title: 'Security Warning: Package Install',
+        message: `npm/pnpm packages can execute code during installation via postinstall scripts.\n\nOnly install packages you trust.\n\nProceed with installing ${t.label}?`,
+        tone: 'primary',
+        confirmLabel: 'Install'
+      })
+      if (!ok) return
     }
     installing = t.id
     log = []
@@ -118,9 +122,13 @@
     const methodID = chosen[cli.id]
     if (!methodID) return
     if (methodID === 'npm' || methodID === 'pnpm') {
-      if (!confirm(`SECURITY WARNING\n\nnpm packages can execute arbitrary code during installation via postinstall scripts.\n\nOnly install packages you trust.\n\nProceed with installing ${cli.label}?`)) {
-        return
-      }
+      const ok = await showConfirm({
+        title: 'Security Warning: Package Install',
+        message: `npm/pnpm packages can execute code during installation via postinstall scripts.\n\nOnly install packages you trust.\n\nProceed with installing ${cli.label}?`,
+        tone: 'primary',
+        confirmLabel: 'Install'
+      })
+      if (!ok) return
     }
     installing = cli.id
     log = []

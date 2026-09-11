@@ -260,6 +260,8 @@ func (c *Core) SkillLibrary(ctx context.Context, in SkillLibraryRequest) (SkillL
 			return tx.Approve(ctx, in.Ref, in.Digest, in.Approved)
 		case "forget":
 			return tx.Forget(in.Ref, in.Digest)
+		case "draft-delete":
+			return tx.DeleteDraft(in.Key)
 		case "draft-create", "fork", "edit":
 			var draft *skills.SkillDraft
 			var err error

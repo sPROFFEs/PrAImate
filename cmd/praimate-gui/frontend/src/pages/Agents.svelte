@@ -6,7 +6,7 @@
   // same parser `praimate agent import` uses.
   import { onDestroy, onMount, tick } from 'svelte'
   import { api, onRequirementsProgress } from '../lib/api.js'
-  import { activePage, pageRevision, openChatId, pendingTerm, agentStudio, showToast } from '../lib/stores.js'
+  import { activePage, pageRevision, openChatId, pendingTerm, agentStudio, showToast, showConfirm } from '../lib/stores.js'
   import CodeEditor from '../lib/CodeEditor.svelte'
   import WorkflowRunner from '../lib/WorkflowRunner.svelte'
   import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
@@ -460,7 +460,11 @@
   }
 
   async function remove(a) {
-    if (!confirm(`Delete agent "${a.name}"?`)) return
+    const ok = await showConfirm({
+      title: 'Delete Agent',
+      message: `Delete agent "${a.name}"? This removes its configuration and persona.`
+    })
+    if (!ok) return
     try {
       await api.deleteAgent(a.id)
       await load()
@@ -468,7 +472,14 @@
   }
 
   async function runRequirements(a) {
-    if (requirementsRunning || !confirm(`Run ${a.requirements.script} for "${a.name}"? This script can install software and change this computer.`)) return
+    if (requirementsRunning) return
+    const ok = await showConfirm({
+      title: 'Run Requirements Script',
+      message: `Run ${a.requirements.script} for "${a.name}"? This script can install software and change this computer.`,
+      confirmLabel: 'Run script',
+      tone: 'primary'
+    })
+    if (!ok) return
     requirementsRunning = a.id
     requirementsResult = null
     const now = Date.now()

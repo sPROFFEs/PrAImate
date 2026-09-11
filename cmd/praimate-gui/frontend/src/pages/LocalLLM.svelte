@@ -3,6 +3,7 @@
   // GPUStack, vLLM, LiteLLM…). Multi-host support with model-batch loading.
   import { onMount } from 'svelte'
   import { api } from '../lib/api.js'
+  import { showConfirm } from '../lib/stores.js'
   import { endpointTransport } from '../lib/endpointSecurity.js'
 
   let hosts = []
@@ -123,7 +124,11 @@
   }
 
   async function deleteCurrentHost() {
-    if (!confirm(`Delete host configuration "${activeHost.name}"?`)) return
+    const ok = await showConfirm({
+      title: 'Delete Host',
+      message: `Delete host configuration "${activeHost.name}"?`
+    })
+    if (!ok) return
     try {
       await api.deleteLocalHost(activeHost.id)
       selectedHostId = ''

@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte'
   import { api, onChatStream, onApproval } from '../lib/api.js'
-  import { activePage, pageRevision, openChatId, pendingTerm, showSkillDeliveryToast } from '../lib/stores.js'
+  import { activePage, pageRevision, openChatId, pendingTerm, showSkillDeliveryToast, showConfirm } from '../lib/stores.js'
   import SkillBindingsEditor from '../lib/SkillBindingsEditor.svelte'
   import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
   import { renderMarkdown } from '../lib/markdown.js'
@@ -517,7 +517,11 @@
   }
 
   async function remove(chat) {
-    if (!confirm(`Delete chat "${chat.Title}"? This removes its messages too.`)) return
+    const ok = await showConfirm({
+      title: 'Delete Chat',
+      message: `Delete chat "${chat.Title}"? This will permanently remove its messages and transcript.`
+    })
+    if (!ok) return
     try {
       await api.deleteChat(chat.ID)
       if (selected?.ID === chat.ID) back()
@@ -914,92 +918,97 @@
   {#if error}<div class="banner">{error}</div>{/if}
 
   {#if creating}
-    <div class="card">
-      <div class="card-title">New clean chat</div>
-      <div class="card-sub">A plain conversation with the CLI — no agent persona. Pick the CLI and (optionally) pin the model it should use.</div>
-      <label class="lbl">CLI</label>
-      <select class="field" style="max-width:320px" bind:value={newCli} on:change={refreshModels}>
-        {#if clis.length === 0}
-          <option value="">probing installed CLIs…</option>
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div class="modal-backdrop" on:click|self={() => (creating = false)}>
+      <div class="modal-content" role="dialog" aria-modal="true" style="max-width:620px; max-height:88vh; overflow-y:auto">
+        <h2 style="margin:0 0 4px">New clean chat</h2>
+        <div class="card-sub" style="margin-bottom:12px">A plain conversation with the CLI — no agent persona. Pick the CLI and (optionally) pin the model it should use.</div>
+        <label class="lbl">CLI</label>
+        <select class="field" style="max-width:320px" bind:value={newCli} on:change={refreshModels}>
+          {#if clis.length === 0}
+            <option value="">probing installed CLIs…</option>
+          {/if}
+          {#each clis as c}
+            <option value={c.id} disabled={!c.available}>
+              {c.label}{c.available ? '' : ' — not installed'}
+            </option>
+          {/each}
+        </select>
+        {#if localOpt?.configured && newLocalRoutable}
+          <label class="row" style="margin-top:12px; gap:8px; cursor:pointer">
+            <input type="checkbox" bind:checked={newUseLocal} />
+            <span>Use the local LLM from Settings <span class="card-sub mono">{localOpt.endpoint}</span></span>
+          </label>
+        {:else if localOpt?.configured}
+          <div class="card-sub" style="margin-top:10px">{localRoutingUnavailableMessage(newCli)}</div>
         {/if}
-        {#each clis as c}
-          <option value={c.id} disabled={!c.available}>
-            {c.label}{c.available ? '' : ' — not installed'}
-          </option>
-        {/each}
-      </select>
-      {#if localOpt?.configured && newLocalRoutable}
-        <label class="row" style="margin-top:12px; gap:8px; cursor:pointer">
-          <input type="checkbox" bind:checked={newUseLocal} />
-          <span>Use the local LLM from Settings <span class="card-sub mono">{localOpt.endpoint}</span></span>
-        </label>
-      {:else if localOpt?.configured}
-        <div class="card-sub" style="margin-top:10px">{localRoutingUnavailableMessage(newCli)}</div>
-      {/if}
 
-      {#if newUseLocal && localOpt?.configured && newLocalRoutable}
-        <label class="lbl">Local model</label>
-        {#if localOpt.allModels?.length}
-          <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={newLocalModel}>
-            <option value="">Select a detected model…</option>
-            {#each localOpt.hosts || [] as host}
-              <optgroup label={`${host.name} (${host.endpoint})`}>
-                {#each host.models as m}
-                  <option value={m}>{m}</option>
-                {/each}
-              </optgroup>
-            {/each}
-          </select>
+        {#if newUseLocal && localOpt?.configured && newLocalRoutable}
+          <label class="lbl">Local model</label>
+          {#if localOpt.allModels?.length}
+            <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={newLocalModel}>
+              <option value="">Select a detected model…</option>
+              {#each localOpt.hosts || [] as host}
+                <optgroup label={`${host.name} (${host.endpoint})`}>
+                  {#each host.models as m}
+                    <option value={m}>{m}</option>
+                  {/each}
+                </optgroup>
+              {/each}
+            </select>
+          {/if}
+          <input
+            class="field mono"
+            style="max-width:420px"
+            list="local-model-suggestions"
+            placeholder="or type model name (e.g. llama3.1, qwen2.5-coder)"
+            bind:value={newLocalModel} />
+          <datalist id="local-model-suggestions">
+            {#each localOpt.models || [] as m}<option value={m}></option>{/each}
+          </datalist>
+          {#if localOpt.error && !localOpt.allModels?.length}<div class="card-sub" style="color: var(--warn)">Couldn't list models from the endpoint: {localOpt.error}. You can still type a model name.</div>{/if}
+        {:else}
+          <label class="lbl">Model {modelSupported ? `(${selectedCliInfo.modelHint})` : '(this CLI has no model flag — it uses its own config)'}</label>
+          <input
+            class="field mono"
+            style="max-width:420px"
+            list="model-suggestions"
+            placeholder={modelSupported ? 'blank = CLI default' : 'not supported'}
+            bind:value={newModel}
+            disabled={!modelSupported} />
+          <datalist id="model-suggestions">
+            {#each modelSuggestions as m}<option value={m}></option>{/each}
+          </datalist>
+          {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
         {/if}
-        <input
-          class="field mono"
-          style="max-width:420px"
-          list="local-model-suggestions"
-          placeholder="or type model name (e.g. llama3.1, qwen2.5-coder)"
-          bind:value={newLocalModel} />
-        <datalist id="local-model-suggestions">
-          {#each localOpt.models || [] as m}<option value={m}></option>{/each}
-        </datalist>
-        {#if localOpt.error && !localOpt.allModels?.length}<div class="card-sub" style="color: var(--warn)">Couldn't list models from the endpoint: {localOpt.error}. You can still type a model name.</div>{/if}
-      {:else}
-        <label class="lbl">Model {modelSupported ? `(${selectedCliInfo.modelHint})` : '(this CLI has no model flag — it uses its own config)'}</label>
-        <input
-          class="field mono"
-          style="max-width:420px"
-          list="model-suggestions"
-          placeholder={modelSupported ? 'blank = CLI default' : 'not supported'}
-          bind:value={newModel}
-          disabled={!modelSupported} />
-        <datalist id="model-suggestions">
-          {#each modelSuggestions as m}<option value={m}></option>{/each}
-        </datalist>
-        {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
-      {/if}
-      <label class="lbl">Tools</label>
-      <div class="row">
-        {#each newToolLevels as lvl}
-          <button class="btn sm" class:primary={newTools === lvl.id} title={lvl.hint} on:click={() => (newTools = lvl.id)}>{lvl.label}</button>
-        {/each}
-      </div>
-      <label class="lbl">MCP servers <span class="card-sub">(optional, per chat)</span></label>
-      {#if mcpServers.length === 0}
-        <div class="card-sub">No enabled MCP servers. Add one on the MCP page first.</div>
-      {:else}
-        <div class="mcp-grid">
-          {#each mcpServers as server}
-            <label class="mcp-choice">
-              <input type="checkbox" value={server.id} bind:group={newMCPs} />
-              <span><strong>{server.name}</strong> <span class="card-sub">{server.transport}</span></span>
-            </label>
+        <label class="lbl">Tools</label>
+        <div class="row">
+          {#each newToolLevels as lvl}
+            <button class="btn sm" class:primary={newTools === lvl.id} title={lvl.hint} on:click={() => (newTools = lvl.id)}>{lvl.label}</button>
           {/each}
         </div>
-      {/if}
-      <SkillChoiceDraft bind:choices={newSkillChoices} />
-      <div class="row" style="margin-top:12px">
-        <button class="btn primary" on:click={startClean} disabled={starting || !newCli}>
-          {starting ? 'Starting…' : 'Start chat'}
-        </button>
-        <button class="btn" on:click={() => (creating = false)}>Cancel</button>
+        <label class="lbl">MCP servers <span class="card-sub">(optional, per chat)</span></label>
+        {#if mcpServers.length === 0}
+          <div class="card-sub">No enabled MCP servers. Add one on the MCP page first.</div>
+        {:else}
+          <div class="mcp-grid">
+            {#each mcpServers as server}
+              <label class="mcp-choice">
+                <input type="checkbox" value={server.id} bind:group={newMCPs} />
+                <span><strong>{server.name}</strong> <span class="card-sub">{server.transport}</span></span>
+              </label>
+            {/each}
+          </div>
+        {/if}
+        <SkillChoiceDraft bind:choices={newSkillChoices} />
+        {#if error}<div class="banner error-banner" role="alert" style="margin-top:12px">{error}</div>{/if}
+        <div class="row" style="margin-top:16px; justify-content:flex-end">
+          <button class="btn" on:click={() => { creating = false; error = '' }}>Cancel</button>
+          <button class="btn primary" on:click={startClean} disabled={starting || !newCli}>
+            {starting ? 'Starting…' : 'Start chat'}
+          </button>
+        </div>
       </div>
     </div>
   {/if}

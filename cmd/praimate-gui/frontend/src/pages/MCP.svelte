@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import { api } from '../lib/api.js'
+  import { showConfirm } from '../lib/stores.js'
   import { commandForMCPForm, envForMCPForm } from '../lib/mcpForm.js'
 
   let catalogue = []
@@ -100,7 +101,11 @@
   }
 
   async function remove(s) {
-    if (!confirm(`Disconnect ${s.name}?`)) return
+    const ok = await showConfirm({
+      title: 'Disconnect MCP Server',
+      message: `Disconnect and remove "${s.name}"?`
+    })
+    if (!ok) return
     try { await api.deleteMCPServer(s.id); await load() } catch (e) { error = String(e) }
   }
 

@@ -10,6 +10,7 @@
   import PrivacyNotice from './lib/PrivacyNotice.svelte'
   import DatabaseUnlock from './lib/DatabaseUnlock.svelte'
   import Toast from './lib/Toast.svelte'
+  import ConfirmModal from './lib/ConfirmModal.svelte'
 
   // Lucide-style outline icon paths (24x24 viewBox, stroke-based).
   const icons = {
@@ -302,6 +303,7 @@
 {/if}
 
 <Toast />
+<ConfirmModal />
 
 {#if closeBlocked}
   <div class="picker-backdrop">

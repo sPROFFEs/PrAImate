@@ -13,6 +13,7 @@
   // tooltip.
   import { onMount, onDestroy } from 'svelte'
   import { api } from './api.js'
+  import { showConfirm } from './stores.js'
   import { term, findTerminalForChat } from './terminal.js'
   import { activePage, pageRevision, openChatId, pendingTerm } from './stores.js'
 
@@ -94,7 +95,13 @@
   }
 
   async function closeSession(c, confirmClose = true) {
-    if (confirmClose && !confirm(`Close "${c.Title || c.ID}"? Any in-flight reply is cancelled, the PTY (if any) is killed, and the chat row is deleted.`)) return
+    if (confirmClose) {
+      const ok = await showConfirm({
+        title: 'Close Session',
+        message: `Close "${c.Title || c.ID}"? In-flight replies will be cancelled and the session removed.`
+      })
+      if (!ok) return
+    }
     // 1. Cancel any in-flight turn — no-op if nothing's running.
     try { await api.cancelChatTurn(c.ID) } catch {}
     // 2. Kill the bound PTY if it's still up.
@@ -106,7 +113,12 @@
   }
 
   async function closeAllSessions() {
-    if (!chats.length || !confirm(`Close all ${chats.length} sessions? Any in-flight replies will be cancelled and running PTYs will be stopped.`)) return
+    if (!chats.length) return
+    const ok = await showConfirm({
+      title: 'Close All Sessions',
+      message: `Close all ${chats.length} active sessions? In-flight replies will be cancelled.`
+    })
+    if (!ok) return
     for (const c of chats) await closeSession(c, false)
   }
 

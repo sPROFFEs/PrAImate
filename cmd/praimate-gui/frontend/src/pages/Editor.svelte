@@ -13,7 +13,7 @@
   import ContextMenu from '../lib/ContextMenu.svelte'
   import { langOf as fileLang } from '../lib/langOf.js'
   import { renderMarkdown } from '../lib/markdown.js'
-  import { showSkillDeliveryToast } from '../lib/stores.js'
+  import { showSkillDeliveryToast, showConfirm } from '../lib/stores.js'
 
   export let folder = ''
   export let chatId = ''
@@ -104,7 +104,11 @@
   }
 
   async function deleteFile(rel) {
-    if (!confirm(`Delete ${rel}? This can't be undone from inside the editor.`)) return
+    const ok = await showConfirm({
+      title: 'Delete File',
+      message: `Delete ${rel}? This cannot be undone from inside the editor.`
+    })
+    if (!ok) return
     try {
       await api.editorDeleteFile(rel)
       const t = tabs.find((x) => x.path === rel)

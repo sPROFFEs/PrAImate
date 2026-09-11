@@ -8,7 +8,7 @@
   import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
   import { term, onTermData, onTermExit, decodeBase64Bytes, findTerminalForChat } from '../lib/terminal.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
-  import { pendingTerm, showSkillPreparationToast } from '../lib/stores.js'
+  import { pendingTerm, showSkillPreparationToast, showConfirm } from '../lib/stores.js'
   import { get } from 'svelte/store'
 
 
@@ -27,7 +27,11 @@
   }
 
   async function remove(chat) {
-    if (!confirm(`Delete code session "${chat.Title || chat.WorkspacePath}"?`)) return
+    const ok = await showConfirm({
+      title: 'Delete Code Session',
+      message: `Delete code session "${chat.Title || chat.WorkspacePath}"? This will permanently remove its record.`
+    })
+    if (!ok) return
     try {
       await api.deleteChat(chat.ID)
       await load()
@@ -593,66 +597,71 @@
 
 {#if !started}
   {#if cleanSetup}
-    <!-- New clean session: pick CLI + model + folder, no agent persona. -->
-    <div class="card">
-      <div class="card-title">New code session</div>
-      <div class="card-sub">Run a CLI live in your project folder — no agent persona or context file is written. Pick the CLI and (optionally) the model.</div>
-      <label class="lbl">Session Name</label>
-      <input class="field" style="max-width:320px; margin-bottom:10px" bind:value={sessionName} placeholder="e.g. My Code Session" />
-      <label class="lbl">CLI</label>
-      <select class="field" style="max-width:320px" bind:value={cli}>
-        {#if clis.length === 0}<option value="">probing installed CLIs…</option>{/if}
-        {#each clis as c}
-          <option value={c.id} disabled={!c.available}>{c.label || c.id}{c.available ? '' : ' — not installed'}</option>
-        {/each}
-      </select>
-      {#if localOpt?.configured && localRoutable}
-        <label class="row" style="margin-top:12px; gap:8px; cursor:pointer">
-          <input type="checkbox" bind:checked={useLocal} />
-          <span>Use the local LLM from Settings <span class="card-sub mono">{localOpt.endpoint}</span></span>
-        </label>
-      {:else if localOpt?.configured}
-        <div class="card-sub" style="margin-top:10px">{localRoutingUnavailableMessage(cli)}</div>
-      {/if}
-
-      {#if useLocal && localOpt?.configured && localRoutable}
-        <label class="lbl">Local model</label>
-        {#if localOpt.allModels?.length}
-          <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={localModel}>
-            <option value="">Select a detected model…</option>
-            {#each localOpt.hosts || [] as host}
-              <optgroup label={`${host.name} (${host.endpoint})`}>
-                {#each host.models as m}
-                  <option value={m}>{m}</option>
-                {/each}
-              </optgroup>
-            {/each}
-          </select>
+    <!-- New clean session modal -->
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div class="modal-backdrop" on:click|self={() => (cleanSetup = false)}>
+      <div class="modal-content" role="dialog" aria-modal="true" style="max-width:620px; max-height:88vh; overflow-y:auto">
+        <h2 style="margin:0 0 4px">New code session</h2>
+        <div class="card-sub" style="margin-bottom:12px">Run a CLI live in your project folder — no agent persona or context file is written. Pick the CLI and (optionally) the model.</div>
+        <label class="lbl">Session Name (optional)</label>
+        <input class="field" style="max-width:320px; margin-bottom:10px" bind:value={sessionName} placeholder="e.g. Refactor Auth" />
+        <label class="lbl">CLI</label>
+        <select class="field" style="max-width:320px" bind:value={cli}>
+          {#if clis.length === 0}<option value="">probing installed CLIs…</option>{/if}
+          {#each clis as c}
+            <option value={c.id} disabled={!c.available}>{c.label || c.id}{c.available ? '' : ' — not installed'}</option>
+          {/each}
+        </select>
+        {#if localOpt?.configured && localRoutable}
+          <label class="row" style="margin-top:12px; gap:8px; cursor:pointer">
+            <input type="checkbox" bind:checked={useLocal} />
+            <span>Use the local LLM from Settings <span class="card-sub mono">{localOpt.endpoint}</span></span>
+          </label>
+        {:else if localOpt?.configured}
+          <div class="card-sub" style="margin-top:10px">{localRoutingUnavailableMessage(cli)}</div>
         {/if}
-        <input class="field mono" style="max-width:420px" list="code-local-models" placeholder="or type model name (e.g. qwen2.5-coder)" bind:value={localModel} />
-        <datalist id="code-local-models">{#each localOpt.models || [] as m}<option value={m}></option>{/each}</datalist>
-        {#if localOpt.error && !localOpt.allModels?.length}<div class="card-sub" style="color: var(--warn)">Couldn't list models from the endpoint: {localOpt.error}. You can still type a model name.</div>{/if}
-      {:else}
-        <label class="lbl">Model {modelSupported ? `(${selectedCliInfo.modelHint})` : '(this CLI has no model flag — it uses its own config)'}</label>
-        <input
-          class="field mono"
-          style="max-width:420px"
-          list="code-models"
-          placeholder={modelSupported ? 'blank = CLI default' : 'not supported'}
-          bind:value={model}
-          disabled={!modelSupported} />
-        <datalist id="code-models">{#each modelSuggestions as m}<option value={m}></option>{/each}</datalist>
-        {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
-      {/if}
-      <label class="lbl">Project folder</label>
-      <div class="row">
-        <input class="field grow" bind:value={cwd} placeholder="/path/to/your/project" />
-        <button class="btn" on:click={chooseFolder}>Browse…</button>
-      </div>
-      <SkillChoiceDraft bind:choices={initialSkillChoices} />
-      <div class="row" style="margin-top:14px">
-        <button class="btn primary" on:click={launch} disabled={!cwd || !cli}>Launch {cli || 'CLI'} here</button>
-        <button class="btn" on:click={() => (cleanSetup = false)}>Cancel</button>
+
+        {#if useLocal && localOpt?.configured && localRoutable}
+          <label class="lbl">Local model</label>
+          {#if localOpt.allModels?.length}
+            <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={localModel}>
+              <option value="">Select a detected model…</option>
+              {#each localOpt.hosts || [] as host}
+                <optgroup label={`${host.name} (${host.endpoint})`}>
+                  {#each host.models as m}
+                    <option value={m}>{m}</option>
+                  {/each}
+                </optgroup>
+              {/each}
+            </select>
+          {/if}
+          <input class="field mono" style="max-width:420px" list="code-local-models" placeholder="or type model name (e.g. qwen2.5-coder)" bind:value={localModel} />
+          <datalist id="code-local-models">{#each localOpt.models || [] as m}<option value={m}></option>{/each}</datalist>
+          {#if localOpt.error && !localOpt.allModels?.length}<div class="card-sub" style="color: var(--warn)">Couldn't list models from the endpoint: {localOpt.error}. You can still type a model name.</div>{/if}
+        {:else}
+          <label class="lbl">Model {modelSupported ? `(${selectedCliInfo.modelHint})` : '(this CLI has no model flag — it uses its own config)'}</label>
+          <input
+            class="field mono"
+            style="max-width:420px"
+            list="code-models"
+            placeholder={modelSupported ? 'blank = CLI default' : 'not supported'}
+            bind:value={model}
+            disabled={!modelSupported} />
+          <datalist id="code-models">{#each modelSuggestions as m}<option value={m}></option>{/each}</datalist>
+          {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
+        {/if}
+        <label class="lbl">Project folder *</label>
+        <div class="row">
+          <input class="field grow mono" bind:value={cwd} placeholder="/path/to/your/project" />
+          <button class="btn" on:click={chooseFolder}>Browse…</button>
+        </div>
+        <SkillChoiceDraft bind:choices={initialSkillChoices} />
+        {#if error}<div class="banner error-banner" role="alert" style="margin-top:12px">{error}</div>{/if}
+        <div class="row" style="margin-top:16px; justify-content:flex-end">
+          <button class="btn" on:click={() => { cleanSetup = false; error = '' }}>Cancel</button>
+          <button class="btn primary" on:click={launch} disabled={!cwd || !cli}>Launch {cli || 'CLI'}</button>
+        </div>
       </div>
     </div>
   {:else if !agent}

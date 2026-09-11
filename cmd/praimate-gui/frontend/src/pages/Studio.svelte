@@ -3,7 +3,7 @@
   import { api } from '../lib/api.js'
   import SkillBindingsEditor from '../lib/SkillBindingsEditor.svelte'
   import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
-  import { activePage, openChatId, pageRevision, showToast } from '../lib/stores.js'
+  import { activePage, openChatId, pageRevision, showToast, showConfirm } from '../lib/stores.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
 
   let chats = []
@@ -235,7 +235,11 @@
   }
 
   async function remove(chat) {
-    if (!confirm(`Delete Studio session "${chat.Title}"? This removes its transcript too.`)) return
+    const ok = await showConfirm({
+      title: 'Delete Studio Session',
+      message: `Delete Studio session "${chat.Title}"? This will permanently remove its transcript and session state.`
+    })
+    if (!ok) return
     try {
       await api.deleteChat(chat.ID)
       await load()

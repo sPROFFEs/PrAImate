@@ -30,6 +30,31 @@ export function dismissToast() {
   toast.set(null)
 }
 
+// Global Confirmation Dialog Modal store
+export const confirmModal = writable(null)
+
+export function showConfirm({
+  title = 'Confirm',
+  message = 'Are you sure you want to proceed?',
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  tone = 'danger'
+}) {
+  return new Promise((resolve) => {
+    confirmModal.set({
+      title,
+      message,
+      confirmLabel,
+      cancelLabel,
+      tone,
+      resolve: (val) => {
+        confirmModal.set(null)
+        resolve(val)
+      }
+    })
+  })
+}
+
 // Runtime evidence toast. This deliberately says “delivered” rather than
 // “used”: the host can prove the payload crossed the adapter boundary, but it
 // cannot prove that a model followed the instructions.

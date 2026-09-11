@@ -436,6 +436,14 @@ func (tx *SkillHostTransaction) LoadDraft(ctx context.Context, key string) (*Ski
 	return LoadSkillDraft(ctx, tx.store.root, tx.drafts[key], tx.store.limits)
 }
 
+func (tx *SkillHostTransaction) DeleteDraft(key string) error {
+	if err := tx.check(); err != nil {
+		return err
+	}
+	delete(tx.drafts, key)
+	return nil
+}
+
 // Legacy mode never rewrites existing chats or implicitly enables v2 bindings.
 func (tx *SkillHostTransaction) SetLegacyMode(legacy bool) error {
 	if err := tx.check(); err != nil {
