@@ -35,19 +35,48 @@ func (c *Core) prepareMCPForRun(ctx context.Context, agent *Agent, cli, cwd stri
 // PrepareMCPForRun is the GUI/terminal-facing wrapper around the
 // launch-time MCP config emission used by workflow runs.
 func (c *Core) PrepareMCPForRun(ctx context.Context, agent *Agent, cli, cwd string) (map[string]string, error) {
-	return c.prepareMCPForRun(ctx, agent, cli, cwd)
+	return c.PrepareMCPForRunWithExtra(ctx, agent, nil, cli, cwd)
+}
+
+// PrepareMCPForRunWithExtra prepares declared MCP servers plus internal system servers.
+func (c *Core) PrepareMCPForRunWithExtra(ctx context.Context, agent *Agent, extra []MCPServer, cli, cwd string) (map[string]string, error) {
+	if cwd == "" {
+		return nil, fmt.Errorf("MCP config: empty cwd")
+	}
+	var servers []MCPServer
+	if c.store != nil && agent != nil && len(agent.MCPServers) > 0 {
+		resolved, err := c.resolveAgentMCPServers(ctx, agent)
+		if err != nil {
+			return nil, err
+		}
+		servers = resolved
+	}
+	servers = append(servers, extra...)
+	if len(servers) == 0 {
+		return nil, nil
+	}
+	return writeMCPConfigForRun(cli, cwd, servers)
 }
 
 // PrepareEnabledMCPForRun writes config for all globally enabled MCP
 // servers. This is used for clean live-terminal sessions, where there
 // is no PrAImate agent YAML to declare a narrower mcp_servers list.
 func (c *Core) PrepareEnabledMCPForRun(ctx context.Context, cli, cwd string) (map[string]string, error) {
-	if c.store == nil {
-		return nil, nil
+	return c.PrepareEnabledMCPForRunWithExtra(ctx, nil, cli, cwd)
+}
+
+// PrepareEnabledMCPForRunWithExtra prepares enabled MCP servers plus internal system servers.
+func (c *Core) PrepareEnabledMCPForRunWithExtra(ctx context.Context, extra []MCPServer, cli, cwd string) (map[string]string, error) {
+	var servers []MCPServer
+	if c.store != nil {
+		enabled, err := c.ListMCPServers(ctx, true)
+		if err == nil {
+			servers = enabled
+		}
 	}
-	servers, err := c.ListMCPServers(ctx, true)
-	if err != nil {
-		return nil, err
+	servers = append(servers, extra...)
+	if len(servers) == 0 {
+		return nil, nil
 	}
 	return writeMCPConfigForRun(cli, cwd, servers)
 }
@@ -57,13 +86,23 @@ func (c *Core) PrepareEnabledMCPForRun(ctx context.Context, cli, cwd string) (ma
 // Calling this with an empty selection deliberately writes an empty generated
 // config, so removing the final MCP from a chat takes effect on its next turn.
 func (c *Core) PrepareSelectedMCPForRun(ctx context.Context, ids []string, cli, cwd string) (map[string]string, error) {
-	if c.store == nil {
-		return nil, nil
+	return c.PrepareSelectedMCPForRunWithExtra(ctx, ids, nil, cli, cwd)
+}
+
+// PrepareSelectedMCPForRunWithExtra prepares selected MCP servers plus internal system servers.
+func (c *Core) PrepareSelectedMCPForRunWithExtra(ctx context.Context, ids []string, extra []MCPServer, cli, cwd string) (map[string]string, error) {
+	if cwd == "" {
+		return nil, fmt.Errorf("MCP config: empty cwd")
 	}
-	servers, err := c.resolveMCPServerIDs(ctx, ids)
-	if err != nil {
-		return nil, err
+	var servers []MCPServer
+	if c.store != nil && len(ids) > 0 {
+		resolved, err := c.resolveMCPServerIDs(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+		servers = resolved
 	}
+	servers = append(servers, extra...)
 	return writeSelectedMCPConfigForRun(cli, cwd, servers)
 }
 

@@ -82,6 +82,11 @@ type App struct {
 	approvalMu sync.Mutex
 	approval   *approvalBroker
 
+	// skillsBroker is the internal MCP skills server for dynamic on-demand
+	// skill loading in CLIs and sessions. Guarded by skillsBrokerMu.
+	skillsBrokerMu sync.Mutex
+	skillsBroker   *skillsBroker
+
 	// editorOwnWrites suppresses fsnotify echoes of the studio's own
 	// file flushes (editor_window.go). Guarded by editorMu.
 	editorMu        sync.Mutex
@@ -372,6 +377,20 @@ func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel 
 			}
 		}
 	}()
+	targetChatID := ""
+	if agentID != "" {
+		targetChatID = "agent:" + agentID
+	}
+	if prov := a.skillsProvider(targetChatID); prov != nil {
+		effective.InternalMCPServers = append(effective.InternalMCPServers, core.MCPServer{
+			ID:        "praimate_skills",
+			Name:      "PrAImate Skills",
+			Transport: core.MCPTransportStdio,
+			Command:   prov.Command,
+			Args:      prov.Args,
+			Enabled:   true,
+		})
+	}
 	// Validate the concrete terminal command before PrepareExecution writes
 	// project-scoped MCP or provider configuration.
 	if err := c.PrepareExecution(a.ctx, effective); err != nil {

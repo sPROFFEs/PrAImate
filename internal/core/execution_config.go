@@ -90,18 +90,19 @@ type ExecutionRequest struct {
 // EffectiveExecutionConfig is consumed only inside the Go backend. Env may
 // contain credentials and therefore must never be returned through Wails.
 type EffectiveExecutionConfig struct {
-	Surface      ExecutionSurface
-	Agent        *Agent
-	ChatID       string
-	CLI          string
-	Cwd          string
-	Model        string
-	Tools        string
-	Local        *ChatLocalEndpoint
-	Env          map[string]string
-	Approval     *ApprovalConfig
-	Capabilities CLICapabilities
-	Issues       []PreflightIssue
+	Surface            ExecutionSurface
+	Agent              *Agent
+	ChatID             string
+	CLI                string
+	Cwd                string
+	Model              string
+	Tools              string
+	Local              *ChatLocalEndpoint
+	Env                map[string]string
+	Approval           *ApprovalConfig
+	InternalMCPServers []MCPServer
+	Capabilities       CLICapabilities
+	Issues             []PreflightIssue
 
 	mcpServers    []string
 	explicitMCP   bool
@@ -360,11 +361,11 @@ func (c *Core) PrepareExecution(ctx context.Context, cfg *EffectiveExecutionConf
 	)
 	switch {
 	case cfg.explicitMCP:
-		mcpEnv, err = c.PrepareSelectedMCPForRun(ctx, cfg.mcpServers, cfg.CLI, cfg.Cwd)
+		mcpEnv, err = c.PrepareSelectedMCPForRunWithExtra(ctx, cfg.mcpServers, cfg.InternalMCPServers, cfg.CLI, cfg.Cwd)
 	case cfg.Agent != nil:
-		mcpEnv, err = c.PrepareMCPForRun(ctx, cfg.Agent, cfg.CLI, cfg.Cwd)
-	case cfg.allEnabledMCP:
-		mcpEnv, err = c.PrepareEnabledMCPForRun(ctx, cfg.CLI, cfg.Cwd)
+		mcpEnv, err = c.PrepareMCPForRunWithExtra(ctx, cfg.Agent, cfg.InternalMCPServers, cfg.CLI, cfg.Cwd)
+	case cfg.allEnabledMCP || len(cfg.InternalMCPServers) > 0:
+		mcpEnv, err = c.PrepareEnabledMCPForRunWithExtra(ctx, cfg.InternalMCPServers, cfg.CLI, cfg.Cwd)
 	}
 	if err != nil {
 		return err

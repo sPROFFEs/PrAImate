@@ -56,6 +56,20 @@ func main() {
 		}
 		os.Exit(runApprovalShim(os.Stdin, os.Stdout, endpoint, token))
 	}
+
+	// Hidden mode: when a CLI spawns this same binary as the MCP
+	// skills provider (`praimate-gui -mcp-skills <url> -mcp-token <tok>`),
+	// run the stdio server and exit WITHOUT touching Wails.
+	if len(os.Args) >= 3 && os.Args[1] == "-mcp-skills" {
+		endpoint := os.Args[2]
+		token := ""
+		for i := 3; i+1 < len(os.Args); i++ {
+			if os.Args[i] == "-mcp-token" {
+				token = os.Args[i+1]
+			}
+		}
+		os.Exit(runSkillsShim(os.Stdin, os.Stdout, endpoint, token))
+	}
 	// WebKitGTK's accelerated compositing misorders layers on machines
 	// with broken GPU drivers (VMs especially): composited editor
 	// content paints OVER fixed overlays regardless of z-index. CPU
