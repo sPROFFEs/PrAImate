@@ -21,7 +21,7 @@ param(
         "windows-amd64",
         "windows-arm64"
     ),
-    [string] $Version = "1.2.6",
+    [string] $Version = "1.2.7",
     [string] $LdFlags = "-s -w",
     [switch] $NoArchive
 )
