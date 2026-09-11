@@ -306,7 +306,19 @@
 
       {#if form.useLocal && localOpt?.configured && localRoutable}
         <label class="lbl" for="studio-local-model">Local model</label>
-        <input id="studio-local-model" class="field mono" list="studio-local-models" bind:value={form.localModel} on:input={invalidatePreflight} placeholder="model on your endpoint" />
+        {#if localOpt.allModels?.length}
+          <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={form.localModel} on:change={invalidatePreflight}>
+            <option value="">Select a detected model…</option>
+            {#each localOpt.hosts || [] as host}
+              <optgroup label={`${host.name} (${host.endpoint})`}>
+                {#each host.models as m}
+                  <option value={m}>{m}</option>
+                {/each}
+              </optgroup>
+            {/each}
+          </select>
+        {/if}
+        <input id="studio-local-model" class="field mono" list="studio-local-models" bind:value={form.localModel} on:input={invalidatePreflight} placeholder="or type model name (e.g. qwen2.5-coder)" />
         <datalist id="studio-local-models">{#each localOpt.models || [] as model}<option value={model}></option>{/each}</datalist>
       {:else}
         <label class="lbl" for="studio-model">Model <span class="card-sub">(blank = CLI default)</span></label>
@@ -399,7 +411,19 @@
           </label>
           {#if cfg.localEndpoint}
             <label class="lbl" style="margin-top:8px">Local model</label>
-            <input class="field mono" style="max-width:420px" list="cfg-local-models" bind:value={cfg.localModel} placeholder="model on your endpoint" />
+            {#if localOpt.allModels?.length}
+              <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={cfg.localModel}>
+                <option value="">Select a detected model…</option>
+                {#each localOpt.hosts || [] as host}
+                  <optgroup label={`${host.name} (${host.endpoint})`}>
+                    {#each host.models as m}
+                      <option value={m}>{m}</option>
+                    {/each}
+                  </optgroup>
+                {/each}
+              </select>
+            {/if}
+            <input class="field mono" style="max-width:420px" list="cfg-local-models" bind:value={cfg.localModel} placeholder="or type model name (e.g. qwen2.5-coder)" />
             <datalist id="cfg-local-models">{#each localOpt.models || [] as m}<option value={m}></option>{/each}</datalist>
           {/if}
         {/if}

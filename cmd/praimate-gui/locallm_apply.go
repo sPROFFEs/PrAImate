@@ -11,7 +11,212 @@ import (
 	"git.jtsec.local/lab/PrAImate/internal/ollama"
 )
 
-// LocalCLIStatus reports whether the OpenCode config currently has the local
+// AppliedModelItem represents a model configured in a CLI.
+type AppliedModelItem struct {
+	HostID      string `json:"hostId"`
+	HostName    string `json:"hostName"`
+	Endpoint    string `json:"endpoint"`
+	Model       string `json:"model"`
+	ProviderKey string `json:"providerKey"`
+	CLI         string `json:"cli"`
+}
+
+// ApplyModelsToCLI batch-applies models from a specific host into the CLI config.
+func (a *App) ApplyModelsToCLI(cli, hostID string, models []string) (string, error) {
+	if len(models) == 0 {
+		return "", fmt.Errorf("select at least one model to apply")
+	}
+	hosts, err := a.ListLocalHosts()
+	if err != nil {
+		return "", err
+	}
+	var targetHost *LocalHost
+	for i := range hosts {
+		if hosts[i].ID == hostID || (hostID == "" && hosts[i].IsDefault) {
+			targetHost = &hosts[i]
+			break
+		}
+	}
+	if targetHost == nil {
+		if len(hosts) > 0 {
+			targetHost = &hosts[0]
+		} else {
+			return "", fmt.Errorf("no host configured")
+		}
+	}
+	if strings.TrimSpace(targetHost.Endpoint) == "" {
+		return "", fmt.Errorf("target host has no endpoint URL configured")
+	}
+
+	var apiKey string
+	if targetHost.IsDefault {
+		apiKey, _ = loadLocalLLMAPIKey(a.core)
+	} else {
+		apiKey, _ = loadHostAPIKey(a.core, targetHost.ID)
+	}
+
+	s := ollama.Settings{
+		Endpoint:      targetHost.Endpoint,
+		APIKey:        apiKey,
+		Model:         strings.TrimSpace(models[0]),
+		ContextTokens: targetHost.ContextTokens,
+		OutputTokens:  targetHost.OutputTokens,
+	}
+
+	provKey := "praimate_local"
+	if !targetHost.IsDefault {
+		cleanID := strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+				return r
+			}
+			return '_'
+		}, targetHost.ID)
+		provKey = "praimate_" + cleanID
+	}
+
+	switch cli {
+	case "opencode", "praimate-code":
+		path, err := ollama.ApplyOpenCodeModels(provKey, targetHost.Name, s, models, targetHost.IsDefault)
+		if err != nil {
+			return "", err
+		}
+		// Save active models into host metadata
+		for _, m := range models {
+			if !containsString(targetHost.ActiveModels, m) {
+				targetHost.ActiveModels = append(targetHost.ActiveModels, m)
+			}
+		}
+		_ = a.SaveLocalHost(*targetHost)
+		return fmt.Sprintf("Applied %d model(s) to %s (%s) — wrote %s", len(models), cli, targetHost.Name, path), nil
+
+	case "openclaude":
+		ls := launcher.OllamaSettings{
+			Endpoint:      s.Endpoint,
+			Model:         s.Model,
+			APIKey:        s.APIKey,
+			ContextTokens: s.ContextTokens,
+			OutputTokens:  s.OutputTokens,
+		}
+		err := launcher.WriteOpenClaudeLocalProfile(ls, apiKey)
+		if err != nil {
+			return "", err
+		}
+		targetHost.ActiveModels = models
+		_ = a.SaveLocalHost(*targetHost)
+		return fmt.Sprintf("Applied %s to OpenClaude profile (%s)", s.Model, targetHost.Name), nil
+
+	default:
+		return "", fmt.Errorf("apply-to-local supports opencode/praimate-code and openclaude — Claude Code stays on Anthropic")
+	}
+}
+
+// RemoveModelFromCLI removes an individual model from a CLI's provider configuration.
+func (a *App) RemoveModelFromCLI(cli, hostID, model string) (string, error) {
+	hosts, _ := a.ListLocalHosts()
+	var targetHost *LocalHost
+	for i := range hosts {
+		if hosts[i].ID == hostID || (hostID == "" && hosts[i].IsDefault) {
+			targetHost = &hosts[i]
+			break
+		}
+	}
+	provKey := "praimate_local"
+	if targetHost != nil && !targetHost.IsDefault {
+		cleanID := strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+				return r
+			}
+			return '_'
+		}, targetHost.ID)
+		provKey = "praimate_" + cleanID
+	}
+
+	switch cli {
+	case "opencode", "praimate-code":
+		path, err := ollama.RemoveOpenCodeModel(provKey, model)
+		if err != nil {
+			return "", err
+		}
+		if targetHost != nil {
+			targetHost.ActiveModels = removeString(targetHost.ActiveModels, model)
+			_ = a.SaveLocalHost(*targetHost)
+		}
+		return fmt.Sprintf("Removed %s from %s — %s", model, cli, path), nil
+
+	case "openclaude":
+		if targetHost != nil {
+			targetHost.ActiveModels = removeString(targetHost.ActiveModels, model)
+			_ = a.SaveLocalHost(*targetHost)
+		}
+		return fmt.Sprintf("Removed %s from OpenClaude list", model), nil
+
+	default:
+		return "", fmt.Errorf("unsupported CLI %s", cli)
+	}
+}
+
+// ListAppliedCLIModels returns all active models configured in OpenCode / OpenClaude.
+func (a *App) ListAppliedCLIModels() ([]AppliedModelItem, error) {
+	hosts, _ := a.ListLocalHosts()
+	var out []AppliedModelItem
+	ocModels, err := ollama.ListConfiguredOpenCodeModels()
+	if err == nil {
+		for pKey, models := range ocModels {
+			var matchingHost *LocalHost
+			for i := range hosts {
+				h := &hosts[i]
+				cleanID := strings.Map(func(r rune) rune {
+					if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+						return r
+					}
+					return '_'
+				}, h.ID)
+				if (h.IsDefault && pKey == "praimate_local") || pKey == "praimate_"+cleanID {
+					matchingHost = h
+					break
+				}
+			}
+			hostName := "Local LLM"
+			endpoint := ""
+			hostID := "default"
+			if matchingHost != nil {
+				hostName = matchingHost.Name
+				endpoint = matchingHost.Endpoint
+				hostID = matchingHost.ID
+			}
+			for _, m := range models {
+				out = append(out, AppliedModelItem{
+					HostID:      hostID,
+					HostName:    hostName,
+					Endpoint:    endpoint,
+					Model:       m,
+					ProviderKey: pKey,
+					CLI:         "opencode / praimate-code",
+				})
+			}
+		}
+	}
+	return out, nil
+}
+
+func containsString(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, s string) []string {
+	var next []string
+	for _, v := range slice {
+		if v != s {
+			next = append(next, v)
+		}
+	}
+	return next
+}
 // ollama_remote route applied. praimate-code is
 // the OpenCode fork (name-only rebrand) and reads the SAME opencode.json,
 // so the opencode route covers it.

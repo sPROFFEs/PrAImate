@@ -706,9 +706,21 @@
 
       {#if dlg.useLocal && localOpt?.configured && dlgLocalRoutable}
         <label class="lbl">Local model</label>
-        <input class="field mono" style="max-width:420px" list="launch-local-models" bind:value={dlg.localModel} on:input={invalidateDlgPreflight} placeholder="model on your endpoint" />
+        {#if localOpt.allModels?.length}
+          <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={dlg.localModel} on:change={invalidateDlgPreflight}>
+            <option value="">Select a detected model…</option>
+            {#each localOpt.hosts || [] as host}
+              <optgroup label={`${host.name} (${host.endpoint})`}>
+                {#each host.models as m}
+                  <option value={m}>{m}</option>
+                {/each}
+              </optgroup>
+            {/each}
+          </select>
+        {/if}
+        <input class="field mono" style="max-width:420px" list="launch-local-models" bind:value={dlg.localModel} on:input={invalidateDlgPreflight} placeholder="or type model name (e.g. qwen2.5-coder)" />
         <datalist id="launch-local-models">{#each localOpt.models || [] as m}<option value={m}></option>{/each}</datalist>
-        {#if localOpt.error}<div class="card-sub" style="color: var(--warn)">Couldn't list models: {localOpt.error}. You can still type a model name.</div>{/if}
+        {#if localOpt.error && !localOpt.allModels?.length}<div class="card-sub" style="color: var(--warn)">Couldn't list models: {localOpt.error}. You can still type a model name.</div>{/if}
       {:else}
         <label class="lbl">Model (blank = CLI default)</label>
         <input class="field mono" style="max-width:420px" list="launch-model-suggestions" bind:value={dlg.model} on:input={invalidateDlgPreflight} />

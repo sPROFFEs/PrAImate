@@ -366,6 +366,11 @@ func OpenCodeUsesManagedLocalRoute(model string) (bool, error) {
 // file exists, only the provider entry is overwritten — other config is
 // preserved.
 func ApplyOpenCode(s Settings, makeDefault bool) (string, error) {
+	return ApplyOpenCodeModels(openCodeProviderName, "Ollama Remote", s, []string{s.Model}, makeDefault)
+}
+
+// ApplyOpenCodeModels merges multiple models for a specific provider into opencode.json.
+func ApplyOpenCodeModels(providerKey, providerLabel string, s Settings, models []string, makeDefault bool) (string, error) {
 	configPath, err := OpenCodeConfigPath()
 	if err != nil {
 		return "", err
@@ -384,6 +389,13 @@ func ApplyOpenCode(s Settings, makeDefault bool) (string, error) {
 	if providers == nil {
 		providers = map[string]any{}
 	}
+	if providerKey == "" {
+		providerKey = openCodeProviderName
+	}
+	if providerLabel == "" {
+		providerLabel = "Ollama Remote"
+	}
+
 	options := map[string]any{
 		"baseURL": NormalizeEndpoint(s.Endpoint) + "/v1",
 	}
@@ -393,30 +405,47 @@ func ApplyOpenCode(s Settings, makeDefault bool) (string, error) {
 		// launches the configured local route.
 		options["apiKey"] = "{env:OPENAI_API_KEY}"
 	}
-	modelEntry := map[string]any{"name": s.Model}
-	if s.ContextTokens > 0 || s.OutputTokens > 0 {
-		limit := map[string]any{}
-		if s.ContextTokens > 0 {
-			limit["context"] = s.ContextTokens
+
+	var existingModels map[string]any
+	if existingProv, ok := providers[providerKey].(map[string]any); ok {
+		if em, ok := existingProv["models"].(map[string]any); ok {
+			existingModels = em
 		}
-		if s.OutputTokens > 0 {
-			limit["output"] = s.OutputTokens
-		}
-		modelEntry["limit"] = limit
 	}
-	providers[openCodeProviderName] = map[string]any{
+	if existingModels == nil {
+		existingModels = map[string]any{}
+	}
+
+	for _, m := range models {
+		m = strings.TrimSpace(m)
+		if m == "" {
+			continue
+		}
+		modelEntry := map[string]any{"name": m}
+		if s.ContextTokens > 0 || s.OutputTokens > 0 {
+			limit := map[string]any{}
+			if s.ContextTokens > 0 {
+				limit["context"] = s.ContextTokens
+			}
+			if s.OutputTokens > 0 {
+				limit["output"] = s.OutputTokens
+			}
+			modelEntry["limit"] = limit
+		}
+		existingModels[m] = modelEntry
+	}
+
+	providers[providerKey] = map[string]any{
 		"npm":     "@ai-sdk/openai-compatible",
-		"name":    "Ollama Remote",
+		"name":    providerLabel,
 		"options": options,
-		"models": map[string]any{
-			s.Model: modelEntry,
-		},
+		"models":  existingModels,
 	}
 	cfg["provider"] = providers
 
-	if makeDefault {
-		cfg["model"] = openCodeProviderName + "/" + s.Model
-		cfg["small_model"] = openCodeProviderName + "/" + s.Model
+	if makeDefault && len(models) > 0 && strings.TrimSpace(models[0]) != "" {
+		cfg["model"] = providerKey + "/" + strings.TrimSpace(models[0])
+		cfg["small_model"] = providerKey + "/" + strings.TrimSpace(models[0])
 	}
 
 	out, err := json.MarshalIndent(cfg, "", "  ")
@@ -425,6 +454,93 @@ func ApplyOpenCode(s Settings, makeDefault bool) (string, error) {
 	}
 	out = append(out, '\n')
 	return configPath, atomicWrite(configPath, out)
+}
+
+// RemoveOpenCodeModel removes a single model from a provider in opencode.json.
+func RemoveOpenCodeModel(providerKey, model string) (string, error) {
+	configPath, err := OpenCodeConfigPath()
+	if err != nil {
+		return "", err
+	}
+	raw, err := os.ReadFile(configPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return configPath, nil
+	}
+	if err != nil {
+		return configPath, err
+	}
+	cfg := opencodeConfig{}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return configPath, err
+	}
+	if providerKey == "" {
+		providerKey = openCodeProviderName
+	}
+	providers, ok := cfg["provider"].(map[string]any)
+	if !ok || providers == nil {
+		return configPath, nil
+	}
+	prov, ok := providers[providerKey].(map[string]any)
+	if !ok || prov == nil {
+		return configPath, nil
+	}
+	models, ok := prov["models"].(map[string]any)
+	if ok && models != nil {
+		delete(models, model)
+		if len(models) == 0 {
+			delete(providers, providerKey)
+		} else {
+			prov["models"] = models
+			providers[providerKey] = prov
+		}
+		cfg["provider"] = providers
+	}
+	targetModelRef := providerKey + "/" + model
+	for _, k := range []string{"model", "small_model"} {
+		if v, ok := cfg[k].(string); ok && v == targetModelRef {
+			delete(cfg, k)
+		}
+	}
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return configPath, err
+	}
+	out = append(out, '\n')
+	return configPath, atomicWrite(configPath, out)
+}
+
+// ListConfiguredOpenCodeModels returns the map of providerKey -> []modelNames from opencode.json.
+func ListConfiguredOpenCodeModels() (map[string][]string, error) {
+	configPath, err := OpenCodeConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(configPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[string][]string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	cfg := opencodeConfig{}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return nil, err
+	}
+	result := map[string][]string{}
+	providers, _ := cfg["provider"].(map[string]any)
+	for pKey, pVal := range providers {
+		if prov, ok := pVal.(map[string]any); ok {
+			if modelsMap, ok := prov["models"].(map[string]any); ok {
+				var list []string
+				for mName := range modelsMap {
+					list = append(list, mName)
+				}
+				sort.Strings(list)
+				result[pKey] = list
+			}
+		}
+	}
+	return result, nil
 }
 
 // OpenCodeConfigured reports whether opencode.json has our praimate_local
