@@ -330,6 +330,10 @@ func writeOpenCodeMCPConfig(cwd string, servers []MCPServer, env map[string]stri
 	return writeJSONFile(managedPath, managed)
 }
 
+func ResolveStdioMCPCommand(s MCPServer) (string, []string) {
+	return resolvedStdioMCPCommand(s)
+}
+
 func resolvedStdioMCPCommand(s MCPServer) (string, []string) {
 	return expandMCPProcessArg(s.Command), expandMCPProcessArgs(s.Args)
 }
