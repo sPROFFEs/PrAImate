@@ -466,7 +466,7 @@
     error = ''
     const focused = active ? `\n\n[The user is looking at: ${active} — open files: ${tabs.map((t) => t.path).join(', ')}]` : ''
     messages = [...messages, { Role: 'user', Content: text, TS: new Date().toISOString(), _pending: true }]
-    await scrollToBottom()
+    await scrollToBottom(true)
     try {
       if (text.startsWith('!')) {
         await api.runChatCommand(chatId, text.slice(1))
@@ -499,9 +499,20 @@
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
-  async function scrollToBottom() {
+  let userScrolledUp = false
+
+  function onThreadScroll() {
+    if (!threadEl) return
+    const distanceFromBottom = threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight
+    userScrolledUp = distanceFromBottom > 100
+  }
+
+  async function scrollToBottom(force = false) {
+    if (force) userScrolledUp = false
     await tick()
-    if (threadEl) threadEl.scrollTop = threadEl.scrollHeight
+    if (threadEl && (force || !userScrolledUp)) {
+      threadEl.scrollTop = threadEl.scrollHeight
+    }
   }
 
   function fmtDate(s) {
@@ -782,7 +793,7 @@
         <SkillBindingsEditor chatID={chatId} on:saved={loadChat} />
       </div>
     {/if}
-    <div class="thread" bind:this={threadEl}>
+    <div class="thread" bind:this={threadEl} on:scroll={onThreadScroll}>
       {#each messages as m}
         <div class="msg {m.Role === 'user' ? 'user' : 'assistant'}" class:pending={m._pending}>
           <div class="who">{m.Role}{m.TS ? ' · ' + fmtDate(m.TS) : ''}</div>

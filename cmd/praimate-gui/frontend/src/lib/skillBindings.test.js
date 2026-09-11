@@ -86,5 +86,14 @@ test('creation selector keeps inherited defaults unless the user saves an explic
   assert.match(source, /Use selection/)
   assert.match(source, /choices = null/)
   assert.match(source, /disabled=\{!v\.approved\}/)
+  assert.match(source, /pinnedCount > 3/)
+  assert.match(source, /Context budget limit:/)
   assert.doesNotMatch(source, /checksum/i)
+})
+
+test('skill bindings editor enforces maximum 3 pinned skills budget', async () => {
+  const source = await readFile(new URL('./SkillBindingsEditor.svelte', import.meta.url), 'utf8')
+  assert.match(source, /pinnedCount = versions\.filter/)
+  assert.match(source, /exceedsBudget = pinnedCount > 3/)
+  assert.match(source, /Context budget limit:/)
 })

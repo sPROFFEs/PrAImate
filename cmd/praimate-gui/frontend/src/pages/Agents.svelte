@@ -96,6 +96,7 @@
 
   function invalidateDlgPreflight() {
     if (!dlg) return
+    error = ''
     dlg.preflight = null
     dlg.preflightChecked = false
     dlg = dlg
@@ -177,7 +178,7 @@
   async function dlgPickFolder() {
     try {
       const p = await api.pickFolder()
-      if (p && dlg) { dlg.folder = p; invalidateDlgPreflight() }
+      if (p && dlg) { dlg.folder = p; error = ''; invalidateDlgPreflight() }
     } catch (e) {
       error = String(e)
     }
@@ -729,9 +730,10 @@
         </div>
       {/if}
       <SkillChoiceDraft bind:choices={dlg.skillChoices} />
+      {#if error}<div class="banner error-banner" role="alert" style="margin-top:12px">{error}</div>{/if}
       <div class="row" style="margin-top:12px">
         <button class="btn primary" on:click={dlgGo} disabled={dlg.busy}>{dlg.busy ? 'Starting…' : 'Launch'}</button>
-        <button class="btn" on:click={() => (dlg = null)} disabled={dlg.busy}>Cancel</button>
+        <button class="btn" on:click={() => { dlg = null; error = '' }} disabled={dlg.busy}>Cancel</button>
       </div>
     </div>
     </div>

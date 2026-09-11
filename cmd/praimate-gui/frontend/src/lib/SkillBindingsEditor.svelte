@@ -12,6 +12,8 @@
   let query = ''
 
   $: selectedCount = versions.filter(version => version.selected).length
+  $: pinnedCount = versions.filter(v => v.selected && v.activation === 'pinned').length
+  $: exceedsBudget = pinnedCount > 3
   $: filteredVersions = versions.filter(version => `${version.name || ''} ${version.description || ''} ${version.ref || ''}`.toLowerCase().includes(query.trim().toLowerCase()))
 
   onMount(load)
@@ -41,6 +43,7 @@
   }
 
   function selectVersion(version, selected) {
+    error = ''
     if (selected) {
       versions = versions.map(item => ({
         ...item,
@@ -54,6 +57,10 @@
 
   async function save() {
     if (busy) return
+    if (exceedsBudget) {
+      error = `Context budget limit: A maximum of 3 skills can be set to "Always include" (pinned) simultaneously (currently ${pinnedCount}). Please change additional skills to "Load automatically" or deselect them.`
+      return
+    }
     busy = true
     error = ''
     notice = ''
@@ -97,6 +104,7 @@
       </div>
 
       {#if error}<div class="banner" role="alert">{error}</div>{/if}
+      {#if exceedsBudget}<div class="banner" role="alert" style="background: rgba(211, 158, 0, 0.15); border-color: #d39e00; color: var(--text); margin-bottom: 8px">⚠️ {pinnedCount}/3 pinned skills selected. A maximum of 3 skills can be set to "Always include" simultaneously to preserve the session context budget.</div>{/if}
       <div class="skill-search"><input class="field" type="search" bind:value={query} placeholder="Search skills" aria-label="Search skills" /></div>
       <div class="skill-list">
         {#each filteredVersions as version (`${version.ref}@${version.digest}`)}
@@ -139,10 +147,10 @@
   .skill-open { width: min(100%, 420px); display: flex; justify-content: space-between; align-items: center; margin: 4px 0; }
   .skill-error { color: var(--err); font-size: 12px; margin-top: 5px; }
   .skill-backdrop { z-index: 12000; padding: 20px; }
-  .skill-modal { max-width: 680px; padding: 0; max-height: min(760px, 90vh); display: flex; flex-direction: column; overflow: hidden; }
+  .skill-modal { max-width: 680px; padding: 0; max-height: min(760px, 90vh); display: flex; flex-direction: column; overflow: hidden; background: var(--bg-panel); color: var(--text); border: 1px solid var(--border); }
   .skill-head { display: flex; align-items: flex-start; gap: 16px; padding: 18px 20px 14px; border-bottom: 1px solid var(--border); }
   .skill-head > div { flex: 1; }
-  .skill-head h2 { margin: 0 0 4px; }
+  .skill-head h2 { margin: 0 0 4px; color: var(--text); }
   .skill-head p, .mode-note { margin: 0; color: var(--text-dim); font-size: 12px; }
   .icon-button { border: 0; background: none; color: var(--text-dim); font-size: 22px; cursor: pointer; }
   .skill-list { overflow-y: auto; padding: 8px 20px; }
@@ -150,12 +158,13 @@
   .skill-search .field { width: 100%; }
   .skill-row { padding: 12px 0; border-bottom: 1px solid var(--border); }
   .skill-row:last-child { border-bottom: 0; }
-  .skill-row.selected { background: color-mix(in oklch, var(--accent) 7%, transparent); margin-inline: -10px; padding-inline: 10px; border-radius: 6px; }
+  .skill-row.selected { background: var(--accent-soft); margin-inline: -10px; padding-inline: 10px; border-radius: var(--radius-sm); }
   .skill-row.unapproved { opacity: .68; }
   .skill-choice { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
   .skill-copy { display: grid; gap: 3px; }
+  .skill-copy strong { color: var(--text); }
   .skill-copy span, .skill-copy small { color: var(--text-dim); font-size: 12px; line-height: 1.4; }
-  .skill-copy small { color: var(--warn, #d39e00); }
+  .skill-copy small { color: var(--warn); font-weight: 500; }
   .mode-choice { display: flex; align-items: center; gap: 10px; margin: 10px 0 0 26px; color: var(--text-dim); font-size: 12px; }
   .mode-choice select { flex: 1; min-width: 220px; }
   .empty-state { color: var(--text-dim); text-align: center; padding: 32px 12px; }

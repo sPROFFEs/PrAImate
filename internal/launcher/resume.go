@@ -110,8 +110,29 @@ func resumeClaude(c Chat) ResumePlan {
 		}
 	}
 
-	// No native sessions — fall back to restoring from our captured
-	// transcript, IF one exists in the chat's sessions/ dir.
+	// No native sessions — check if OpenClaude has sessions for this project,
+	// or fall back to restoring from our captured transcript.
+	if ocSlug := openclaudeProjectSlug(c.SandboxDir); ocSlug != "" {
+		ocStoreDir := filepath.Join(home, ".openclaude", "projects", ocSlug)
+		if ocNative := claudeNativeSessionFiles(ocStoreDir); len(ocNative) > 0 {
+			_ = os.MkdirAll(storeDir, 0o755)
+			for _, src := range ocNative {
+				dst := filepath.Join(storeDir, filepath.Base(src))
+				if _, err := os.Stat(dst); os.IsNotExist(err) {
+					if raw, err := os.ReadFile(src); err == nil {
+						_ = writeFileAtomic(dst, raw, 0o644)
+					}
+				}
+			}
+			native = claudeNativeSessionFiles(storeDir)
+			if len(native) == 1 {
+				return ResumePlan{Args: []string{"--continue"}, Note: "resuming session migrated from openclaude"}
+			} else if len(native) >= 2 {
+				return ResumePlan{Args: []string{"--resume"}, Note: "opening picker with sessions migrated from openclaude"}
+			}
+		}
+	}
+
 	pick, ok := newestCaptureForAgent(c.SessionsDir, AgentClaude)
 	if !ok {
 		return ResumePlan{Note: "no previous claude session for this chat (no native store, no captured transcript)"}
@@ -216,6 +237,29 @@ func resumeOpenClaude(c Chat) ResumePlan {
 		return ResumePlan{
 			Args: []string{"--continue"},
 			Note: "resuming the single native openclaude session for this chat",
+		}
+	}
+
+	// No native sessions — check if Claude Code has sessions for this project,
+	// or fall back to captured transcript.
+	if cSlug := claudeProjectSlug(c.SandboxDir); cSlug != "" {
+		cStoreDir := filepath.Join(home, ".claude", "projects", cSlug)
+		if cNative := claudeNativeSessionFiles(cStoreDir); len(cNative) > 0 {
+			_ = os.MkdirAll(storeDir, 0o755)
+			for _, src := range cNative {
+				dst := filepath.Join(storeDir, filepath.Base(src))
+				if _, err := os.Stat(dst); os.IsNotExist(err) {
+					if raw, err := os.ReadFile(src); err == nil {
+						_ = writeFileAtomic(dst, raw, 0o644)
+					}
+				}
+			}
+			native = claudeNativeSessionFiles(storeDir)
+			if len(native) == 1 {
+				return ResumePlan{Args: []string{"--continue"}, Note: "resuming session migrated from claude code"}
+			} else if len(native) >= 2 {
+				return ResumePlan{Args: []string{"--resume"}, Note: "opening picker with sessions migrated from claude code"}
+			}
 		}
 	}
 

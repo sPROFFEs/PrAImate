@@ -336,7 +336,7 @@
     approvals = []
     try {
       messages = (await api.chatMessages(chat.ID)) || []
-      await scrollToBottom()
+      await scrollToBottom(true)
     } catch (e) {
       error = String(e)
     }
@@ -444,7 +444,7 @@
     messages = [...messages, { Role: 'user', Content: text, TS: new Date().toISOString(), _pending: true }]
     draft = ''
     attachments = []
-    await scrollToBottom()
+    await scrollToBottom(true)
     try {
       if (isCommand) {
         // "!cmd" runs locally in the chat folder — never sent to the model.
@@ -527,9 +527,20 @@
     }
   }
 
-  async function scrollToBottom() {
+  let userScrolledUp = false
+
+  function onThreadScroll() {
+    if (!threadEl) return
+    const distanceFromBottom = threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight
+    userScrolledUp = distanceFromBottom > 100
+  }
+
+  async function scrollToBottom(force = false) {
+    if (force) userScrolledUp = false
     await tick()
-    if (threadEl) threadEl.scrollTop = threadEl.scrollHeight
+    if (threadEl && (force || !userScrolledUp)) {
+      threadEl.scrollTop = threadEl.scrollHeight
+    }
   }
 
   function fmtDate(s) {
@@ -734,7 +745,7 @@
 
   {#if error}<div class="banner">{error}</div>{/if}
 
-  <div class="thread" bind:this={threadEl}>
+  <div class="thread" bind:this={threadEl} on:scroll={onThreadScroll}>
     {#if messages.length === 0}
       <div class="empty">No messages yet — say something below to begin.</div>
     {/if}

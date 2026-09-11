@@ -25,6 +25,8 @@ test('Studio owns studio-session navigation and Chats excludes its rows', () => 
 test('agent surface launch uses a modal and app-wide completion toast', () => {
   assert.match(agents, /class="modal-backdrop"/)
   assert.match(agents, /aria-labelledby="agent-launch-title"/)
+  assert.match(agents, /class="modal-content launch-modal"[\s\S]*\{#if error\}<div class="banner error-banner"/)
+  assert.match(studio, /class="modal-content studio-modal"[\s\S]*\{#if error\}<div class="banner error-banner"/)
   assert.match(agents, /showToast\(\{ title: 'Chat ready'/)
   assert.match(agents, /showToast\(\{ title: 'Terminal ready'/)
   assert.match(agents, /showToast\(\{ title: 'Studio opened'/)

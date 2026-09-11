@@ -25,9 +25,12 @@
   async function test() {
     testing = true
     error = ''
-    models = null
     try {
-      models = (await api.testLocalLLM(d.endpoint, d.apiKey)) || []
+      const res = (await api.testLocalLLM(d.endpoint, d.apiKey)) || []
+      models = res
+      if (res.length > 0 && !applyModel) {
+        applyModel = res[0]
+      }
     } catch (e) {
       error = String(e)
     } finally {
@@ -145,13 +148,16 @@
   </div>
 
   <div class="row" style="margin-top:14px">
-    <button class="btn" on:click={test} disabled={testing || !d.endpoint}>{testing ? 'Probing…' : 'Test connection'}</button>
-    <button class="btn primary" on:click={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-    <button class="btn danger" on:click={clearAll}>Clear</button>
+    <button class="btn action-btn" on:click={test} disabled={testing || !d.endpoint}>{testing ? 'Probing…' : 'Test connection'}</button>
+    <button class="btn primary action-btn" on:click={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+    <button class="btn danger action-btn" on:click={clearAll}>Clear</button>
   </div>
 </div>
 
 <style>
+  .action-btn { min-width: 120px; text-align: center; }
+  .btn-sm-action { min-width: 80px; text-align: center; }
+  .models-container { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0; max-height: 200px; overflow-y: auto; }
   .transport-warning {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -183,7 +189,7 @@
 {#if models !== null}
   <div class="card">
     <div class="card-title">{models.length} model(s) at {d.endpoint}</div>
-    <div style="margin-top:6px; display:flex; flex-wrap:nowrap; overflow-x:auto; gap:4px; padding-bottom:8px;">
+    <div class="models-container">
       {#each models as m}<span class="pill mono" style="white-space:nowrap">{m}</span>{/each}
       {#if models.length === 0}<span class="card-sub">endpoint reachable, but the model list is empty</span>{/if}
     </div>
@@ -207,8 +213,8 @@
       {#if cliStatus.opencode}<span class="pill ok">routed to local</span>{:else}<span class="pill">cloud default</span>{/if}
       <span class="card-sub">(shared config — one apply routes both)</span>
     </div>
-    <button class="btn primary" on:click={() => applyCLI('opencode')} disabled={!!applyBusy || !d.endpoint}>{applyBusy === 'opencode' ? 'Applying…' : 'Apply'}</button>
-    <button class="btn" on:click={() => disableCLI('opencode')} disabled={!!applyBusy || !cliStatus.opencode}>Disable</button>
+    <button class="btn primary btn-sm-action" on:click={() => applyCLI('opencode')} disabled={!!applyBusy || !d.endpoint}>{applyBusy === 'opencode' ? 'Applying…' : 'Apply'}</button>
+    <button class="btn btn-sm-action" on:click={() => disableCLI('opencode')} disabled={!!applyBusy || !cliStatus.opencode}>Disable</button>
   </div>
 
   <div class="row" style="margin-top:14px; flex-wrap:wrap; gap:8px">
@@ -217,7 +223,7 @@
       {#if cliStatus.openclaude}<span class="pill ok">routed to local</span>{:else}<span class="pill">cloud default</span>{/if}
       <span class="card-sub">(writes global local profile)</span>
     </div>
-    <button class="btn primary" on:click={() => applyCLI('openclaude')} disabled={!!applyBusy || !d.endpoint}>{applyBusy === 'openclaude' ? 'Applying…' : 'Apply'}</button>
-    <button class="btn" on:click={() => disableCLI('openclaude')} disabled={!!applyBusy || !cliStatus.openclaude}>Disable</button>
+    <button class="btn primary btn-sm-action" on:click={() => applyCLI('openclaude')} disabled={!!applyBusy || !d.endpoint}>{applyBusy === 'openclaude' ? 'Applying…' : 'Apply'}</button>
+    <button class="btn btn-sm-action" on:click={() => disableCLI('openclaude')} disabled={!!applyBusy || !cliStatus.openclaude}>Disable</button>
   </div>
 </div>

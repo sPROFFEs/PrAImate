@@ -227,24 +227,24 @@
 <style>
   section { margin-top: 16px; }
   label { display: block; margin: 10px 0; }
-  pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; padding: 12px; background: var(--bg-panel); }
-  code { overflow-wrap: anywhere; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; padding: 12px; background: var(--bg-raised); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--mono); }
+  code { overflow-wrap: anywhere; font-family: var(--mono); }
   details { margin: 12px 0; }
-  summary { cursor: pointer; }
+  summary { cursor: pointer; color: var(--text); font-weight: 500; }
   .btn { margin: 4px; }
   .skill-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
-  .skill-tabs button { border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-dim); padding: 10px 14px; cursor: pointer; }
-  .skill-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  .skill-tabs button { border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-dim); padding: 10px 14px; cursor: pointer; font-family: var(--sans); }
+  .skill-tabs button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
   .skill-tabs span { margin-left: 5px; font-size: 11px; opacity: .7; }
   .section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
-  .section-head h2 { margin: 0 0 3px; }
+  .section-head h2 { margin: 0 0 3px; color: var(--text); }
   .section-head p, .skill-card p { margin: 0; color: var(--text-dim); font-size: 12px; line-height: 1.45; }
   .skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
   .library-tools { display: grid; grid-template-columns: minmax(220px, 1fr) 180px; gap: 8px; margin-bottom: 12px; }
-  .skill-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: grid; gap: 10px; }
+  .skill-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: grid; gap: 10px; color: var(--text); }
   .skill-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-  .skill-card-head span { color: var(--warn, #d39e00); font-size: 11px; }
-  .skill-card-head span.ready { color: var(--ok, #35c76f); }
+  .skill-card-head span { color: var(--warn); font-size: 11px; font-weight: 500; }
+  .skill-card-head span.ready { color: var(--ok); }
   .skill-meta, .hint { color: var(--text-dim); font-size: 11px; }
   .field-label { margin: 10px 0 5px; }
   .import-panel, .authoring-panel { max-width: 760px; }

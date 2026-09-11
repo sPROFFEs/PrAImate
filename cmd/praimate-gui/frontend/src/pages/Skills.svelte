@@ -70,11 +70,11 @@
 <style>
   .skill-help { margin: 18px 0; }
   .loading-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
-  .loading-item { display: flex; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in oklch, var(--surface, #151515) 88%, var(--accent) 12%); }
-  .loading-item strong { font-size: 13px; }
+  .loading-item { display: flex; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text); }
+  .loading-item strong { font-size: 13px; color: var(--text); }
   .loading-item p { margin: 5px 0 0; color: var(--text-dim); font-size: 12px; line-height: 1.45; }
-  .loading-badge { display: grid; place-items: center; flex: 0 0 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; font-size: 12px; }
-  .skill-boundary { margin-top: 14px; padding: 11px 12px; border-left: 3px solid var(--warn, #d39e00); background: color-mix(in oklch, var(--warn, #d39e00) 8%, transparent); color: var(--text-dim); font-size: 12px; line-height: 1.5; }
+  .loading-badge { display: grid; place-items: center; flex: 0 0 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--accent-fg); font-weight: 700; font-size: 12px; }
+  .skill-boundary { margin-top: 14px; padding: 11px 12px; border-left: 3px solid var(--warn); background: color-mix(in oklch, var(--warn) 10%, transparent); color: var(--text-dim); font-size: 12px; line-height: 1.5; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
   code { font-family: var(--mono, monospace); font-size: .92em; }
   @media (max-width: 860px) { .loading-grid { grid-template-columns: 1fr; } }
 </style>

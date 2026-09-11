@@ -135,6 +135,7 @@
 
   function invalidatePreflight() {
     if (!form) return
+    error = ''
     form = { ...form, preflight: null, preflightChecked: false }
   }
 
@@ -165,6 +166,7 @@
       const folder = await api.pickFolder()
       if (folder && form) {
         form.folder = folder
+        error = ''
         invalidatePreflight()
       }
     } catch (e) {
@@ -321,8 +323,10 @@
 
       <SkillChoiceDraft bind:choices={form.skillChoices} />
 
+      {#if error}<div class="banner error-banner" role="alert" style="margin-top:12px">{error}</div>{/if}
+
       <div class="row actions" style="margin-top:20px">
-        <button class="btn" on:click={() => (form = null)} disabled={form.busy}>Cancel</button>
+        <button class="btn" on:click={() => { form = null; error = '' }} disabled={form.busy}>Cancel</button>
         <button class="btn primary" on:click={launch} disabled={form.busy}>{form.busy ? 'Opening…' : 'Open Studio'}</button>
       </div>
     </div>

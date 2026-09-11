@@ -4,6 +4,8 @@
   export let choices = null
   let open = false, busy = true, error = '', query = '', versions = []
   $: count = (choices || []).length
+  $: pinnedCount = versions.filter(v => v.selected && v.activation === 'pinned').length
+  $: exceedsBudget = pinnedCount > 3
   $: shown = versions.filter(v => `${v.name || ''} ${v.description || ''} ${v.ref || ''}`.toLowerCase().includes(query.trim().toLowerCase()))
   onMount(async () => {
     try {
@@ -12,9 +14,14 @@
     finally { busy = false }
   })
   function select(v, selected) {
+    error = ''
     versions = versions.map(item => ({ ...item, selected: selected && item.ref === v.ref ? item.digest === v.digest : item.ref === v.ref ? false : item.selected }))
   }
   function done() {
+    if (exceedsBudget) {
+      error = `Context budget limit: A maximum of 3 skills can be set to "Always include" (pinned) simultaneously (currently ${pinnedCount}). Please change additional skills to "Load automatically" or deselect them.`
+      return
+    }
     choices = versions.filter(v => v.selected).map(v => ({ ref: v.ref, digest: v.digest, activation: v.activation }))
     open = false
   }
@@ -31,8 +38,9 @@
   <div class="modal-backdrop draft-backdrop" on:click|self={() => (open = false)}>
     <div class="modal-content draft-modal" role="dialog" aria-modal="true" aria-label="Choose skills">
       <h2>Skills</h2>
-      <p class="card-sub">Leave unchanged to use the agent and application defaults, or choose an explicit set for this session.</p>
+      <p class="card-sub">Leave unchanged to use the agent and application defaults, or choose an explicit set for this session (max 3 pinned skills per session context budget).</p>
       {#if error}<div class="banner">{error}</div>{/if}
+      {#if exceedsBudget}<div class="banner" style="background: rgba(211, 158, 0, 0.15); border-color: #d39e00; color: var(--text)">⚠️ {pinnedCount}/3 pinned skills selected. A maximum of 3 skills can be loaded simultaneously under "Always include". Change additional skills to "Load automatically" or deselect them.</div>{/if}
       <input class="field search" type="search" bind:value={query} placeholder="Search skills" aria-label="Search skills" />
       <div class="list">
         {#each shown as v (`${v.ref}@${v.digest}`)}
@@ -48,5 +56,19 @@
   </div>
 {/if}
 <style>
-  .draft-control { margin-top: 12px; }.draft-open { width:min(100%,420px);display:flex;justify-content:space-between}.error{color:var(--err);font-size:12px}.draft-backdrop{z-index:13000;padding:20px}.draft-modal{max-width:650px;max-height:86vh;display:flex;flex-direction:column}.search{width:100%;margin:12px 0 4px}.list{overflow:auto}.choice{padding:10px;border-bottom:1px solid var(--border)}.choice.on{background:color-mix(in oklch,var(--accent) 7%,transparent)}.choice label{display:flex;gap:9px}.choice label span{display:grid;gap:3px}.choice small{color:var(--text-dim);font-size:12px}.choice .warn{color:var(--warn,#d39e00)}.choice select{margin:8px 0 0 26px;min-width:240px}.actions{display:flex;justify-content:flex-end;gap:8px;padding-top:12px;border-top:1px solid var(--border)}
+  .draft-control { margin-top: 12px; }
+  .draft-open { width: min(100%, 420px); display: flex; justify-content: space-between; }
+  .error { color: var(--err); font-size: 12px; }
+  .draft-backdrop { z-index: 13000; padding: 20px; }
+  .draft-modal { max-width: 650px; max-height: 86vh; display: flex; flex-direction: column; background: var(--bg-panel); color: var(--text); border: 1px solid var(--border); }
+  .search { width: 100%; margin: 12px 0 4px; }
+  .list { overflow: auto; }
+  .choice { padding: 10px; border-bottom: 1px solid var(--border); }
+  .choice.on { background: var(--accent-soft); border-radius: var(--radius-sm); }
+  .choice label { display: flex; gap: 9px; cursor: pointer; }
+  .choice label span { display: grid; gap: 3px; }
+  .choice small { color: var(--text-dim); font-size: 12px; }
+  .choice .warn { color: var(--warn); font-weight: 500; }
+  .choice select { margin: 8px 0 0 26px; min-width: 240px; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
 </style>

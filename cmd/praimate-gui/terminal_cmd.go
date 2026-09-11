@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -98,13 +99,150 @@ func prepareLegacyTerminalContext(cwd, cli string, agent *core.Agent, prefix str
 	}, nil
 }
 
+func claudeSlug(cwd string) string {
+	if cwd == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		abs = cwd
+	}
+	abs = filepath.ToSlash(abs)
+	var b strings.Builder
+	for _, r := range abs {
+		if r == '/' || r == '\\' || r == '.' || r == ':' {
+			b.WriteByte('-')
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func openclaudeSlug(cwd string) string {
+	if cwd == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		abs = cwd
+	}
+	abs = filepath.ToSlash(abs)
+	var b strings.Builder
+	for _, r := range abs {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
+}
+
+func hasJsonlSessions(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".jsonl") {
+			return true
+		}
+	}
+	return false
+}
+
+func syncJsonlSessions(srcDir, dstDir string) bool {
+	if !hasJsonlSessions(srcDir) {
+		return false
+	}
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return false
+	}
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		return false
+	}
+	synced := false
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".jsonl") {
+			src := filepath.Join(srcDir, e.Name())
+			dst := filepath.Join(dstDir, e.Name())
+			if _, err := os.Stat(dst); os.IsNotExist(err) {
+				if data, err := os.ReadFile(src); err == nil {
+					_ = os.WriteFile(dst, data, 0644)
+					synced = true
+				}
+			} else {
+				synced = true
+			}
+		}
+	}
+	return synced
+}
+
+func hasNativeSession(cli, cwd string) bool {
+	if cwd == "" {
+		return false
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.Getenv("HOME")
+		if home == "" {
+			home = os.Getenv("USERPROFILE")
+		}
+	}
+	if home == "" {
+		return false
+	}
+
+	switch cli {
+	case "openclaude":
+		slug := openclaudeSlug(cwd)
+		ocDir := filepath.Join(home, ".openclaude", "projects", slug)
+		if hasJsonlSessions(ocDir) {
+			return true
+		}
+		cSlug := claudeSlug(cwd)
+		cDir := filepath.Join(home, ".claude", "projects", cSlug)
+		return syncJsonlSessions(cDir, ocDir)
+
+	case "claude":
+		slug := claudeSlug(cwd)
+		cDir := filepath.Join(home, ".claude", "projects", slug)
+		if hasJsonlSessions(cDir) {
+			return true
+		}
+		ocSlug := openclaudeSlug(cwd)
+		ocDir := filepath.Join(home, ".openclaude", "projects", ocSlug)
+		return syncJsonlSessions(ocDir, cDir)
+
+	case "codex":
+		dir := filepath.Join(home, ".codex", "sessions")
+		if _, err := os.Stat(dir); err == nil {
+			entries, _ := os.ReadDir(dir)
+			return len(entries) > 0
+		}
+		return false
+
+	case "opencode", "praimate-code":
+		return true
+	}
+	return false
+}
+
 // terminalResumeCommand reopens the most recent native interactive session in
 // cwd for CLIs that expose a deterministic non-picker flag. The caller still
 // supplies cwd through Cmd.Dir, so "most recent" is folder-scoped.
-func terminalResumeCommand(cli, model string) (name string, args []string, supported bool, err error) {
+func terminalResumeCommand(cli, model, cwd string) (name string, args []string, supported bool, err error) {
 	name, args, err = terminalCommand(cli, model)
 	if err != nil {
 		return "", nil, false, err
+	}
+	if !hasNativeSession(cli, cwd) {
+		// No previous native session exists in this project directory for this CLI.
+		// Launch clean without --continue/resume so the CLI starts fresh without error.
+		return name, args, true, nil
 	}
 	switch cli {
 	case "claude", "openclaude", "opencode", "praimate-code":

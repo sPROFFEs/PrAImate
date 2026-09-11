@@ -323,7 +323,7 @@ func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel 
 	}
 	if resume {
 		var supported bool
-		name, args, supported, err = terminalResumeCommand(cli, model)
+		name, args, supported, err = terminalResumeCommand(cli, model, cwd)
 		if err != nil {
 			return "", err
 		}
