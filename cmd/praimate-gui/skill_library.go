@@ -2,13 +2,78 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"git.jtsec.local/lab/PrAImate/internal/appdata"
 	"git.jtsec.local/lab/PrAImate/internal/core"
 	"git.jtsec.local/lab/PrAImate/internal/skills"
 )
+
+// OpenSkillInStudio extracts the skill files into an editable workspace folder and opens Studio.
+func (a *App) OpenSkillInStudio(ref, digest string) (string, error) {
+	if a.detachedClient != nil {
+		return "", errors.New("open from main window")
+	}
+	if _, err := a.requireCore(); err != nil {
+		return "", err
+	}
+	host, err := core.OpenSkillStore(skills.PackageLimits{})
+	if err != nil {
+		return "", err
+	}
+	defer host.Close()
+
+	v, files, err := host.ReadVersion(a.ctx, ref, digest)
+	if err != nil {
+		return "", err
+	}
+	root, err := appdata.Root()
+	if err != nil {
+		return "", err
+	}
+	folderName := strings.ReplaceAll(strings.ReplaceAll(v.Ref, "/", "_"), ":", "_")
+	workDir := filepath.Join(root, "skills-workspace", folderName)
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return "", err
+	}
+	for _, f := range files {
+		targetPath := filepath.Join(workDir, f.Path)
+		_ = os.MkdirAll(filepath.Dir(targetPath), 0755)
+		_ = os.WriteFile(targetPath, []byte(f.Content), 0644)
+	}
+	return a.OpenEditorWindow(workDir, "", "claude", "", "", "", "", "")
+}
+
+// CreateSkillInStudio creates a fresh skill template in skills-workspace and opens Studio.
+func (a *App) CreateSkillInStudio(name string) (string, error) {
+	if a.detachedClient != nil {
+		return "", errors.New("open from main window")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "my-new-skill"
+	}
+	root, err := appdata.Root()
+	if err != nil {
+		return "", err
+	}
+	cleanName := strings.ReplaceAll(strings.ReplaceAll(name, "/", "_"), ":", "_")
+	workDir := filepath.Join(root, "skills-workspace", cleanName)
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return "", err
+	}
+	skillMD := filepath.Join(workDir, "SKILL.md")
+	if _, err := os.Stat(skillMD); os.IsNotExist(err) {
+		template := fmt.Sprintf("---\nname: %s\ndescription: Describe what this skill does and when to use it.\n---\n\n# %s\n\nWrite your skill instructions and procedures here.\n", name, name)
+		_ = os.WriteFile(skillMD, []byte(template), 0644)
+	}
+	return a.OpenEditorWindow(workDir, "", "claude", "", "", "", "", "")
+}
 
 func (a *App) ExportSkillPackageV2(ref, digest string) (string, error) {
 	if a.detachedClient != nil {

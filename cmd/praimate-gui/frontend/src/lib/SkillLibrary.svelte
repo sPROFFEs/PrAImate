@@ -203,8 +203,9 @@
           </div>
           <p>{v.description || 'No description provided.'}</p>
           <div class="skill-meta mono">{v.ref}</div>
-          <div class="row" style="justify-content:flex-end; gap:6px; margin-top:4px">
-            <button class="btn sm primary" on:click={() => run(() => read(v))}>Inspect / Edit</button>
+          <div class="row" style="justify-content:flex-end; gap:6px; margin-top:4px; flex-wrap:wrap">
+            <button class="btn sm" on:click={() => run(async () => { await api.openSkillInStudio(v.ref, v.digest); notice = 'Studio opened for skill.' })}>Open in Studio</button>
+            <button class="btn sm primary" on:click={() => run(() => read(v))}>Inspect</button>
             <button class="btn sm danger" on:click={() => run(() => deleteInstalled(v))} title="Remove from installed skills">Remove</button>
           </div>
         </div>
@@ -268,9 +269,13 @@
       <!-- Create new skill bar -->
       <div class="card" style="margin-bottom:16px">
         <div class="card-title">Create a new skill</div>
-        <div class="row" style="margin-top:8px; gap:8px; align-items:center">
+        <p class="card-sub">Start with a clean SKILL.md template and build procedures, tools, and checklists with full Studio assistance.</p>
+        <div class="row" style="margin-top:8px; gap:8px; align-items:center; flex-wrap:wrap">
           <input class="field grow mono" bind:value={newRef} placeholder="local/my-skill-name" />
-          <button class="btn primary" disabled={busy || !newRef.trim()} on:click={() => run(create)}>+ Create draft</button>
+          <button class="btn primary" disabled={busy || !newRef.trim()} on:click={() => run(async () => { await api.createSkillInStudio(newRef); notice = 'Studio opened for skill editing.' })}>
+            + Create in Studio
+          </button>
+          <button class="btn" disabled={busy || !newRef.trim()} on:click={() => run(create)}>Quick draft</button>
         </div>
       </div>
 

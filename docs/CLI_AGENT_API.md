@@ -83,6 +83,14 @@ must be `key=value`; malformed and duplicate keys fail with exit status 2.
 `--run-agent` interface remains for old scripts, but new automation should use
 `agent run`.
 
+## Skills and MCP in headless agent runs
+
+When an agent or workflow declares skills or MCP servers in its definition (`agent.yaml` / `skills.lock.json`):
+
+1. **Automatic Skills MCP Bridge:** PrAImate spins up an embedded internal Skills MCP server on a dynamic loopback port for the lifetime of the run.
+2. **Dynamic Tool Execution:** The CLI receives the standard tools `list_available_skills`, `load_skill`, and `read_skill_resource`. The agent inspects available procedures and calls `load_skill(name)` on demand rather than bloating the initial prompt.
+3. **User MCP Servers:** Declared MCP servers (`mcp_servers`) are resolved from encrypted settings and injected into the CLI's environment and configuration automatically.
+
 ## Database unlock
 
 PrAImate never accepts the database password as a command-line argument. Such

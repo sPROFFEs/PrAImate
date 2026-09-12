@@ -1252,7 +1252,13 @@
   .left-head { display: flex; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
   .files { flex: 1 1 50%; min-height: 80px; overflow-y: auto; padding: 6px 4px; border-bottom: 1px solid var(--border); }
   .tree-row { display: flex; align-items: center; gap: 2px; }
-  .tree-item { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--text); font-size: 12px; padding: 3px 6px; border-radius: 6px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-item-wrap { display: flex; align-items: center; border-radius: var(--radius-sm); width: 100%; min-width: 0; }
+  .tree-item-wrap:hover { background: var(--bg-raised); }
+  .tree-item-wrap.on { background: var(--bg-raised); }
+  .tree-item-wrap .tree-act { display: none; background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 3px 6px; border-radius: 4px; font-size: 10px; margin-left: auto; flex-shrink: 0; }
+  .tree-item-wrap:hover .tree-act { display: block; }
+  .tree-item-wrap .tree-act:hover { background: rgba(220, 53, 69, 0.2); color: var(--err, #e5484d); }
+  .tree-item { display: flex; align-items: center; width: 100%; text-align: left; background: none; border: none; color: var(--text); font-size: 12px; padding: 3px 6px; border-radius: 6px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   button.tree-item:hover { background: var(--bg-raised); }
   .tree-item.on { background: var(--bg-raised); font-weight: 600; }
   .tree-item.dir { color: var(--text-dim); cursor: pointer; }
