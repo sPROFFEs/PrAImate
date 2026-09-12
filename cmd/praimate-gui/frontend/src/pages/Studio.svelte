@@ -373,89 +373,93 @@
 {#if cfg}
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <div class="picker-backdrop" on:click={() => (cfg = null)}>
-    <div class="picker" on:click|stopPropagation role="dialog" style="max-width:640px; max-height:90vh; overflow-y:auto; display:flex; flex-direction:column;">
-      <div class="picker-head">
-        <strong class="grow">Settings — {cfg.chat.Title || cfg.chat.WorkspacePath}</strong>
-        <button class="picker-x" on:click={() => (cfg = null)}>×</button>
+  <div class="modal-backdrop" on:click|self={() => (cfg = null)}>
+    <div class="modal-content" role="dialog" aria-modal="true" style="max-width:640px; max-height:90vh; overflow-y:auto">
+      <div class="row" style="align-items:center; justify-content:space-between; margin-bottom:12px">
+        <h2 style="margin:0">Session Settings — {cfg.name || cfg.chat.Title || cfg.chat.WorkspacePath}</h2>
+        <button class="btn sm" on:click={() => (cfg = null)}>✕</button>
       </div>
-      <div class="picker-body grow" style="padding:16px;">
-        <div class="card-sub" style="margin-bottom:12px;">Switching the CLI starts a fresh session on the next message; the history stays.</div>
-        <label class="lbl">Session Name</label>
-        <input class="field" style="max-width:320px; margin-bottom:12px" bind:value={cfg.name} />
+      <div class="card-sub" style="margin-bottom:12px">Switching the CLI starts a fresh session on the next message; the history stays.</div>
 
-        <label class="lbl">CLI</label>
-        <select class="field" style="max-width:320px" bind:value={cfg.cli} on:change={cfgCliChanged}>
-          {#if clis.length === 0}<option value={cfg.cli}>{cfg.cli} (probing CLIs…)</option>{/if}
-          {#each clis as c}
-            <option value={c.id} disabled={!c.available && c.id !== cfg.chat.CLIAgent}>
-              {c.label}{c.available ? '' : ' — not installed'}
-            </option>
-          {/each}
-        </select>
-        <label class="lbl">Model (blank = CLI default)</label>
-        <input class="field mono" style="max-width:420px" list="cfg-model-suggestions" bind:value={cfg.model} />
-        <datalist id="cfg-model-suggestions">
-          {#each cfg.suggestions || [] as m}<option value={m}></option>{/each}
-        </datalist>
-        {#if cfg.modelLoading}<div class="card-sub">Loading models...</div>{/if}
-        <label class="lbl">Tools</label>
-        <div class="row">
-            {#each toolLevelsForCli(cfg.cli) as lvl}
-              <button class="btn sm" class:primary={cfg.tools === lvl.id} title={lvl.hint} on:click={() => (cfg.tools = lvl.id)}>{lvl.label}</button>
-            {/each}
-        </div>
-        {#if localOpt?.configured && supportsLocalRouting(cfg.cli)}
-          <label class="row" style="margin-top:10px; gap:8px; cursor:pointer">
-            <input type="checkbox" checked={!!cfg.localEndpoint} on:change={(e) => {
-              cfg.localEndpoint = e.currentTarget.checked ? localOpt.endpoint : ''
-              cfg.localModel = e.currentTarget.checked ? cfg.localModel || localOpt.models?.[0] || '' : ''
-            }} />
-            <span>Use the local LLM <span class="card-sub mono">{localOpt.endpoint}</span></span>
-          </label>
-          {#if cfg.localEndpoint}
-            <label class="lbl" style="margin-top:8px">Local model</label>
-            {#if localOpt.allModels?.length}
-              <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={cfg.localModel}>
-                <option value="">Select a detected model…</option>
-                {#each localOpt.hosts || [] as host}
-                  <optgroup label={`${host.name} (${host.endpoint})`}>
-                    {#each host.models as m}
-                      <option value={m}>{m}</option>
-                    {/each}
-                  </optgroup>
-                {/each}
-              </select>
-            {/if}
-            <input class="field mono" style="max-width:420px" list="cfg-local-models" bind:value={cfg.localModel} placeholder="or type model name (e.g. qwen2.5-coder)" />
-            <datalist id="cfg-local-models">{#each localOpt.models || [] as m}<option value={m}></option>{/each}</datalist>
-          {/if}
-        {/if}
-        {#key cfg.chat.ID}<SkillBindingsEditor chatID={cfg.chat.ID} />{/key}
-        <label class="lbl" style="margin-top:10px">MCP servers</label>
-        {#if mcpServers.length === 0}
-          <div class="card-sub">No enabled MCP servers.</div>
-        {:else}
-          <div class="mcp-grid">
-            {#each mcpServers as server}
-              <label class="mcp-card">
-                <input
-                  type="checkbox"
-                  checked={cfg.mcps?.includes(server.id)}
-                  on:change={(e) => {
-                    cfg.mcps = e.currentTarget.checked
-                      ? [...(cfg.mcps || []), server.id]
-                      : (cfg.mcps || []).filter((id) => id !== server.id)
-                  }} />
-                <span><strong>{server.name}</strong> <span class="card-sub">{server.transport}</span></span>
-              </label>
-            {/each}
-          </div>
-        {/if}
+      <label class="lbl">Session Name</label>
+      <input class="field" style="max-width:320px; margin-bottom:12px" bind:value={cfg.name} />
+
+      <label class="lbl">CLI</label>
+      <select class="field" style="max-width:320px" bind:value={cfg.cli} on:change={cfgCliChanged}>
+        {#if clis.length === 0}<option value={cfg.cli}>{cfg.cli} (probing CLIs…)</option>{/if}
+        {#each clis as c}
+          <option value={c.id} disabled={!c.available && c.id !== cfg.chat.CLIAgent}>
+            {c.label}{c.available ? '' : ' — not installed'}
+          </option>
+        {/each}
+      </select>
+
+      <label class="lbl" style="margin-top:10px">Model (blank = CLI default)</label>
+      <input class="field mono" style="max-width:420px" list="cfg-model-suggestions" bind:value={cfg.model} />
+      <datalist id="cfg-model-suggestions">
+        {#each cfg.suggestions || [] as m}<option value={m}></option>{/each}
+      </datalist>
+      {#if cfg.modelLoading}<div class="card-sub">Loading models...</div>{/if}
+
+      <label class="lbl" style="margin-top:10px">Tools</label>
+      <div class="row">
+        {#each toolLevelsForCli(cfg.cli) as lvl}
+          <button class="btn sm" class:primary={cfg.tools === lvl.id} title={lvl.hint} on:click={() => (cfg.tools = lvl.id)}>{lvl.label}</button>
+        {/each}
       </div>
-      <div class="picker-foot" style="justify-content:flex-end;">
+
+      {#if localOpt?.configured && supportsLocalRouting(cfg.cli)}
+        <label class="row" style="margin-top:12px; gap:8px; cursor:pointer">
+          <input type="checkbox" checked={!!cfg.localEndpoint} on:change={(e) => {
+            cfg.localEndpoint = e.currentTarget.checked ? localOpt.endpoint : ''
+            cfg.localModel = e.currentTarget.checked ? cfg.localModel || localOpt.models?.[0] || '' : ''
+          }} />
+          <span>Use the local LLM <span class="card-sub mono">{localOpt.endpoint}</span></span>
+        </label>
+        {#if cfg.localEndpoint}
+          <label class="lbl" style="margin-top:8px">Local model</label>
+          {#if localOpt.allModels?.length}
+            <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={cfg.localModel}>
+              <option value="">Select a detected model…</option>
+              {#each localOpt.hosts || [] as host}
+                <optgroup label={`${host.name} (${host.endpoint})`}>
+                  {#each host.models as m}
+                    <option value={m}>{m}</option>
+                  {/each}
+                </optgroup>
+              {/each}
+            </select>
+          {/if}
+          <input class="field mono" style="max-width:420px" list="cfg-local-models" bind:value={cfg.localModel} placeholder="or type model name (e.g. qwen2.5-coder)" />
+          <datalist id="cfg-local-models">{#each localOpt.models || [] as m}<option value={m}></option>{/each}</datalist>
+        {/if}
+      {/if}
+      {#key cfg.chat.ID}<SkillBindingsEditor chatID={cfg.chat.ID} />{/key}
+
+      <label class="lbl" style="margin-top:10px">MCP servers</label>
+      {#if mcpServers.length === 0}
+        <div class="card-sub">No enabled MCP servers.</div>
+      {:else}
+        <div class="mcp-grid">
+          {#each mcpServers as server}
+            <label class="mcp-card">
+              <input
+                type="checkbox"
+                checked={cfg.mcps?.includes(server.id)}
+                on:change={(e) => {
+                  cfg.mcps = e.currentTarget.checked
+                    ? [...(cfg.mcps || []), server.id]
+                    : (cfg.mcps || []).filter((id) => id !== server.id)
+                }} />
+              <span><strong>{server.name}</strong> <span class="card-sub">{server.transport}</span></span>
+            </label>
+          {/each}
+        </div>
+      {/if}
+
+      <div class="row actions" style="margin-top:16px; justify-content:flex-end; gap:8px">
         <button class="btn" on:click={() => (cfg = null)}>Cancel</button>
-        <button class="btn primary" on:click={saveConfig} disabled={cfgSaving}>{cfgSaving ? 'Saving…' : 'Save'}</button>
+        <button class="btn primary" on:click={saveConfig} disabled={cfgSaving}>Save changes</button>
       </div>
     </div>
   </div>

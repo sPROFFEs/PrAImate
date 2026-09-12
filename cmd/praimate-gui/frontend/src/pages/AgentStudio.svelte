@@ -1154,9 +1154,22 @@
     {/if}
     {#if notice}<div class="note">{notice}</div>{/if}
     {#if skillsPreview}
-      <details open><summary>Skill resolution — not runtime loading</summary>
-        <pre role="status" style="max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere">{skillsPreview}</pre>
-      </details>
+      <!-- svelte-ignore a11y-click-events-have-key-events -->
+      <!-- svelte-ignore a11y-no-static-element-interactions -->
+      <div class="modal-backdrop" style="z-index:20000" on:click|self={() => (skillsPreview = '')}>
+        <div class="modal-content" role="dialog" aria-modal="true" style="max-width:680px; max-height:85vh; display:flex; flex-direction:column">
+          <div class="row" style="align-items:center; justify-content:space-between; margin-bottom:10px">
+            <h2 style="margin:0; font-size:16px">Skill Resolution Preview</h2>
+            <button class="btn sm" on:click={() => (skillsPreview = '')}>✕</button>
+          </div>
+          <p class="card-sub" style="margin:0 0 10px">Preview of resolved skill bindings, locks, and budgets based on the current agent definition.</p>
+          <pre role="status" style="flex:1; max-height:55vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:var(--bg-raised); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; font-family:var(--mono); font-size:12px; color:var(--text)">{skillsPreview}</pre>
+          <div class="row" style="justify-content:flex-end; margin-top:14px; gap:8px">
+            <button class="btn sm" on:click={() => { navigator.clipboard.writeText(skillsPreview); notice = 'Preview copied to clipboard.' }}>Copy JSON</button>
+            <button class="btn sm primary" on:click={() => (skillsPreview = '')}>Close</button>
+          </div>
+        </div>
+      </div>
     {/if}
     <div class="editor-stack">
       {#each tabs as t (t.key)}
