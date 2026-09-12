@@ -10,6 +10,39 @@ import (
 	"git.jtsec.local/lab/PrAImate/internal/store"
 )
 
+func TestLocalLLMHostsModelsOmitsUnreachableHost(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "praimate")
+	t.Setenv("PRAIMATE_HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := launcher.SaveConfig(&launcher.Config{DefaultLocalEndpoint: "http://127.0.0.1:1"}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.InitializeWithPassword(filepath.Join(root, "db.sqlite"), "test-secret-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	c, err := core.New(core.Options{Store: st})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{ctx: context.Background(), core: c}
+	options, err := app.LocalLLMHostsModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options) != 0 {
+		t.Fatalf("unreachable host was exposed to pickers: %+v", options)
+	}
+	opt, err := app.LocalLLMModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opt.Configured {
+		t.Fatalf("unreachable default host remained configured: %+v", opt)
+	}
+}
+
 func TestMultiHostLocalLLMAndBatchApply(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "praimate")
 	t.Setenv("PRAIMATE_HOME", root)

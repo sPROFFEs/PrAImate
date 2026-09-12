@@ -18,6 +18,7 @@ import (
 
 const localLLMAPIKeySetting = "local_llm.api_key"
 const localLLMHostsSetting = "local_llm.hosts"
+const localLLMProbeTimeout = 1200 * time.Millisecond
 
 // LocalHost describes an OpenAI-compatible host endpoint.
 type LocalHost struct {
@@ -236,30 +237,48 @@ func (a *App) LocalLLMHostsModels() ([]LocalHostOption, error) {
 	if err != nil {
 		return nil, err
 	}
+	baseCtx := a.ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	type probeResult struct {
+		index  int
+		option *LocalHostOption
+	}
+	results := make(chan probeResult, len(hosts))
+	for i, h := range hosts {
+		go func(i int, h LocalHost) {
+			var apiKey string
+			if h.IsDefault {
+				apiKey, _ = loadLocalLLMAPIKey(a.core)
+			} else {
+				apiKey, _ = loadHostAPIKey(a.core, h.ID)
+			}
+			ctx, cancel := context.WithTimeout(baseCtx, localLLMProbeTimeout)
+			models, probeErr := ollama.ListModels(ctx, ollama.NormalizeEndpoint(h.Endpoint), apiKey)
+			cancel()
+			if probeErr != nil {
+				// Unreachable hosts are intentionally omitted. The saved host
+				// remains in settings, but must not block or clutter pickers.
+				results <- probeResult{index: i}
+				return
+			}
+			results <- probeResult{index: i, option: &LocalHostOption{
+				ID: h.ID, Name: h.Name, Endpoint: h.Endpoint,
+				HasAPIKey: h.HasAPIKey, Models: models, IsDefault: h.IsDefault,
+			}}
+		}(i, h)
+	}
+	ordered := make([]*LocalHostOption, len(hosts))
+	for range hosts {
+		result := <-results
+		ordered[result.index] = result.option
+	}
 	var options []LocalHostOption
-	for _, h := range hosts {
-		opt := LocalHostOption{
-			ID:        h.ID,
-			Name:      h.Name,
-			Endpoint:  h.Endpoint,
-			HasAPIKey: h.HasAPIKey,
-			IsDefault: h.IsDefault,
+	for _, option := range ordered {
+		if option != nil {
+			options = append(options, *option)
 		}
-		var apiKey string
-		if h.IsDefault {
-			apiKey, _ = loadLocalLLMAPIKey(a.core)
-		} else {
-			apiKey, _ = loadHostAPIKey(a.core, h.ID)
-		}
-		ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
-		models, err := ollama.ListModels(ctx, ollama.NormalizeEndpoint(h.Endpoint), apiKey)
-		cancel()
-		if err != nil {
-			opt.Error = err.Error()
-		} else {
-			opt.Models = models
-		}
-		options = append(options, opt)
 	}
 	return options, nil
 }
@@ -470,10 +489,9 @@ func (a *App) LocalLLMModels() (*LocalLLMOption, error) {
 		return nil, err
 	}
 	opt := &LocalLLMOption{
-		Configured: d.Endpoint != "",
-		Endpoint:   d.Endpoint,
-		HasAPIKey:  d.HasAPIKey,
-		WireAPI:    d.WireAPI,
+		Endpoint:  d.Endpoint,
+		HasAPIKey: d.HasAPIKey,
+		WireAPI:   d.WireAPI,
 	}
 	hostsOptions, _ := a.LocalLLMHostsModels()
 	opt.Hosts = hostsOptions
@@ -490,27 +508,22 @@ func (a *App) LocalLLMModels() (*LocalLLMOption, error) {
 	}
 	opt.AllModels = allItems
 
-	if !opt.Configured {
-		if len(hostsOptions) > 0 && hostsOptions[0].Endpoint != "" {
+	// Only responsive hosts are returned to the pickers. Prefer the saved
+	// default when it answered; otherwise use the first responsive host.
+	for _, host := range hostsOptions {
+		if d.Endpoint != "" && ollama.NormalizeEndpoint(host.Endpoint) == ollama.NormalizeEndpoint(d.Endpoint) {
 			opt.Configured = true
-			opt.Endpoint = hostsOptions[0].Endpoint
-			opt.HasAPIKey = hostsOptions[0].HasAPIKey
-			opt.Models = hostsOptions[0].Models
-			opt.Error = hostsOptions[0].Error
+			opt.Endpoint = host.Endpoint
+			opt.HasAPIKey = host.HasAPIKey
+			opt.Models = host.Models
+			return opt, nil
 		}
-		return opt, nil
 	}
-	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
-	defer cancel()
-	apiKey, err := loadLocalLLMAPIKey(a.core)
-	if err != nil {
-		return nil, err
+	if len(hostsOptions) > 0 {
+		opt.Configured = true
+		opt.Endpoint = hostsOptions[0].Endpoint
+		opt.HasAPIKey = hostsOptions[0].HasAPIKey
+		opt.Models = hostsOptions[0].Models
 	}
-	models, err := ollama.ListModels(ctx, ollama.NormalizeEndpoint(d.Endpoint), apiKey)
-	if err != nil {
-		opt.Error = err.Error()
-		return opt, nil
-	}
-	opt.Models = models
 	return opt, nil
 }
