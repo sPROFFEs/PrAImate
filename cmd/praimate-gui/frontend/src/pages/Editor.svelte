@@ -14,6 +14,7 @@
   import { langOf as fileLang } from '../lib/langOf.js'
   import { renderMarkdown } from '../lib/markdown.js'
   import { showSkillDeliveryToast, showConfirm } from '../lib/stores.js'
+  import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
 
   export let folder = ''
   export let chatId = ''
@@ -32,6 +33,75 @@
 
   let expandedDirs = new Set()
   let initExpanded = true
+
+  let cfg = null
+  let cfgSaving = false
+  let clis = []
+  let localOpt = null
+  let mcpServers = []
+
+  function toolLevelsForCli(c) {
+    if (c === 'claude' || c === 'openclaude') return [{id:'',label:'Safe',hint:''}, {id:'ask',label:'Ask',hint:''}, {id:'edits',label:'Edits',hint:''}, {id:'full',label:'Full',hint:''}]
+    if (c === 'codex' || c === 'gemini') return [{id:'',label:'Safe',hint:''}, {id:'edits',label:'Edits',hint:''}, {id:'full',label:'Full',hint:''}]
+    if (c === 'opencode' || c === 'praimate-code') return [{id:'',label:'Safe',hint:''}, {id:'plan',label:'Plan',hint:''}, {id:'full',label:'Full',hint:''}]
+    return [{id:'',label:'Safe',hint:''}, {id:'full',label:'Full',hint:''}]
+  }
+
+  function normalizeToolsForCli(c, tools) {
+    const valid = toolLevelsForCli(c).map(l => l.id)
+    return valid.includes(tools) ? tools : (valid[0] || '')
+  }
+
+  function openConfig() {
+    if (!chat) return
+    cfg = {
+      name: chat.Title || '',
+      cli: chat.CLIAgent,
+      model: chat.Settings?.model || '',
+      tools: chat.Settings?.tools || 'edits',
+      localEndpoint: chat.Settings?.local?.endpoint || '',
+      localApiKey: chat.Settings?.local?.api_key || '',
+      localModel: chat.Settings?.local?.model || '',
+      suggestions: [],
+      modelLoading: true,
+      mcps: (chat.Settings?.mcp_servers || []).slice(),
+    }
+    if (clis.length === 0) api.listCLIs().then((r) => { clis = r || [] }).catch(() => {})
+    if (localOpt === null) api.localLLMModels().then((r) => { localOpt = r }).catch(() => { localOpt = { configured: false } })
+    api.listMCPServers().then((r) => { mcpServers = (r || []).filter((s) => s.enabled) }).catch(() => {})
+    cfgCliChanged()
+  }
+
+  async function cfgCliChanged() {
+    if (!cfg) return
+    if (cfg.localEndpoint && !supportsLocalRouting(cfg.cli)) { cfg.localEndpoint = ''; cfg.localModel = '' }
+    cfg.tools = normalizeToolsForCli(cfg.cli, cfg.tools)
+    cfg.modelLoading = true
+    cfg.suggestions = (await api.listCLIModels(cfg.cli).catch(() => [])) || []
+    cfg.modelLoading = false
+  }
+
+  async function saveConfig() {
+    if (!cfg || !chatId) return
+    cfgSaving = true
+    error = ''
+    try {
+      await api.updateChatConfig(
+        chatId, cfg.cli, cfg.model.trim(), normalizeToolsForCli(cfg.cli, cfg.tools),
+        cfg.localEndpoint.trim(), cfg.localApiKey, cfg.localModel.trim()
+      )
+      if (cfg.name.trim() && cfg.name.trim() !== chat.Title) {
+        await api.renameChat(chatId, cfg.name.trim())
+      }
+      await api.setChatMCPServers(chatId, cfg.mcps || [])
+      cfg = null
+      await loadChat()
+    } catch (e) {
+      error = String(e)
+    } finally {
+      cfgSaving = false
+    }
+  }
 
   function toggleDir(dirPath) {
     if (expandedDirs.has(dirPath)) {
@@ -784,12 +854,14 @@
     <div class="chat-head">
       <strong class="grow">{chat?.Title || 'Agent chat'}</strong>
       {#if chat?.AgentID}<span class="pill">Agent: {agentName || chat.AgentID}</span>{/if}
-        <span class="pill">{chat?.CLIAgent || ''}</span>
-        {#if chat?.Settings?.skill_runtime}
-          <span class="pill" title="Controlled payload evidence; native private context is not inspected">
-            skills: {chat.Settings.skill_runtime.status || 'unknown'} · {chat.Settings.skill_runtime.coverage || 'unknown'}
-          </span>
-        {/if}
+      <span class="pill">{chat?.CLIAgent || ''}</span>
+      {#if chat?.Settings?.model}<span class="pill">{chat.Settings.model}</span>{/if}
+      {#if chat?.Settings?.skill_runtime}
+        <span class="pill" title="Controlled payload evidence; native private context is not inspected">
+          skills: {chat.Settings.skill_runtime.status || 'unknown'} · {chat.Settings.skill_runtime.coverage || 'unknown'}
+        </span>
+      {/if}
+      <button class="btn sm" title="Edit session CLI and model" on:click={openConfig}>⚙</button>
       <button class="btn sm" title="Hide chat" on:click={() => (chatOpen = false)}>▸</button>
     </div>
     {#if chatId}
@@ -876,6 +948,111 @@
   </aside>
   {/if}
 </div>
+
+{#if cfg}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="modal-backdrop" style="z-index:10000" on:click|self={() => (cfg = null)}>
+    <div class="modal-content" role="dialog" aria-modal="true" style="max-width:640px; max-height:90vh; overflow-y:auto">
+      <div class="row" style="align-items:center; justify-content:space-between; margin-bottom:12px">
+        <h2 style="margin:0">Session Settings — {cfg.name || chat?.Title}</h2>
+        <button class="btn sm" on:click={() => (cfg = null)}>✕</button>
+      </div>
+      <div class="card-sub" style="margin-bottom:12px">Switching the CLI starts a fresh session on the next message; the history stays.</div>
+
+      <label class="lbl">Session Name</label>
+      <input class="field" style="max-width:320px; margin-bottom:12px" bind:value={cfg.name} />
+
+      <label class="lbl">CLI</label>
+      <select class="field" style="max-width:320px" bind:value={cfg.cli} on:change={cfgCliChanged}>
+        {#if clis.length === 0}<option value={cfg.cli}>{cfg.cli} (probing CLIs…)</option>{/if}
+        {#each clis as c}
+          <option value={c.id} disabled={!c.available}>
+            {c.label || c.id}{c.available ? '' : ' — not installed'}
+          </option>
+        {/each}
+      </select>
+
+      <label class="lbl" style="margin-top:10px">Model (blank = CLI default)</label>
+      <input class="field mono" style="max-width:420px" list="editor-cfg-model-suggestions" bind:value={cfg.model} />
+      <datalist id="editor-cfg-model-suggestions">
+        {#each cfg.suggestions || [] as m}<option value={m}></option>{/each}
+      </datalist>
+      {#if cfg.modelLoading}<div class="card-sub">Loading models...</div>{/if}
+
+      <label class="lbl" style="margin-top:10px">Tools</label>
+      <div class="row">
+        {#each toolLevelsForCli(cfg.cli) as lvl}
+          <button class="btn sm" class:primary={cfg.tools === lvl.id} title={lvl.hint} on:click={() => (cfg.tools = lvl.id)}>{lvl.label}</button>
+        {/each}
+      </div>
+
+      {#if localOpt?.configured && supportsLocalRouting(cfg.cli)}
+        <label class="row" style="margin-top:12px; gap:8px; cursor:pointer">
+          <input type="checkbox" checked={!!cfg.localEndpoint} on:change={(e) => {
+            cfg.localEndpoint = e.currentTarget.checked ? localOpt.endpoint : ''
+            cfg.localModel = e.currentTarget.checked ? cfg.localModel || localOpt.models?.[0] || '' : ''
+          }} />
+          <span>Use the local LLM from Settings <span class="card-sub mono">{localOpt.endpoint}</span></span>
+        </label>
+        {#if cfg.localEndpoint}
+          <label class="lbl" style="margin-top:8px">Local model</label>
+          {#if localOpt.allModels?.length}
+            <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={cfg.localModel}>
+              <option value="">Select a detected model…</option>
+              {#each localOpt.hosts || [] as host}
+                <optgroup label={`${host.name} (${host.endpoint})`}>
+                  {#each host.models as m}
+                    <option value={m}>{m}</option>
+                  {/each}
+                </optgroup>
+              {/each}
+            </select>
+          {/if}
+          <input class="field mono" style="max-width:420px" list="editor-cfg-local-models" bind:value={cfg.localModel} placeholder="or type model name (e.g. qwen2.5-coder)" />
+          <datalist id="editor-cfg-local-models">{#each localOpt.models || [] as m}<option value={m}></option>{/each}</datalist>
+        {/if}
+      {:else if cfg.localEndpoint}
+        <div class="card-sub" style="margin-top:8px">{localRoutingUnavailableMessage(cfg.cli)}</div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn sm" on:click={() => { cfg.localEndpoint = ''; cfg.localModel = ''; cfg = cfg }}>Clear local route</button>
+        </div>
+      {/if}
+
+      {#if chatId}
+        <label class="lbl" style="margin-top:10px">Skills</label>
+        {#key chatId}<SkillBindingsEditor chatID={chatId} on:saved={loadChat} />{/key}
+      {/if}
+
+      <label class="lbl" style="margin-top:10px">MCP servers</label>
+      {#if mcpServers.length === 0}
+        <div class="card-sub">No enabled MCP servers.</div>
+      {:else}
+        <div class="mcp-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:8px; margin-top:8px">
+          {#each mcpServers as server}
+            <label class="mcp-card" style="display:flex; align-items:flex-start; gap:8px; padding:8px; border:1px solid var(--border); border-radius:6px; cursor:pointer">
+              <input
+                type="checkbox"
+                value={server.id}
+                checked={cfg.mcps?.includes(server.id)}
+                on:change={(e) => {
+                  cfg.mcps = e.currentTarget.checked
+                    ? [...(cfg.mcps || []), server.id]
+                    : (cfg.mcps || []).filter((id) => id !== server.id)
+                }} />
+              <span><strong>{server.name}</strong> <span class="card-sub">{server.transport}</span></span>
+            </label>
+          {/each}
+        </div>
+      {/if}
+
+      <div class="row" style="margin-top:16px; justify-content:flex-end; gap:8px">
+        <button class="btn" on:click={() => (cfg = null)} disabled={cfgSaving}>Cancel</button>
+        <button class="btn primary" on:click={saveConfig} disabled={cfgSaving}>{cfgSaving ? 'Saving…' : 'Save settings'}</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <!-- The ask-menu renders inside CodeMirror's tooltip layer; see
      buildAskDom() and the :global(.ask-menu) styles. -->

@@ -688,35 +688,73 @@ func (a *App) ListCLIs() []CLIInfo {
 // ListCLIModels returns live model suggestions when the CLI exposes a
 // catalogue; otherwise it falls back to the static suggestions.
 func (a *App) ListCLIModels(cli string) []string {
-	if cli == "codex" {
-		models := a.listCodexModels()
-		if len(models) > 0 {
-			return models
-		}
-		return staticModelSuggestions[cli]
-	}
-	if cli != "opencode" && cli != "praimate-code" {
-		return staticModelSuggestions[cli]
-	}
-	bin, err := exec.LookPath(cli)
-	if err != nil {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "models")
-	hideConsole(cmd)
-	outBytes, err := cmd.Output()
-	if err != nil {
-		return nil
-	}
+	seen := map[string]bool{}
 	var models []string
-	for _, line := range strings.Split(string(outBytes), "\n") {
-		line = strings.TrimSpace(line)
-		// Model lines are provider/model; skip log noise.
-		if line != "" && strings.Contains(line, "/") && !strings.Contains(line, " ") {
-			models = append(models, line)
+	add := func(m string) {
+		m = strings.TrimSpace(m)
+		if m != "" && !seen[m] {
+			seen[m] = true
+			models = append(models, m)
 		}
+	}
+
+	if cli == "openclaude" {
+		// Include OpenClaude configured local profile model if present
+		if profile, ok := launcher.ReadOpenClaudeLocalProfile(); ok && profile.Model != "" {
+			add(profile.Model)
+		}
+		// Include static aliases and models
+		for _, m := range staticModelSuggestions["openclaude"] {
+			add(m)
+		}
+		return models
+	}
+
+	if cli == "codex" {
+		live := a.listCodexModels()
+		for _, m := range live {
+			add(m)
+		}
+		for _, m := range staticModelSuggestions["codex"] {
+			add(m)
+		}
+		return models
+	}
+
+	if cli == "opencode" || cli == "praimate-code" {
+		// Include models configured in opencode.json
+		if ocModels, err := ollama.ListConfiguredOpenCodeModels(); err == nil {
+			for pKey, mList := range ocModels {
+				for _, m := range mList {
+					add(pKey + "/" + m)
+					add(m)
+				}
+			}
+		}
+		// Probe opencode CLI models if available
+		if bin, err := exec.LookPath(cli); err == nil {
+			ctx, cancel := context.WithTimeout(a.ctx, 8*time.Second)
+			cmd := exec.CommandContext(ctx, bin, "models")
+			hideConsole(cmd)
+			if outBytes, err := cmd.Output(); err == nil {
+				for _, line := range strings.Split(string(outBytes), "\n") {
+					line = strings.TrimSpace(line)
+					if line != "" && strings.Contains(line, "/") && !strings.Contains(line, " ") {
+						add(line)
+					}
+				}
+			}
+			cancel()
+		}
+		// Fallback defaults
+		for _, m := range []string{"anthropic/claude-sonnet-4-5", "openai/gpt-5", "anthropic/claude-opus-4-6", "anthropic/claude-haiku-4-5"} {
+			add(m)
+		}
+		return models
+	}
+
+	for _, m := range staticModelSuggestions[cli] {
+		add(m)
 	}
 	return models
 }
