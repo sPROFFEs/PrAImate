@@ -43,14 +43,14 @@ func main() {
 	}
 
 	// Hidden mode: when claude spawns this same binary as the MCP
-	// approval shim (`praimate-gui -mcp-approve <url> -mcp-token <tok>`),
+	// approval shim (`praimate-gui --mcp-approve <url> --mcp-token <tok>`),
 	// run the stdio server and exit WITHOUT touching Wails — no window,
 	// no webview, just stdin/stdout JSON-RPC.
-	if len(os.Args) >= 3 && os.Args[1] == "-mcp-approve" {
+	if len(os.Args) >= 3 && (os.Args[1] == "--mcp-approve" || os.Args[1] == "-mcp-approve") {
 		endpoint := os.Args[2]
 		token := ""
 		for i := 3; i+1 < len(os.Args); i++ {
-			if os.Args[i] == "-mcp-token" {
+			if os.Args[i] == "--mcp-token" || os.Args[i] == "-mcp-token" {
 				token = os.Args[i+1]
 			}
 		}
@@ -58,13 +58,13 @@ func main() {
 	}
 
 	// Hidden mode: when a CLI spawns this same binary as the MCP
-	// skills provider (`praimate-gui -mcp-skills <url> -mcp-token <tok>`),
+	// skills provider (`praimate-gui --mcp-skills <url> --mcp-token <tok>`),
 	// run the stdio server and exit WITHOUT touching Wails.
-	if len(os.Args) >= 3 && os.Args[1] == "-mcp-skills" {
+	if len(os.Args) >= 3 && (os.Args[1] == "--mcp-skills" || os.Args[1] == "-mcp-skills") {
 		endpoint := os.Args[2]
 		token := ""
 		for i := 3; i+1 < len(os.Args); i++ {
-			if os.Args[i] == "-mcp-token" {
+			if os.Args[i] == "--mcp-token" || os.Args[i] == "-mcp-token" {
 				token = os.Args[i+1]
 			}
 		}
@@ -90,11 +90,11 @@ func main() {
 	installer.ImportPraimateBinToPath()
 	installer.ImportUserBinDirs()
 
-	// Studio mode: `praimate-gui -editor <folder> -editor-chat <id>`
+	// Studio mode: `praimate-gui --editor <folder> --editor-chat <id>`
 	// opens the document-studio window instead of the main app (Wails
 	// v2 has one window per process — see editor_window.go).
 	title := "PrAImate"
-	if len(os.Args) >= 2 && os.Args[1] == "-detached-window" {
+	if len(os.Args) >= 2 && (os.Args[1] == "--detached-window" || os.Args[1] == "-detached-window") {
 		detachedProcessMode = detachedModeFromEnvironment()
 		if !detachedProcessMode.active {
 			fmt.Fprintln(os.Stderr, "invalid detached-window environment")
@@ -102,10 +102,10 @@ func main() {
 		}
 		title = "PrAImate — " + detachedProcessMode.title
 	}
-	if len(os.Args) >= 3 && os.Args[1] == "-editor" {
+	if len(os.Args) >= 3 && (os.Args[1] == "--editor" || os.Args[1] == "-editor") {
 		editorFolder = os.Args[2]
 		for i := 3; i+1 < len(os.Args); i++ {
-			if os.Args[i] == "-editor-chat" {
+			if os.Args[i] == "--editor-chat" || os.Args[i] == "-editor-chat" {
 				editorChatID = os.Args[i+1]
 			}
 		}
