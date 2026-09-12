@@ -610,9 +610,11 @@ create_shortcuts() {
       mkdir -p "$apps"
       local icon_line=""
       if [[ -n "$icon_src" && -f "$icon_src" ]]; then
-        mkdir -p "$HOME/.local/share/icons"
-        cp -f "$icon_src" "$HOME/.local/share/icons/praimate.png" 2>/dev/null \
-          && icon_line="Icon=$HOME/.local/share/icons/praimate.png"
+        mkdir -p "$HOME/.local/share/icons" "$HOME/.local/share/icons/hicolor/512x512/apps" "$HOME/.local/share/pixmaps"
+        cp -f "$icon_src" "$HOME/.local/share/icons/praimate.png" 2>/dev/null || true
+        cp -f "$icon_src" "$HOME/.local/share/icons/hicolor/512x512/apps/praimate.png" 2>/dev/null || true
+        cp -f "$icon_src" "$HOME/.local/share/pixmaps/praimate.png" 2>/dev/null || true
+        icon_line="Icon=$HOME/.local/share/icons/hicolor/512x512/apps/praimate.png"
       fi
 
       # Write a launcher script next to each binary that ALWAYS reproduces
@@ -721,8 +723,10 @@ Type=Application
 Name=PrAImate
 Comment=Multi-CLI agent desktop app
 Exec=$DEST/praimate-gui-launch %F
+Path=$HOME
 Terminal=false
 $icon_line
+StartupWMClass=praimate
 Categories=Development;Utility;
 DESK
       rm -f "$apps/praimate-gui.desktop"

@@ -15,6 +15,7 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/wailsapp/wails/v2"
@@ -90,6 +91,10 @@ func main() {
 	installer.ImportPraimateBinToPath()
 	installer.ImportUserBinDirs()
 
+	if runtime.GOOS == "linux" && len(appIcon) > 0 {
+		ensureLinuxDesktopIcon()
+	}
+
 	// Studio mode: `praimate-gui --editor <folder> --editor-chat <id>`
 	// opens the document-studio window instead of the main app (Wails
 	// v2 has one window per process — see editor_window.go).
@@ -140,4 +145,23 @@ func main() {
 
 func supportedDesktopOS(goos string) bool {
 	return goos == "linux" || goos == "windows"
+}
+
+func ensureLinuxDesktopIcon() {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	iconDirs := []string{
+		filepath.Join(home, ".local", "share", "icons", "hicolor", "512x512", "apps"),
+		filepath.Join(home, ".local", "share", "pixmaps"),
+		filepath.Join(home, ".local", "share", "icons"),
+	}
+	for _, dir := range iconDirs {
+		_ = os.MkdirAll(dir, 0755)
+		target := filepath.Join(dir, "praimate.png")
+		if _, err := os.Stat(target); os.IsNotExist(err) {
+			_ = os.WriteFile(target, appIcon, 0644)
+		}
+	}
 }

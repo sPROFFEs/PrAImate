@@ -171,6 +171,8 @@
   function filePreview(f) { try { return decode(f.Content) } catch (_) { return '[Binary file — preserved in the package]' } }
 </script>
 
+<svelte:window on:focus={() => run(refresh)} />
+
 <section aria-label="Skill library">
   {#if error}<div class="banner error-banner" role="alert">{error}</div>{/if}
   {#if notice}<div class="card card-sub" style="border-left:3px solid var(--ok); margin-bottom:12px">{notice}</div>{/if}
@@ -272,7 +274,7 @@
         <p class="card-sub">Start with a clean SKILL.md template and build procedures, tools, and checklists with full Studio assistance.</p>
         <div class="row" style="margin-top:8px; gap:8px; align-items:center; flex-wrap:wrap">
           <input class="field grow mono" bind:value={newRef} placeholder="local/my-skill-name" />
-          <button class="btn primary" disabled={busy || !newRef.trim()} on:click={() => run(async () => { await api.createSkillInStudio(newRef); notice = 'Studio opened for skill editing.' })}>
+          <button class="btn primary" disabled={busy || !newRef.trim()} on:click={() => run(async () => { await api.createSkillInStudio(newRef); await refresh(); notice = 'Studio opened for skill editing.' })}>
             + Create in Studio
           </button>
           <button class="btn" disabled={busy || !newRef.trim()} on:click={() => run(create)}>Quick draft</button>

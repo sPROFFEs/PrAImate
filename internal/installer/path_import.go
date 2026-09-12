@@ -57,31 +57,39 @@ func candidateUserBinDirs(home string) []string {
 	case "windows":
 		local := os.Getenv("LOCALAPPDATA")
 		appd := os.Getenv("APPDATA")
+		progFiles := os.Getenv("ProgramFiles")
 		dirs := []string{
-			// Claude Code's native installer targets ~/.local/bin on
-			// Windows too, and bun's PowerShell installer uses ~/.bun/bin
-			// (NOT %LOCALAPPDATA%\Programs\bun).
 			filepath.Join(home, ".local", "bin"),
 			filepath.Join(home, ".bun", "bin"),
 			filepath.Join(home, ".opencode", "bin"),
 			filepath.Join(home, ".cargo", "bin"),
 			filepath.Join(home, ".deno", "bin"),
 			filepath.Join(home, "go", "bin"),
-			// scoop's default per-user shim dir (deepseek-tui et al).
 			filepath.Join(home, "scoop", "shims"),
 		}
 		if local != "" {
 			dirs = append(dirs,
 				filepath.Join(local, "Programs", "bun", "bin"),
+				filepath.Join(local, "Programs", "nodejs"),
 				filepath.Join(local, "Microsoft", "WinGet", "Links"),
+				filepath.Join(local, "pnpm"),
+				filepath.Join(local, "fnm_multishells"),
+				filepath.Join(local, "Volta", "bin"),
 			)
 		}
 		if appd != "" {
-			dirs = append(dirs, filepath.Join(appd, "npm"))
+			dirs = append(dirs,
+				filepath.Join(appd, "npm"),
+				filepath.Join(appd, "npm", "bin"),
+				filepath.Join(appd, "nvm"),
+			)
+		}
+		if progFiles != "" {
+			dirs = append(dirs, filepath.Join(progFiles, "nodejs"))
 		}
 		return dirs
 	case "darwin":
-		return []string{
+		dirs := []string{
 			filepath.Join(home, ".local", "bin"),
 			filepath.Join(home, ".bun", "bin"),
 			filepath.Join(home, ".deno", "bin"),
@@ -93,11 +101,24 @@ func candidateUserBinDirs(home string) []string {
 			filepath.Join(home, ".foundry", "bin"),
 			filepath.Join(home, "go", "bin"),
 			filepath.Join(home, ".npm-global", "bin"),
+			filepath.Join(home, ".local", "share", "pnpm"),
+			filepath.Join(home, ".pnpm"),
+			filepath.Join(home, ".asdf", "shims"),
 			"/opt/homebrew/bin",
 			"/opt/homebrew/sbin",
+			"/usr/local/bin",
 		}
+		nvmDir := filepath.Join(home, ".nvm", "versions", "node")
+		if entries, err := os.ReadDir(nvmDir); err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					dirs = append(dirs, filepath.Join(nvmDir, e.Name(), "bin"))
+				}
+			}
+		}
+		return dirs
 	default:
-		return []string{
+		dirs := []string{
 			filepath.Join(home, ".local", "bin"),
 			filepath.Join(home, ".bun", "bin"),
 			filepath.Join(home, ".deno", "bin"),
@@ -109,9 +130,24 @@ func candidateUserBinDirs(home string) []string {
 			filepath.Join(home, ".foundry", "bin"),
 			filepath.Join(home, "go", "bin"),
 			filepath.Join(home, ".npm-global", "bin"),
-			// Homebrew on Linux.
+			filepath.Join(home, ".local", "share", "pnpm"),
+			filepath.Join(home, ".pnpm"),
+			filepath.Join(home, ".asdf", "shims"),
+			filepath.Join(home, ".config", "praimate", "bin"),
 			"/home/linuxbrew/.linuxbrew/bin",
+			"/home/linuxbrew/.linuxbrew/sbin",
+			"/usr/local/bin",
+			"/usr/local/sbin",
 		}
+		nvmDir := filepath.Join(home, ".nvm", "versions", "node")
+		if entries, err := os.ReadDir(nvmDir); err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					dirs = append(dirs, filepath.Join(nvmDir, e.Name(), "bin"))
+				}
+			}
+		}
+		return dirs
 	}
 }
 
