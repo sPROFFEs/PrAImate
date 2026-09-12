@@ -95,21 +95,37 @@ func BackupOpenClaudeLocalProfileIfPresent() error {
 	return nil
 }
 
-// IsOpenClaudeConfigured reports whether the OpenClaude local profile
-// currently points to a local endpoint via the "openai" profile.
-func IsOpenClaudeConfigured() bool {
+type OpenClaudeProfileInfo struct {
+	Model   string
+	BaseURL string
+}
+
+func ReadOpenClaudeLocalProfile() (OpenClaudeProfileInfo, bool) {
 	home := homeDir()
 	if home == "" {
-		return false
+		return OpenClaudeProfileInfo{}, false
 	}
 	path := openClaudeProfilePath(home)
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return OpenClaudeProfileInfo{}, false
 	}
 	var profile openClaudeProfile
 	if err := json.Unmarshal(raw, &profile); err != nil {
-		return false
+		return OpenClaudeProfileInfo{}, false
 	}
-	return profile.Profile == "openai" && profile.Env["OPENAI_BASE_URL"] != ""
+	if profile.Profile == "openai" && profile.Env["OPENAI_BASE_URL"] != "" {
+		return OpenClaudeProfileInfo{
+			Model:   profile.Env["OPENAI_MODEL"],
+			BaseURL: profile.Env["OPENAI_BASE_URL"],
+		}, true
+	}
+	return OpenClaudeProfileInfo{}, false
+}
+
+// IsOpenClaudeConfigured reports whether the OpenClaude local profile
+// currently points to a local endpoint via the "openai" profile.
+func IsOpenClaudeConfigured() bool {
+	_, ok := ReadOpenClaudeLocalProfile()
+	return ok
 }

@@ -144,11 +144,12 @@ func (a *App) RemoveModelFromCLI(cli, hostID, model string) (string, error) {
 		return fmt.Sprintf("Removed %s from %s — %s", model, cli, path), nil
 
 	case "openclaude":
+		_ = launcher.BackupOpenClaudeLocalProfileIfPresent()
 		if targetHost != nil {
 			targetHost.ActiveModels = removeString(targetHost.ActiveModels, model)
 			_ = a.SaveLocalHost(*targetHost)
 		}
-		return fmt.Sprintf("Removed %s from OpenClaude list", model), nil
+		return fmt.Sprintf("Removed %s from OpenClaude local routing", model), nil
 
 	default:
 		return "", fmt.Errorf("unsupported CLI %s", cli)
@@ -159,6 +160,9 @@ func (a *App) RemoveModelFromCLI(cli, hostID, model string) (string, error) {
 func (a *App) ListAppliedCLIModels() ([]AppliedModelItem, error) {
 	hosts, _ := a.ListLocalHosts()
 	var out []AppliedModelItem
+	seen := make(map[string]bool)
+
+	// 1. OpenCode / PrAImate Code models from opencode.json
 	ocModels, err := ollama.ListConfiguredOpenCodeModels()
 	if err == nil {
 		for pKey, models := range ocModels {
@@ -185,17 +189,54 @@ func (a *App) ListAppliedCLIModels() ([]AppliedModelItem, error) {
 				hostID = matchingHost.ID
 			}
 			for _, m := range models {
-				out = append(out, AppliedModelItem{
-					HostID:      hostID,
-					HostName:    hostName,
-					Endpoint:    endpoint,
-					Model:       m,
-					ProviderKey: pKey,
-					CLI:         "opencode / praimate-code",
-				})
+				key := "opencode:" + hostID + ":" + m
+				if !seen[key] {
+					seen[key] = true
+					out = append(out, AppliedModelItem{
+						HostID:      hostID,
+						HostName:    hostName,
+						Endpoint:    endpoint,
+						Model:       m,
+						ProviderKey: pKey,
+						CLI:         "opencode / praimate-code",
+					})
+				}
 			}
 		}
 	}
+
+	// 2. OpenClaude local profile
+	if profile, ok := launcher.ReadOpenClaudeLocalProfile(); ok && profile.Model != "" {
+		var matchingHost *LocalHost
+		for i := range hosts {
+			h := &hosts[i]
+			if ollama.NormalizeEndpoint(h.Endpoint) == ollama.NormalizeEndpoint(profile.BaseURL) {
+				matchingHost = h
+				break
+			}
+		}
+		hostName := "Local LLM"
+		endpoint := profile.BaseURL
+		hostID := "default"
+		if matchingHost != nil {
+			hostName = matchingHost.Name
+			endpoint = matchingHost.Endpoint
+			hostID = matchingHost.ID
+		}
+		key := "openclaude:" + hostID + ":" + profile.Model
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, AppliedModelItem{
+				HostID:      hostID,
+				HostName:    hostName,
+				Endpoint:    endpoint,
+				Model:       profile.Model,
+				ProviderKey: "openclaude",
+				CLI:         "openclaude",
+			})
+		}
+	}
+
 	return out, nil
 }
 

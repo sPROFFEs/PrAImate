@@ -360,33 +360,42 @@
 {/if}
 
 <!-- Active Models list in CLI configs -->
-<h2 style="font-size:16px; margin-top:28px">Active Models Loaded in CLIs</h2>
-<p class="subtitle">These models are currently written into your CLI configuration files. You can use them directly in terminal/chat without re-configuring.</p>
+<div class="row" style="align-items:center; justify-content:space-between; margin-top:28px">
+  <div>
+    <h2 style="font-size:16px; margin:0 0 2px">Active Models Loaded in CLIs ({appliedModels.length})</h2>
+    <div class="card-sub">Models registered into CLI configs. Usable immediately in terminal/chat without re-configuring.</div>
+  </div>
+  {#if appliedModels.length > 0}
+    <button class="btn sm" on:click={refreshAppliedModels} title="Refresh active models list">↻ Refresh</button>
+  {/if}
+</div>
 
-<div class="card">
+<div class="card" style="margin-top:8px">
   {#if appliedModels.length === 0}
     <div class="empty">No models registered in CLIs yet. Probe a host above and click "Apply" to add models.</div>
   {:else}
-    <div class="applied-list">
-      {#each appliedModels as item}
-        {@const modelName = item.model || item.Model || ''}
-        {@const hostName = item.hostName || item.HostName || 'Local Host'}
-        {@const endpoint = item.endpoint || item.Endpoint || ''}
-        {@const cliLabel = item.cli || item.CLI || ''}
-        <div class="applied-item">
-          <div class="applied-info">
-            <span class="mono bold" style="font-size:13px; color:var(--text)">{modelName}</span>
-            <div class="row" style="gap:6px; margin-top:3px; align-items:center">
-              <span class="pill sm">{hostName}</span>
-              {#if endpoint}<span class="card-sub mono" style="font-size:11px">{endpoint}</span>{/if}
-              <span class="pill sm ok">{cliLabel}</span>
+    <div class="applied-container">
+      <div class="applied-grid">
+        {#each appliedModels as item}
+          {@const modelName = item.model || item.Model || ''}
+          {@const hostName = item.hostName || item.HostName || 'Local Host'}
+          {@const endpoint = item.endpoint || item.Endpoint || ''}
+          {@const cliLabel = item.cli || item.CLI || ''}
+          <div class="applied-card">
+            <div class="applied-info grow">
+              <div class="applied-model-title mono">{modelName}</div>
+              <div class="row" style="gap:5px; margin-top:4px; align-items:center; flex-wrap:wrap">
+                <span class="pill sm">{hostName}</span>
+                {#if endpoint}<span class="card-sub mono" style="font-size:10.5px">{endpoint}</span>{/if}
+                <span class="pill sm ok" style="font-size:10px">{cliLabel}</span>
+              </div>
             </div>
+            <button class="btn sm danger" on:click={() => removeAppliedModel(item)} disabled={applyBusy === modelName} title="Remove this model from CLI configuration">
+              {applyBusy === modelName ? '…' : '×'}
+            </button>
           </div>
-          <button class="btn sm danger" on:click={() => removeAppliedModel(item)} disabled={applyBusy === modelName} title="Remove this model from CLI configuration">
-            {applyBusy === modelName ? '…' : '× Remove'}
-          </button>
-        </div>
-      {/each}
+        {/each}
+      </div>
     </div>
   {/if}
 </div>
@@ -400,11 +409,13 @@
   .key-box { padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-raised); }
   .key-box.configured { border-color: color-mix(in oklch, var(--ok) 35%, var(--border)); }
   .key-icon { font-size: 16px; }
-  .models-checklist { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; max-height: 280px; overflow-y: auto; padding: 4px 0; }
+  .models-checklist { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; max-height: 240px; overflow-y: auto; padding: 4px 0; }
   .model-check-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-raised); cursor: pointer; }
   .model-check-item.checked { border-color: var(--accent); background: var(--accent-soft); }
-  .applied-list { display: flex; flex-direction: column; gap: 8px; }
-  .applied-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-raised); }
+  .applied-container { max-height: 280px; overflow-y: auto; padding: 2px 0; }
+  .applied-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+  .applied-card { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-raised); }
+  .applied-model-title { font-weight: 600; font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .transport-warning { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px; margin: 8px 0 14px; padding: 12px 13px; border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--warn) 8%, var(--bg-panel)); }
   .transport-label { align-self: start; padding: 2px 6px; border-radius: 4px; background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); font: 700 10px/1.5 var(--mono); letter-spacing: .05em; }
   .transport-warning strong { font-size: 13px; }
