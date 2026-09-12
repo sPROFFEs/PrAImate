@@ -409,10 +409,40 @@ func migrateLegacyLocalLLMAPIKey(c *core.Core, cfg *launcher.Config) error {
 
 func (a *App) TestLocalLLM(endpoint, apiKey string) ([]string, error) {
 	if strings.TrimSpace(apiKey) == "" {
-		var err error
-		apiKey, err = loadLocalLLMAPIKey(a.core)
-		if err != nil {
-			return nil, err
+		hosts, _ := a.ListLocalHosts()
+		normalized := ollama.NormalizeEndpoint(endpoint)
+		for _, h := range hosts {
+			if ollama.NormalizeEndpoint(h.Endpoint) == normalized {
+				if h.IsDefault {
+					apiKey, _ = loadLocalLLMAPIKey(a.core)
+				} else {
+					apiKey, _ = loadHostAPIKey(a.core, h.ID)
+				}
+				break
+			}
+		}
+		if apiKey == "" {
+			apiKey, _ = loadLocalLLMAPIKey(a.core)
+		}
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	defer cancel()
+	return ollama.ListModels(ctx, ollama.NormalizeEndpoint(endpoint), apiKey)
+}
+
+// TestLocalHost probes a specific host using its stored or supplied credentials.
+func (a *App) TestLocalHost(hostID, endpoint, apiKey string) ([]string, error) {
+	if strings.TrimSpace(apiKey) == "" && hostID != "" {
+		hosts, _ := a.ListLocalHosts()
+		for _, h := range hosts {
+			if h.ID == hostID {
+				if h.IsDefault {
+					apiKey, _ = loadLocalLLMAPIKey(a.core)
+				} else {
+					apiKey, _ = loadHostAPIKey(a.core, h.ID)
+				}
+				break
+			}
 		}
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)

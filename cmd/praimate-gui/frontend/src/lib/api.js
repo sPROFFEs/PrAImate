@@ -127,6 +127,7 @@ export const api = {
   getLocalLLM: () => call('GetLocalLLM'),
   setLocalLLM: (d) => call('SetLocalLLM', d),
   testLocalLLM: (endpoint, apiKey) => call('TestLocalLLM', endpoint, apiKey),
+  testLocalHost: (hostId, endpoint, apiKey) => call('TestLocalHost', hostId, endpoint, apiKey),
   listLocalHosts: () => call('ListLocalHosts'),
   saveLocalHost: (h) => call('SaveLocalHost', h),
   deleteLocalHost: (id) => call('DeleteLocalHost', id),

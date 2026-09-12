@@ -19,6 +19,7 @@
   let applyBusy = ''
   let appliedModels = []
   let cliStatus = { opencode: false, openclaude: false }
+  let showChangeKey = false
 
   $: transport = endpointTransport(activeHost.endpoint)
 
@@ -53,6 +54,7 @@
     if (found) {
       activeHost = { ...found, apiKey: '', removeApiKey: false }
     }
+    showChangeKey = false
     models = null
     selectedModels = new Set()
   }
@@ -61,7 +63,7 @@
     const id = 'host_' + Date.now()
     const newH = {
       id,
-      name: 'New Host',
+      name: 'New Host ' + (hosts.length + 1),
       endpoint: 'http://localhost:11434',
       hasApiKey: false,
       apiKey: '',
@@ -78,7 +80,7 @@
     testing = true
     error = ''
     try {
-      const res = (await api.testLocalLLM(activeHost.endpoint, activeHost.apiKey)) || []
+      const res = (await api.testLocalHost(activeHost.id, activeHost.endpoint, activeHost.apiKey)) || []
       models = res
       selectedModels = new Set(res) // select all by default on probe
     } catch (e) {
@@ -114,6 +116,7 @@
       await api.saveLocalHost(activeHost)
       activeHost.apiKey = ''
       activeHost.removeApiKey = false
+      showChangeKey = false
       await load()
       notice = `Host "${activeHost.name}" saved.`
     } catch (e) {
@@ -121,6 +124,18 @@
     } finally {
       saving = false
     }
+  }
+
+  async function removeKeyNow() {
+    const ok = await showConfirm({
+      title: 'Remove API Key',
+      message: `Remove the saved API key for "${activeHost.name}"?`
+    })
+    if (!ok) return
+    activeHost.apiKey = ''
+    activeHost.removeApiKey = true
+    await save()
+    notice = 'API Key removed.'
   }
 
   async function deleteCurrentHost() {
@@ -175,11 +190,14 @@
   }
 
   async function removeAppliedModel(item) {
-    applyBusy = item.model
+    const modelName = item.model || item.Model || ''
+    const hostId = item.hostId || item.HostID || ''
+    const cliStr = item.cli || item.CLI || ''
+    applyBusy = modelName
     error = ''
     try {
-      const cliTarget = item.CLI.includes('openclaude') ? 'openclaude' : 'opencode'
-      notice = await api.removeModelFromCLI(cliTarget, item.HostID, item.Model)
+      const cliTarget = cliStr.includes('openclaude') ? 'openclaude' : 'opencode'
+      notice = await api.removeModelFromCLI(cliTarget, hostId, modelName)
       await refreshAppliedModels()
     } catch (e) {
       error = String(e)
@@ -243,16 +261,50 @@
     </div>
   {/if}
 
-  <label class="lbl" for="local-llm-api-key" style="margin-top:10px">API Key (optional)</label>
-  <input id="local-llm-api-key" class="field mono" type="password" bind:value={activeHost.apiKey} placeholder={activeHost.hasApiKey ? 'Saved securely — enter new key to replace' : 'Empty for plain local Ollama'} />
+  <!-- API Key Section with Clear Intuitive Controls -->
+  <label class="lbl" style="margin-top:12px">API Key Authentication</label>
   {#if activeHost.hasApiKey}
-    <label class="row" style="margin-top:6px; gap:8px; cursor:pointer">
-      <input type="checkbox" bind:checked={activeHost.removeApiKey} />
-      <span class="card-sub">Remove the saved API key</span>
-    </label>
+    <div class="key-box configured">
+      <div class="row" style="align-items:center; justify-content:space-between">
+        <div class="row" style="align-items:center; gap:8px">
+          <span class="key-icon">🔒</span>
+          <div>
+            <strong>API Key Configured</strong>
+            <p class="card-sub" style="margin:2px 0 0">Stored securely in your encrypted database.</p>
+          </div>
+        </div>
+        <div class="row" style="gap:6px">
+          <button class="btn sm" type="button" on:click={() => (showChangeKey = !showChangeKey)}>
+            {showChangeKey ? 'Cancel' : 'Change Key…'}
+          </button>
+          <button class="btn sm danger" type="button" on:click={removeKeyNow}>
+            Remove Key
+          </button>
+        </div>
+      </div>
+      {#if showChangeKey}
+        <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:10px">
+          <label class="lbl" for="local-llm-new-api-key">Enter New API Key</label>
+          <input id="local-llm-new-api-key" class="field mono" type="password" bind:value={activeHost.apiKey} placeholder="Enter new API key to replace the stored one" />
+        </div>
+      {/if}
+    </div>
+  {:else}
+    <div class="key-box unconfigured">
+      <div class="row" style="align-items:center; gap:8px">
+        <span class="key-icon">🔓</span>
+        <div>
+          <strong>No API Key Configured</strong>
+          <p class="card-sub" style="margin:2px 0 0">Suitable for local Ollama without auth. If this server requires authentication, enter an API key below.</p>
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <input id="local-llm-api-key" class="field mono" type="password" bind:value={activeHost.apiKey} placeholder="e.g. sk-my-secret-key (optional)" />
+      </div>
+    </div>
   {/if}
 
-  <div class="row" style="margin-top:10px">
+  <div class="row" style="margin-top:12px">
     <div class="grow">
       <label class="lbl" for="local-llm-context-tokens">Context tokens hint</label>
       <input id="local-llm-context-tokens" class="field" type="number" bind:value={activeHost.contextTokens} placeholder="e.g. 32768" />
@@ -317,17 +369,21 @@
   {:else}
     <div class="applied-list">
       {#each appliedModels as item}
+        {@const modelName = item.model || item.Model || ''}
+        {@const hostName = item.hostName || item.HostName || 'Local Host'}
+        {@const endpoint = item.endpoint || item.Endpoint || ''}
+        {@const cliLabel = item.cli || item.CLI || ''}
         <div class="applied-item">
           <div class="applied-info">
-            <span class="mono bold" style="font-size:13px; color:var(--text)">{item.Model}</span>
+            <span class="mono bold" style="font-size:13px; color:var(--text)">{modelName}</span>
             <div class="row" style="gap:6px; margin-top:3px; align-items:center">
-              <span class="pill sm">{item.HostName}</span>
-              <span class="card-sub mono" style="font-size:11px">{item.Endpoint || 'default endpoint'}</span>
-              <span class="pill sm ok">{item.CLI}</span>
+              <span class="pill sm">{hostName}</span>
+              {#if endpoint}<span class="card-sub mono" style="font-size:11px">{endpoint}</span>{/if}
+              <span class="pill sm ok">{cliLabel}</span>
             </div>
           </div>
-          <button class="btn sm danger" on:click={() => removeAppliedModel(item)} disabled={applyBusy === item.Model} title="Remove this model from CLI configuration">
-            {applyBusy === item.Model ? '…' : '× Remove'}
+          <button class="btn sm danger" on:click={() => removeAppliedModel(item)} disabled={applyBusy === modelName} title="Remove this model from CLI configuration">
+            {applyBusy === modelName ? '…' : '× Remove'}
           </button>
         </div>
       {/each}
@@ -341,6 +397,9 @@
   .host-tab { background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-dim); padding: 7px 14px; border-radius: var(--radius-sm); font-size: 12.5px; cursor: pointer; display: flex; align-items: center; }
   .host-tab.active { background: var(--bg-raised); color: var(--text); border-color: var(--accent); font-weight: 600; }
   .action-btn { min-width: 120px; text-align: center; }
+  .key-box { padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-raised); }
+  .key-box.configured { border-color: color-mix(in oklch, var(--ok) 35%, var(--border)); }
+  .key-icon { font-size: 16px; }
   .models-checklist { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; max-height: 280px; overflow-y: auto; padding: 4px 0; }
   .model-check-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-raised); cursor: pointer; }
   .model-check-item.checked { border-color: var(--accent); background: var(--accent-soft); }
