@@ -37,6 +37,12 @@ export const api = {
   detachedWindows: () => call('DetachedWindows'),
   detachedSessionActive: () => call('DetachedSessionActive'),
   detachedRendererReady: () => call('DetachedRendererReady'),
+  studioListCLIs: () => call('StudioListCLIs'),
+  studioListCLIModels: (cli) => call('StudioListCLIModels', cli),
+  studioLocalLLMModels: () => call('StudioLocalLLMModels'),
+  studioMCPServers: () => call('StudioMCPServers'),
+  saveStudioConfig: (chatID, name, cli, model, tools, localEndpoint, localModel, mcpServers) =>
+    call('SaveStudioConfig', chatID, name || '', cli, model || '', tools || '', localEndpoint || '', localModel || '', mcpServers || []),
   initializeDatabasePassword: (password, confirmation, remember) =>
     call('InitializeDatabasePassword', password, confirmation, !!remember),
   unlockDatabase: (password, remember) =>

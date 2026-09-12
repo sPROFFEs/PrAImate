@@ -52,23 +52,30 @@
     return valid.includes(tools) ? tools : (valid[0] || '')
   }
 
-  function openConfig() {
-    if (!chat) return
+  async function openConfig() {
+    // The editor shell is interactive before the session metadata request has
+    // necessarily completed. Hydrate it here as well so an early click is not
+    // silently discarded while a large project tree is still being scanned.
+    const currentChat = chat || await loadChat()
+    if (!currentChat) {
+      error = 'Studio session settings are not available yet. Please try again.'
+      return
+    }
     cfg = {
-      name: chat.Title || '',
-      cli: chat.CLIAgent,
-      model: chat.Settings?.model || '',
-      tools: chat.Settings?.tools || 'edits',
-      localEndpoint: chat.Settings?.local?.endpoint || '',
-      localApiKey: chat.Settings?.local?.api_key || '',
-      localModel: chat.Settings?.local?.model || '',
+      name: currentChat.Title || '',
+      cli: currentChat.CLIAgent,
+      model: currentChat.Settings?.model || '',
+      tools: currentChat.Settings?.tools || 'edits',
+      localEndpoint: currentChat.Settings?.local?.endpoint || '',
+      localApiKey: currentChat.Settings?.local?.api_key || '',
+      localModel: currentChat.Settings?.local?.model || '',
       suggestions: [],
       modelLoading: true,
-      mcps: (chat.Settings?.mcp_servers || []).slice(),
+      mcps: (currentChat.Settings?.mcp_servers || []).slice(),
     }
-    if (clis.length === 0) api.listCLIs().then((r) => { clis = r || [] }).catch(() => {})
-    if (localOpt === null) api.localLLMModels().then((r) => { localOpt = r }).catch(() => { localOpt = { configured: false } })
-    api.listMCPServers().then((r) => { mcpServers = (r || []).filter((s) => s.enabled) }).catch(() => {})
+    if (clis.length === 0) api.studioListCLIs().then((r) => { clis = r || [] }).catch((e) => { error = String(e) })
+    if (localOpt === null) api.studioLocalLLMModels().then((r) => { localOpt = r }).catch(() => { localOpt = { configured: false } })
+    api.studioMCPServers().then((r) => { mcpServers = (r || []).filter((s) => s.enabled) }).catch((e) => { error = String(e) })
     cfgCliChanged()
   }
 
@@ -76,9 +83,16 @@
     if (!cfg) return
     if (cfg.localEndpoint && !supportsLocalRouting(cfg.cli)) { cfg.localEndpoint = ''; cfg.localModel = '' }
     cfg.tools = normalizeToolsForCli(cfg.cli, cfg.tools)
+    const requestedCLI = cfg.cli
     cfg.modelLoading = true
-    cfg.suggestions = (await api.listCLIModels(cfg.cli).catch(() => [])) || []
+    cfg = cfg
+    const suggestions = (await api.studioListCLIModels(requestedCLI).catch(() => [])) || []
+    // Ignore an older request if the user changed the CLI while its model
+    // catalogue was loading. Reassign cfg so Svelte renders nested changes.
+    if (!cfg || cfg.cli !== requestedCLI) return
+    cfg.suggestions = suggestions
     cfg.modelLoading = false
+    cfg = cfg
   }
 
   async function saveConfig() {
@@ -86,14 +100,10 @@
     cfgSaving = true
     error = ''
     try {
-      await api.updateChatConfig(
-        chatId, cfg.cli, cfg.model.trim(), normalizeToolsForCli(cfg.cli, cfg.tools),
-        cfg.localEndpoint.trim(), cfg.localApiKey, cfg.localModel.trim()
+      await api.saveStudioConfig(
+        chatId, cfg.name.trim(), cfg.cli, cfg.model.trim(), normalizeToolsForCli(cfg.cli, cfg.tools),
+        cfg.localEndpoint.trim(), cfg.localModel.trim(), cfg.mcps || []
       )
-      if (cfg.name.trim() && cfg.name.trim() !== chat.Title) {
-        await api.renameChat(chatId, cfg.name.trim())
-      }
-      await api.setChatMCPServers(chatId, cfg.mcps || [])
       cfg = null
       await loadChat()
     } catch (e) {
@@ -485,12 +495,19 @@
   let unsubApproval = () => {}
 
   async function loadChat() {
+    if (!chatId) return chat
     try {
-      messages = (await api.chatMessages(chatId)) || []
+      const [nextMessages, chats] = await Promise.all([
+        api.chatMessages(chatId),
+        api.listChats(),
+      ])
+      messages = nextMessages || []
+      chat = (chats || []).find((candidate) => candidate.ID === chatId) || chat
       await scrollToBottom()
     } catch (e) {
       error = String(e)
     }
+    return chat
   }
 
   function handleStreamEvent(ev) {
@@ -684,10 +701,12 @@
       window.runtime.EventsOn('praimate:editor-fs', onFsEvent)
       unsubFs = () => window.runtime.EventsOff('praimate:editor-fs')
     }
+    // Start session hydration immediately instead of putting it behind the
+    // potentially expensive workspace scan.
+    const chatReady = loadChat()
     await loadTree()
-    await loadChat()
+    await chatReady
     try {
-      chat = (await api.listChats())?.find((c) => c.ID === chatId) || null
       if (chat?.AgentID) {
         const agents = (await api.listAgents()) || []
         agentName = agents.find((a) => a.id === chat.AgentID)?.name || chat.AgentID
@@ -861,14 +880,9 @@
           skills: {chat.Settings.skill_runtime.status || 'unknown'} · {chat.Settings.skill_runtime.coverage || 'unknown'}
         </span>
       {/if}
-      <button class="btn sm" title="Edit session CLI and model" on:click={openConfig}>⚙</button>
+      <button type="button" class="btn sm" title="Edit session CLI and model" on:click|stopPropagation={openConfig}>⚙</button>
       <button class="btn sm" title="Hide chat" on:click={() => (chatOpen = false)}>▸</button>
     </div>
-    {#if chatId}
-      <div style="max-height:35vh;overflow:auto;padding:0 10px">
-        <SkillBindingsEditor chatID={chatId} on:saved={loadChat} />
-      </div>
-    {/if}
     <div class="thread" bind:this={threadEl} on:scroll={onThreadScroll}>
       {#each messages as m}
         <div class="msg {m.Role === 'user' ? 'user' : 'assistant'}" class:pending={m._pending}>
@@ -993,7 +1007,7 @@
             cfg.localEndpoint = e.currentTarget.checked ? localOpt.endpoint : ''
             cfg.localModel = e.currentTarget.checked ? cfg.localModel || localOpt.models?.[0] || '' : ''
           }} />
-          <span>Use the local LLM from Settings <span class="card-sub mono">{localOpt.endpoint}</span></span>
+          <span>Use a configured local LLM</span>
         </label>
         {#if cfg.localEndpoint}
           <label class="lbl" style="margin-top:8px">Local model</label>

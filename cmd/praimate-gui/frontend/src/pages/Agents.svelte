@@ -709,7 +709,7 @@
       {#if localOpt?.configured && dlgLocalRoutable}
         <label class="row" style="margin-top:10px; gap:8px; cursor:pointer">
           <input type="checkbox" bind:checked={dlg.useLocal} on:change={invalidateDlgPreflight} />
-          <span>Use the local LLM from Settings <span class="card-sub mono">{localOpt.endpoint}</span></span>
+          <span>Use a configured local LLM</span>
         </label>
       {:else if localOpt?.configured}
         <div class="card-sub" style="margin-top:10px">{localRoutingUnavailableMessage(dlg.cli)}</div>

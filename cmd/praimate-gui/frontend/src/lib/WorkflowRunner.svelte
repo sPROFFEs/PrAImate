@@ -435,7 +435,7 @@
       {#if runLocalOpt?.configured && runLocalRoutable}
         <label class="row" style="margin-top:10px; gap:8px; cursor:pointer">
           <input type="checkbox" bind:checked={runUseLocal} />
-          <span>Use the local LLM from Settings <span class="card-sub mono">{runLocalOpt.endpoint}</span></span>
+          <span>Use a configured local LLM</span>
         </label>
       {:else if runLocalOpt?.configured}
         <div class="card-sub" style="margin-top:10px">{localRoutingUnavailableMessage(cli)}</div>

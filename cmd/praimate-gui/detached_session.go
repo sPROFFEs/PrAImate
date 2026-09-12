@@ -409,6 +409,75 @@ func (a *App) DetachedRendererReady() error {
 	return a.detachedClient.rpc("window.ready", nil, nil)
 }
 
+// Studio configuration is brokered through the main process. Detached Studio
+// windows deliberately own neither the encrypted database nor the application
+// core, so the ordinary settings bindings cannot be called there directly.
+func (a *App) StudioListCLIs() ([]CLIInfo, error) {
+	if a.detachedClient != nil {
+		return a.detachedClient.studioListCLIs()
+	}
+	return a.ListCLIs(), nil
+}
+
+func (a *App) StudioListCLIModels(cli string) ([]string, error) {
+	if a.detachedClient != nil {
+		return a.detachedClient.studioListCLIModels(cli)
+	}
+	return a.ListCLIModels(cli), nil
+}
+
+func (a *App) StudioLocalLLMModels() (*LocalLLMOption, error) {
+	if a.detachedClient != nil {
+		return a.detachedClient.studioLocalLLMModels()
+	}
+	return a.LocalLLMModels()
+}
+
+type StudioMCPOption struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Transport core.MCPTransport `json:"transport"`
+	Enabled   bool              `json:"enabled"`
+}
+
+func (a *App) StudioMCPServers() ([]StudioMCPOption, error) {
+	if a.detachedClient != nil {
+		return a.detachedClient.studioMCPServers()
+	}
+	servers, err := a.MCPServers()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]StudioMCPOption, 0, len(servers))
+	for _, server := range servers {
+		out = append(out, StudioMCPOption{ID: server.ID, Name: server.Name, Transport: server.Transport, Enabled: server.Enabled})
+	}
+	return out, nil
+}
+
+func (a *App) SaveStudioConfig(chatID, name, cli, model, tools, localEndpoint, localModel string, mcpServers []string) error {
+	body := studioConfigSaveRequest{
+		ChatID: chatID, Name: name, CLI: cli, Model: model, Tools: tools,
+		LocalEndpoint: localEndpoint, LocalModel: localModel, MCPServers: mcpServers,
+	}
+	if a.detachedClient != nil {
+		return a.detachedClient.saveStudioConfig(body)
+	}
+	return a.saveStudioConfig(body)
+}
+
+func (a *App) saveStudioConfig(body studioConfigSaveRequest) error {
+	if err := a.UpdateChatConfig(body.ChatID, body.CLI, body.Model, body.Tools, body.LocalEndpoint, "", body.LocalModel); err != nil {
+		return err
+	}
+	if strings.TrimSpace(body.Name) != "" {
+		if err := a.RenameChat(body.ChatID, strings.TrimSpace(body.Name)); err != nil {
+			return err
+		}
+	}
+	return a.SetChatMCPServers(body.ChatID, body.MCPServers)
+}
+
 func (a *App) beforeClose(ctx context.Context) bool {
 	if a.detachedClient != nil || a.detached == nil {
 		return false
@@ -545,6 +614,17 @@ type detachedRPCResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+type studioConfigSaveRequest struct {
+	ChatID        string   `json:"chatId"`
+	Name          string   `json:"name"`
+	CLI           string   `json:"cli"`
+	Model         string   `json:"model"`
+	Tools         string   `json:"tools"`
+	LocalEndpoint string   `json:"localEndpoint"`
+	LocalModel    string   `json:"localModel"`
+	MCPServers    []string `json:"mcpServers"`
+}
+
 func (d *detachedCoordinator) handleRPC(rw http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
@@ -611,6 +691,42 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 			return nil, errors.New("operation is outside this window's scope")
 		}
 		return d.app.ListAgents()
+	case "studio.cli.list":
+		if w.kind != "studio" {
+			return nil, errors.New("operation is outside this window's scope")
+		}
+		return d.app.ListCLIs(), nil
+	case "studio.cli.models":
+		if w.kind != "studio" {
+			return nil, errors.New("operation is outside this window's scope")
+		}
+		var cli string
+		if err := decodeRPCBody(req.Body, &cli); err != nil {
+			return nil, err
+		}
+		return d.app.ListCLIModels(cli), nil
+	case "studio.local.models":
+		if w.kind != "studio" {
+			return nil, errors.New("operation is outside this window's scope")
+		}
+		return d.app.LocalLLMModels()
+	case "studio.mcp.list":
+		if w.kind != "studio" {
+			return nil, errors.New("operation is outside this window's scope")
+		}
+		return d.app.StudioMCPServers()
+	case "studio.config.save":
+		if w.kind != "studio" {
+			return nil, errors.New("operation is outside this window's scope")
+		}
+		var body studioConfigSaveRequest
+		if err := decodeRPCBody(req.Body, &body); err != nil {
+			return nil, err
+		}
+		if body.ChatID != w.sessionID {
+			return nil, errors.New("chat is outside this detached window")
+		}
+		return nil, d.app.saveStudioConfig(body)
 	case "chat.skills":
 		if w.kind != "studio" {
 			return nil, errors.New("operation is outside this window's scope")
@@ -1015,6 +1131,28 @@ func (c *detachedClient) listChats() ([]core.Chat, error) {
 func (c *detachedClient) listAgents() ([]core.Agent, error) {
 	var out []core.Agent
 	return out, c.rpc("agent.list", nil, &out)
+}
+func (c *detachedClient) studioListCLIs() ([]CLIInfo, error) {
+	var out []CLIInfo
+	return out, c.rpc("studio.cli.list", nil, &out)
+}
+func (c *detachedClient) studioListCLIModels(cli string) ([]string, error) {
+	var out []string
+	return out, c.rpc("studio.cli.models", cli, &out)
+}
+func (c *detachedClient) studioLocalLLMModels() (*LocalLLMOption, error) {
+	var out LocalLLMOption
+	return &out, c.rpc("studio.local.models", nil, &out)
+}
+func (c *detachedClient) studioMCPServers() ([]StudioMCPOption, error) {
+	var out []StudioMCPOption
+	return out, c.rpc("studio.mcp.list", nil, &out)
+}
+func (c *detachedClient) saveStudioConfig(body studioConfigSaveRequest) error {
+	if body.ChatID != c.mode.sessionID {
+		return errors.New("chat is outside this detached window")
+	}
+	return c.rpc("studio.config.save", body, nil)
 }
 func (c *detachedClient) chatSkills(id string) []string {
 	if id != c.mode.sessionID {

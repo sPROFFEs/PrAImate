@@ -2,10 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"net/http"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
+
+	"git.jtsec.local/lab/PrAImate/internal/core"
+	"git.jtsec.local/lab/PrAImate/internal/launcher"
+	"git.jtsec.local/lab/PrAImate/internal/ollama"
+	"git.jtsec.local/lab/PrAImate/internal/store"
 )
 
 func TestDetachedModeRequiresCompleteScopedEnvironment(t *testing.T) {
@@ -55,6 +63,89 @@ func TestDetachedChildAppDoesNotOwnCoreOrTerminalManager(t *testing.T) {
 	a := NewApp()
 	if a.detachedClient == nil || a.detached != nil || a.terms != nil || a.core != nil || a.st != nil {
 		t.Fatalf("detached app owns main-process state: %+v", a)
+	}
+}
+
+func TestDetachedStudioConfigUsesScopedMainCore(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// Keep this test deterministic and prove configured-file discovery rather
+	// than accepting whatever CLI/model catalogue happens to be on PATH.
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	if _, err := ollama.ApplyOpenCodeModels("praimate_local", "Local", ollama.Settings{
+		Endpoint: "http://127.0.0.1:11434", Model: "configured-opencode-model",
+	}, []string{"configured-opencode-model"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := launcher.WriteOpenClaudeLocalProfile(launcher.OllamaSettings{
+		Endpoint: "http://127.0.0.1:11434", Model: "configured-openclaude-model",
+	}, "test-token"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.InitializeWithPassword(filepath.Join(t.TempDir(), "db.sqlite"), "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	c, err := core.New(core.Options{Store: st})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	chat, err := c.CreateChat(ctx, core.CreateChatRequest{ID: "studio-config", Title: "Before", CLIAgent: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parent := &App{ctx: ctx, core: c}
+	d := newDetachedCoordinator(parent)
+	d.mu.Lock()
+	if err := d.ensureServerLocked(); err != nil {
+		d.mu.Unlock()
+		t.Fatal(err)
+	}
+	w := &detachedWindow{id: "studio-config-window", kind: "studio", sessionID: chat.ID, events: make(chan detachedWireEvent, 2), ready: make(chan struct{})}
+	d.windows[w.id] = w
+	mode := detachedMode{active: true, kind: w.kind, sessionID: w.sessionID, windowID: w.id, brokerURL: d.addr, token: d.token}
+	d.mu.Unlock()
+	defer d.close()
+
+	child := &App{detachedClient: newDetachedClient(mode)}
+	models, err := child.StudioListCLIModels("claude")
+	if err != nil || len(models) == 0 {
+		t.Fatalf("Studio model options were not brokered: %v, %v", models, err)
+	}
+	models, err = child.StudioListCLIModels("opencode")
+	if err != nil || !slices.Contains(models, "praimate_local/configured-opencode-model") {
+		t.Fatalf("configured OpenCode model was not brokered: %v, %v", models, err)
+	}
+	models, err = child.StudioListCLIModels("openclaude")
+	if err != nil || !slices.Contains(models, "configured-openclaude-model") {
+		t.Fatalf("configured OpenClaude model was not brokered: %v, %v", models, err)
+	}
+	if _, err := child.StudioLocalLLMModels(); err != nil {
+		t.Fatalf("Studio local-model options were not brokered: %v", err)
+	}
+	if _, err := child.StudioMCPServers(); err != nil {
+		t.Fatalf("Studio MCP options were not brokered: %v", err)
+	}
+	if err := child.SaveStudioConfig(chat.ID, "After", "claude", "sonnet", "edits", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := c.GetChat(ctx, chat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Title != "After" || updated.CLIAgent != "claude" || updated.Settings.Model != "sonnet" || updated.Settings.Tools != "edits" {
+		t.Fatalf("studio config was not saved through the parent: %+v", updated)
+	}
+	if err := child.SaveStudioConfig("another-chat", "No", "claude", "", "", "", "", nil); err == nil {
+		t.Fatal("detached Studio changed a chat outside its assigned scope")
+	}
+	if _, err := d.call(&detachedWindow{kind: "terminal", sessionID: chat.ID}, detachedRPCRequest{Method: "studio.config.save"}); err == nil {
+		t.Fatal("terminal window gained Studio configuration access")
 	}
 }
 

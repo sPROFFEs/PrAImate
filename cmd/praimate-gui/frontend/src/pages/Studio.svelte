@@ -302,7 +302,7 @@
       {#if localOpt?.configured && localRoutable}
         <label class="row local-toggle">
           <input type="checkbox" bind:checked={form.useLocal} on:change={invalidatePreflight} />
-          <span>Use the local LLM <span class="card-sub mono">{localOpt.endpoint}</span></span>
+          <span>Use a configured local LLM</span>
         </label>
       {:else if localOpt?.configured}
         <div class="card-sub" style="margin-top:10px">{localRoutingUnavailableMessage(form.cli)}</div>
@@ -414,7 +414,7 @@
             cfg.localEndpoint = e.currentTarget.checked ? localOpt.endpoint : ''
             cfg.localModel = e.currentTarget.checked ? cfg.localModel || localOpt.models?.[0] || '' : ''
           }} />
-          <span>Use the local LLM <span class="card-sub mono">{localOpt.endpoint}</span></span>
+          <span>Use a configured local LLM</span>
         </label>
         {#if cfg.localEndpoint}
           <label class="lbl" style="margin-top:8px">Local model</label>

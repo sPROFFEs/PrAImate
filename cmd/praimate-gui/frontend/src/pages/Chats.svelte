@@ -72,9 +72,10 @@
   let modelSuggestions = []
   let modelLoading = false
   let starting = false
-  // Local LLM (Settings → Local LLM) injected into a new chat. Chats
-  // route local through the full launcher machinery, so every CLI works.
+  // Local LLM (Settings → Local LLM) injected into a new chat. Routing is
+  // available only for the CLI adapters declared by supportsLocalRouting().
   let localOpt = null // { configured, endpoint, hasApiKey, models[], error }
+  let localOptPromise = null
   let newUseLocal = false
   let newLocalModel = ''
   let mcpServers = []
@@ -165,6 +166,22 @@
     }
   }
 
+  function ensureLocalOptions() {
+    if (localOpt !== null) return Promise.resolve(localOpt)
+    if (localOptPromise) return localOptPromise
+    localOptPromise = api.localLLMModels()
+      .then((result) => {
+        localOpt = result || { configured: false }
+        return localOpt
+      })
+      .catch((e) => {
+        localOpt = { configured: false, error: String(e) }
+        return localOpt
+      })
+      .finally(() => { localOptPromise = null })
+    return localOptPromise
+  }
+
   function openConfig(chat) {
     error = ''
     // Open INSTANTLY with what we already know; the CLI availability
@@ -186,6 +203,10 @@
     if (clis.length === 0) {
       api.listCLIs().then((r) => { clis = r || [] }).catch(() => {})
     }
+    // Editing a chat must not depend on the user having opened New chat first.
+    // Resolve the configured local hosts in the background; localOpt is
+    // reactive, so the toggle appears as soon as the catalogue is available.
+    ensureLocalOptions()
     api.listCLIModels(chat.CLIAgent)
       .then((r) => { if (cfg && cfg.chat.ID === chat.ID) { cfg.suggestions = r || []; cfg.modelLoading = false; cfg = cfg } })
       .catch(() => { if (cfg && cfg.chat.ID === chat.ID) { cfg.modelLoading = false; cfg = cfg } })
@@ -203,6 +224,10 @@
 
   async function cfgCliChanged() {
     if (!cfg) return
+    if (cfg.localEndpoint && !supportsLocalRouting(cfg.cli)) {
+      cfg.localEndpoint = ''
+      cfg.localModel = ''
+    }
     cfg.tools = normalizeToolsForCli(cfg.cli, cfg.tools)
     cfg.modelLoading = true
     cfg = cfg
@@ -600,6 +625,7 @@
       })
       unsubDetached = () => window.runtime.EventsOff('praimate:detached-windows')
     }
+    ensureLocalOptions()
     await load()
     // If Agents started a chat and routed us here, open it.
     const id = $openChatId
@@ -656,7 +682,7 @@
     {#if localOpt?.configured && supportsLocalRouting(cfg.cli)}
       <label class="row" style="margin-top:12px; gap:8px; cursor:pointer">
         <input type="checkbox" checked={!!cfg.localEndpoint} on:change={(e) => { if (e.target.checked) { cfg.localEndpoint = localOpt.endpoint } else { cfg.localEndpoint = ''; cfg.localModel = '' } }} />
-        <span>Use the local LLM from Settings <span class="card-sub mono">{localOpt.endpoint}</span></span>
+        <span>Use a configured local LLM</span>
       </label>
       {#if cfg.localEndpoint}
         <label class="lbl" style="margin-top:8px">Local model</label>
@@ -675,14 +701,13 @@
         <input class="field mono" style="max-width:420px" list="cfg-local-models" bind:value={cfg.localModel} placeholder="or type model name (e.g. qwen2.5-coder)" />
         <datalist id="cfg-local-models">{#each localOpt.models || [] as m}<option value={m}></option>{/each}</datalist>
       {/if}
-    {:else if cfg.localEndpoint}
+    {:else if localOpt?.configured}
       <div class="card-sub" style="margin-top:8px">{localRoutingUnavailableMessage(cfg.cli)}</div>
-      <div class="row" style="margin-top:8px">
-        {#if cfg.cli === 'claude' && clis.some((c) => c.id === 'openclaude' && c.available)}
+      {#if cfg.cli === 'claude' && clis.some((c) => c.id === 'openclaude' && c.available)}
+        <div class="row" style="margin-top:8px">
           <button class="btn sm" on:click={() => { cfg.cli = 'openclaude'; cfgCliChanged() }}>Switch to OpenClaude</button>
-        {/if}
-        <button class="btn sm" on:click={() => { cfg.localEndpoint = ''; cfg.localModel = ''; cfg = cfg }}>Clear local route</button>
-      </div>
+        </div>
+      {/if}
     {/if}
 
     {#key cfg.chat.ID}
@@ -938,7 +963,7 @@
         {#if localOpt?.configured && newLocalRoutable}
           <label class="row" style="margin-top:12px; gap:8px; cursor:pointer">
             <input type="checkbox" bind:checked={newUseLocal} />
-            <span>Use the local LLM from Settings <span class="card-sub mono">{localOpt.endpoint}</span></span>
+            <span>Use a configured local LLM</span>
           </label>
         {:else if localOpt?.configured}
           <div class="card-sub" style="margin-top:10px">{localRoutingUnavailableMessage(newCli)}</div>

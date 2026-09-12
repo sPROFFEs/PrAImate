@@ -616,7 +616,7 @@
         {#if localOpt?.configured && localRoutable}
           <label class="row" style="margin-top:12px; gap:8px; cursor:pointer">
             <input type="checkbox" bind:checked={useLocal} />
-            <span>Use the local LLM from Settings <span class="card-sub mono">{localOpt.endpoint}</span></span>
+            <span>Use a configured local LLM</span>
           </label>
         {:else if localOpt?.configured}
           <div class="card-sub" style="margin-top:10px">{localRoutingUnavailableMessage(cli)}</div>
@@ -794,7 +794,7 @@
         {#if localOpt?.configured && supportsLocalRouting(cfg.cli)}
           <label class="row" style="margin-top:12px; gap:8px; cursor:pointer">
             <input type="checkbox" checked={!!cfg.localEndpoint} on:change={(e) => { if (e.target.checked) { cfg.localEndpoint = localOpt.endpoint } else { cfg.localEndpoint = ''; cfg.localModel = '' } }} />
-            <span>Use the local LLM from Settings <span class="card-sub mono">{localOpt.endpoint}</span></span>
+            <span>Use a configured local LLM</span>
           </label>
           {#if cfg.localEndpoint}
             <label class="lbl" style="margin-top:8px">Local model</label>
