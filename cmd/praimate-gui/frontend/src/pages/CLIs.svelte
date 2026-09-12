@@ -83,6 +83,16 @@
   async function installTool(t) {
     const methodID = toolChosen[t.id]
     if (!methodID) return
+    const method = (toolMethods[t.id] || []).find((m) => m.id === methodID)
+    if (method?.missingPrereqs?.some((p) => p === 'npm' || p === 'node')) {
+      await showConfirm({
+        title: 'Node.js & npm Required',
+        message: `To install ${t.label} via npm, Node.js and npm must be installed on your system.\n\nPlease install Node.js and npm on your system (e.g. from https://nodejs.org or your package manager), then restart PrAImate so it detects npm on your PATH.`,
+        confirmLabel: 'Understood',
+        tone: 'primary'
+      })
+      return
+    }
     if (methodID === 'npm' || methodID === 'pnpm') {
       const ok = await showConfirm({
         title: 'Security Warning: Package Install',
@@ -121,6 +131,16 @@
   async function install(cli) {
     const methodID = chosen[cli.id]
     if (!methodID) return
+    const method = (methods[cli.id] || []).find((m) => m.id === methodID)
+    if (method?.missingPrereqs?.some((p) => p === 'npm' || p === 'node')) {
+      await showConfirm({
+        title: 'Node.js & npm Required',
+        message: `To install ${cli.label} via npm, Node.js and npm must be installed on your system.\n\nPlease install Node.js and npm on your system (e.g. from https://nodejs.org or your package manager), then restart PrAImate so it detects npm on your PATH.`,
+        confirmLabel: 'Understood',
+        tone: 'primary'
+      })
+      return
+    }
     if (methodID === 'npm' || methodID === 'pnpm') {
       const ok = await showConfirm({
         title: 'Security Warning: Package Install',
@@ -306,6 +326,7 @@
             <span class="pill" class:ok={t.installed} class:err={!t.installed}>{t.installed ? 'installed' : 'not installed'}</span>
           </div>
           <div class="card-sub mono">{t.binary}{t.version ? ' · ' + t.version : ''}</div>
+          {#if t.id === 'graphify'}<div class="card-sub" style="font-size:11.5px; margin-top:2px">Knowledge-graph RAG engine for agents. Required for agents using RAG knowledge mode.</div>{/if}
         </div>
         <button class="btn" class:primary={!t.installed} on:click={() => showToolMethods(t)}>
           {t.installed ? 'Update…' : 'Install…'}

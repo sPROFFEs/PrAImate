@@ -46,6 +46,19 @@ func (a *App) OpenSkillInStudio(ref, digest string) (string, error) {
 		_ = os.MkdirAll(filepath.Dir(targetPath), 0755)
 		_ = os.WriteFile(targetPath, []byte(f.Content), 0644)
 	}
+
+	// Register the draft in the host skill store so it immediately appears in the Authoring drafts list.
+	view, viewErr := host.View(a.ctx)
+	if viewErr == nil {
+		_, _ = host.Update(a.ctx, view.Revision, func(tx *skills.SkillHostTransaction) error {
+			draft, err := skills.NewSkillDraft("own:"+folderName, v.Ref, files, skills.PackageLimits{})
+			if err != nil {
+				return err
+			}
+			return tx.SaveDraft(a.ctx, folderName, draft)
+		})
+	}
+
 	return a.OpenEditorWindow(workDir, "", "claude", "", "", "", "", "")
 }
 
@@ -68,10 +81,32 @@ func (a *App) CreateSkillInStudio(name string) (string, error) {
 		return "", err
 	}
 	skillMD := filepath.Join(workDir, "SKILL.md")
+	template := fmt.Sprintf("---\nname: %s\ndescription: Describe what this skill does and when to use it.\n---\n\n# %s\n\nWrite your skill instructions and procedures here.\n", name, name)
 	if _, err := os.Stat(skillMD); os.IsNotExist(err) {
-		template := fmt.Sprintf("---\nname: %s\ndescription: Describe what this skill does and when to use it.\n---\n\n# %s\n\nWrite your skill instructions and procedures here.\n", name, name)
 		_ = os.WriteFile(skillMD, []byte(template), 0644)
 	}
+
+	// Also register a draft in the host skill store so it appears in Authoring
+	host, err := core.OpenSkillStore(skills.PackageLimits{})
+	if err == nil {
+		defer host.Close()
+		view, viewErr := host.View(a.ctx)
+		if viewErr == nil {
+			_, _ = host.Update(a.ctx, view.Revision, func(tx *skills.SkillHostTransaction) error {
+				files := []skills.PackageFile{{Path: "SKILL.md", Content: []byte(template)}}
+				refName := name
+				if !strings.HasPrefix(refName, "local/") {
+					refName = "local/" + refName
+				}
+				draft, err := skills.NewSkillDraft("own:"+cleanName, refName, files, skills.PackageLimits{})
+				if err != nil {
+					return err
+				}
+				return tx.SaveDraft(a.ctx, cleanName, draft)
+			})
+		}
+	}
+
 	return a.OpenEditorWindow(workDir, "", "claude", "", "", "", "", "")
 }
 

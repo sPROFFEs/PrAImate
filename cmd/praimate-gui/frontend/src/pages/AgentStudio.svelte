@@ -1051,9 +1051,14 @@
 
       {#if know?.mode === 'rag'}
         {#if !know.graphifyInstalled}
-          <div class="hint" style="color:var(--warn)">graphify not installed.</div>
-          <button class="btn sm" disabled={knowBusy} on:click={installGraphify}>{knowBusy ? 'Installing…' : 'Install graphify'}</button>
+          <div class="hint" style="color:var(--warn); line-height: 1.45; border: 1px solid color-mix(in oklch, var(--warn) 30%, transparent); padding: 8px; border-radius: var(--radius-sm); background: color-mix(in oklch, var(--warn) 8%, transparent)">
+            ⚠️ <strong>Graphify is required</strong> for RAG knowledge indexing and retrieval. Without Graphify installed on your system, the agent cannot query its embedded knowledge graph.
+          </div>
+          <button class="btn sm primary" disabled={knowBusy} on:click={installGraphify}>{knowBusy ? 'Installing…' : 'Install graphify'}</button>
         {:else}
+          <div class="hint" style="font-size: 11px; color: var(--text-dim); margin-bottom: 4px;">
+            💡 RAG index powered by <strong>graphify</strong>. Graphify must remain installed on your system for agents to query this knowledge graph at runtime.
+          </div>
           <div class="lbl2">RAG backend</div>
           <select class="field sm" bind:value={ragBackend}>{#each BACKENDS as b}<option value={b.id}>{b.label}</option>{/each}</select>
           {#if keyNeeded}
