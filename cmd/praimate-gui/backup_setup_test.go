@@ -140,3 +140,31 @@ func TestConfigureBackupExistingComparesWithoutOverwriting(t *testing.T) {
 		t.Fatalf("existing setup overwrote local data: body=%q err=%v", body, err)
 	}
 }
+
+func TestConfigureBackupExistingCreatesMissingWorkspaceRoot(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	setUserConfigDir(t, t.TempDir())
+	backup.SetStateSyncer(nil)
+	t.Cleanup(func() { backup.SetStateSyncer(nil) })
+	ctx := context.Background()
+
+	remote := t.TempDir()
+	if r := backup.Run(ctx, remote, "init", "--bare", "-b", "main"); r.Failed() {
+		t.Skipf("git init --bare -b main unsupported: %s", backup.UserError(r))
+	}
+	workspace := filepath.Join(t.TempDir(), "missing", "workspaces")
+	if err := launcher.SaveConfig(&launcher.Config{WorkspacesRoot: workspace}); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{ctx: ctx}
+	result, err := app.ConfigureBackup("existing", remote)
+	if err != nil {
+		t.Fatalf("ConfigureBackup existing with missing workspace: %v", err)
+	}
+	if !result.State.Enabled || !result.State.Initialized || !backup.IsGitRepo(workspace) {
+		t.Fatalf("configured state = %+v, git repo = %v", result.State, backup.IsGitRepo(workspace))
+	}
+}

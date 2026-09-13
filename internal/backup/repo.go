@@ -77,6 +77,18 @@ func IsGitRepo(dir string) bool {
 // scenarios are clean. Returns the Result of the LAST git operation
 // when something fails, so the caller can render git's own error.
 func Init(ctx context.Context, dir string) (Status, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return Status{}, errors.New("git init: backup directory is empty")
+	}
+	// Run executes git with dir as cmd.Dir. Unlike `git init <dir>`, that
+	// requires the directory to exist before the process can start. The
+	// configured workspaces root can legitimately disappear between runs
+	// (for example when it was placed under a cleaned temporary directory),
+	// so recreate the path before invoking Git.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return Status{}, fmt.Errorf("git init: create backup directory %s: %w", dir, err)
+	}
 	if !IsGitRepo(dir) {
 		// `-b main` is the modern default; falls back gracefully on
 		// older git versions that don't know -b (they default to
@@ -454,7 +466,9 @@ func Pull(ctx context.Context, dir string, ffOnly bool) error {
 }
 
 // MergeFromRemote runs `git merge origin/<branch>` (no fast-forward
-// arg — git's default). Returns nil on clean merge; an error
+// arg — git's default). Histories may be unrelated when Settings attaches a
+// populated local workspace to an existing backup for the first time, so the
+// explicit user-selected merge permits that initial join. Returns nil on clean merge; an error
 // containing "conflict" when there are merge conflicts.
 func MergeFromRemote(ctx context.Context, dir string) error {
 	st, _ := CurrentStatus(ctx, dir)
@@ -462,7 +476,7 @@ func MergeFromRemote(ctx context.Context, dir string) error {
 	if branch == "" {
 		branch = "main"
 	}
-	r := Run(ctx, dir, "merge", "origin/"+branch, "--no-edit")
+	r := Run(ctx, dir, backupIdentityArgs("merge", "origin/"+branch, "--no-edit", "--allow-unrelated-histories")...)
 	if r.Failed() {
 		if strings.Contains(strings.ToLower(r.CombinedOutput()), "conflict") {
 			return fmt.Errorf("merge conflict: %s", r.CombinedOutput())
@@ -482,7 +496,7 @@ func RebaseOntoRemote(ctx context.Context, dir string) error {
 	if branch == "" {
 		branch = "main"
 	}
-	r := Run(ctx, dir, "rebase", "origin/"+branch)
+	r := Run(ctx, dir, backupIdentityArgs("rebase", "origin/"+branch)...)
 	if r.Failed() {
 		if strings.Contains(strings.ToLower(r.CombinedOutput()), "conflict") {
 			return fmt.Errorf("rebase conflict: %s", r.CombinedOutput())
@@ -616,13 +630,18 @@ func stageAndCommit(ctx context.Context, dir, extraSummary string) error {
 	// Supply a repository-independent committer identity for PrAImate-owned
 	// backup commits. --author only covers the author; Git still refuses to
 	// commit when the user's global committer identity is unset.
-	args := []string{"-c", "user.name=PrAImate", "-c", "user.email=praimate@local",
-		"commit", "-m", msg,
-		"--author=PrAImate <praimate@local>"}
+	args := backupIdentityArgs("commit", "-m", msg, "--author=PrAImate <praimate@local>")
 	if r := Run(ctx, dir, args...); r.Failed() {
 		return fmt.Errorf("git commit: %s", UserError(r))
 	}
 	return nil
+}
+
+func backupIdentityArgs(args ...string) []string {
+	return append([]string{
+		"-c", "user.name=PrAImate",
+		"-c", "user.email=praimate@local",
+	}, args...)
 }
 
 // registerMemoryMergeDriver wires the MEMORY.md custom merge driver

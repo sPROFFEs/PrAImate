@@ -16,3 +16,13 @@ test('MCP state and toggle action are presented separately', () => {
   assert.match(mcpSource, /s\.enabled \? 'Disable' : 'Enable'/)
   assert.match(mcpSource, /class:primary=\{!s\.enabled\}/)
 })
+
+test('Git backup test and configure actions provide persistent toast feedback', () => {
+  assert.match(settingsSource, /title: 'Testing Git remote'[\s\S]*tone: 'busy'[\s\S]*dismissible: false/)
+  assert.match(settingsSource, /title: 'Remote connection successful'/)
+  assert.match(settingsSource, /title: 'Remote connection failed'[\s\S]*tone: 'err'[\s\S]*duration: 0/)
+  assert.match(settingsSource, /title: 'Configuring Git backup'[\s\S]*tone: 'busy'[\s\S]*dismissible: false/)
+  assert.match(settingsSource, /applyBackupResult\(res\)[\s\S]*await tick\(\)[\s\S]*res\.action === 'diverged'/)
+  assert.match(settingsSource, /title: 'Backup connected — action required'/)
+  assert.match(settingsSource, /title: 'Backup configuration failed'[\s\S]*tone: 'err'[\s\S]*duration: 0/)
+})

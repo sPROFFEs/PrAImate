@@ -1,6 +1,7 @@
 <script>
-  import { onMount, onDestroy } from 'svelte'
+  import { onMount, onDestroy, tick } from 'svelte'
   import { api } from '../lib/api.js'
+  import { showToast } from '../lib/stores.js'
   import {
     ACCENT_PRESETS,
     themeMode,
@@ -128,11 +129,34 @@
     bkMsg = ''
     error = ''
     bkDiverged = null
+    showToast({
+      title: 'Configuring Git backup',
+      message: bkSetupMode === 'existing'
+        ? 'Testing the remote and comparing local and remote history…'
+        : 'Creating the local backup repository and checking the remote…',
+      tone: 'busy',
+      duration: 0,
+      dismissible: false,
+    })
     try {
       const res = await api.configureBackup(bkSetupMode, bkRemote.trim())
       applyBackupResult(res)
+      // Let Svelte paint the divergence panel before replacing the persistent
+      // progress toast with the result notification.
+      await tick()
+      if (res.action === 'diverged') {
+        showToast({
+          title: 'Backup connected — action required',
+          message: 'Local and remote histories differ. Review the changes and choose a reconciliation option below.',
+          tone: 'ok',
+          duration: 7000,
+        })
+      } else {
+        showToast({ title: 'Backup configured', message: bkMsg, tone: 'ok' })
+      }
     } catch (e) {
       error = String(e)
+      showToast({ title: 'Backup configuration failed', message: String(e), tone: 'err', duration: 0 })
       await bkLoad()
     } finally {
       bkBusy = ''
@@ -144,11 +168,24 @@
     bkBusy = 'Test'
     bkMsg = ''
     error = ''
+    showToast({
+      title: 'Testing Git remote',
+      message: 'Checking connectivity, authentication, and the default branch…',
+      tone: 'busy',
+      duration: 0,
+      dismissible: false,
+    })
     try {
       const branch = await api.testBackupRemote(bkRemote)
       bkMsg = `Connection OK — default branch: ${branch}`
+      showToast({
+        title: 'Remote connection successful',
+        message: `Git can access this repository. Default branch: ${branch}`,
+        tone: 'ok',
+      })
     } catch (e) {
       error = String(e)
+      showToast({ title: 'Remote connection failed', message: String(e), tone: 'err', duration: 0 })
     } finally {
       bkBusy = ''
     }

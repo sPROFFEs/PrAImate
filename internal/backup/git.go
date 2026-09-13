@@ -113,5 +113,12 @@ func UserError(r Result) string {
 	if msg := strings.TrimSpace(r.Stdout); msg != "" {
 		return msg
 	}
+	// A non-ExitError means Git never started (for example cmd.Dir does not
+	// exist or is inaccessible). Preserve that OS error instead of reducing it
+	// to the unactionable "git failed (exit -1)" fallback.
+	var exitErr *exec.ExitError
+	if !errors.As(r.Err, &exitErr) {
+		return r.Err.Error()
+	}
 	return fmt.Sprintf("git failed (exit %d)", r.ExitCode)
 }

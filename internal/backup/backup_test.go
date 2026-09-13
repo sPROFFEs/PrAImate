@@ -35,6 +35,19 @@ func TestRun_RecordsExitCodeAndStderr(t *testing.T) {
 	}
 }
 
+func TestRun_UserErrorPreservesProcessStartFailure(t *testing.T) {
+	skipIfNoGit(t)
+	dir := filepath.Join(t.TempDir(), "missing")
+	r := Run(context.Background(), dir, "status")
+	if !r.Failed() || r.ExitCode != -1 {
+		t.Fatalf("Run with missing cwd = %+v, want process-start failure", r)
+	}
+	got := UserError(r)
+	if strings.Contains(got, "git failed (exit -1)") || !strings.Contains(got, dir) {
+		t.Fatalf("UserError = %q, want underlying cwd error containing %q", got, dir)
+	}
+}
+
 func TestValidateRemoteURLRejectsEmbeddedHTTPCredentials(t *testing.T) {
 	for _, raw := range []string{
 		"https://user:token@example.test/repo.git",
@@ -46,6 +59,7 @@ func TestValidateRemoteURLRejectsEmbeddedHTTPCredentials(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{
+		"http://gitea.example.test/team/repo.git",
 		"https://example.test/repo.git",
 		"ssh://git@example.test/repo.git",
 		"git@example.test:team/repo.git",
@@ -131,6 +145,22 @@ func TestInit_CreatesRepoWithManagedFilesAndInitialCommit(t *testing.T) {
 	}
 	if !strings.Contains(r.Stdout, "praimate backup") {
 		t.Errorf("initial commit should start with 'praimate backup'; got %q", r.Stdout)
+	}
+}
+
+func TestInit_CreatesMissingBackupDirectory(t *testing.T) {
+	skipIfNoGit(t)
+	dir := filepath.Join(t.TempDir(), "missing", "workspaces")
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("test precondition: backup directory unexpectedly exists: %v", err)
+	}
+
+	st, err := Init(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("Init should create a missing backup directory: %v", err)
+	}
+	if !st.Initialized || !IsGitRepo(dir) {
+		t.Fatalf("Init status = %+v, git repo = %v", st, IsGitRepo(dir))
 	}
 }
 
@@ -241,6 +271,75 @@ func TestSync_FFPushFromCleanLocal(t *testing.T) {
 	}
 	if action != SyncActionPushed {
 		t.Errorf("action = %s, want %s; status=%+v", action, SyncActionPushed, st)
+	}
+}
+
+func TestMergeFromRemoteJoinsUnrelatedHistoriesWithoutGlobalIdentity(t *testing.T) {
+	skipIfNoGit(t)
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "user.useConfigOnly")
+	t.Setenv("GIT_CONFIG_VALUE_0", "true")
+	SetStateSyncer(nil)
+	t.Cleanup(func() { SetStateSyncer(nil) })
+	ctx := context.Background()
+
+	remote := t.TempDir()
+	if r := Run(ctx, remote, "init", "--bare", "-b", "main"); r.Failed() {
+		t.Skipf("git init --bare -b main unsupported: %s", UserError(r))
+	}
+	seed := t.TempDir()
+	if _, err := Init(ctx, seed); err != nil {
+		t.Fatal(err)
+	}
+	remoteFile := filepath.Join(seed, "chats", "remote", "MEMORY.md")
+	if err := os.MkdirAll(filepath.Dir(remoteFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(remoteFile, []byte("remote\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitLocalChanges(ctx, seed, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddRemote(ctx, seed, remote); err != nil {
+		t.Fatal(err)
+	}
+	if action, _, err := Sync(ctx, seed); err != nil || action != SyncActionPushed {
+		t.Fatalf("seed remote: action=%q err=%v", action, err)
+	}
+
+	local := t.TempDir()
+	if _, err := Init(ctx, local); err != nil {
+		t.Fatal(err)
+	}
+	localFile := filepath.Join(local, "chats", "local", "MEMORY.md")
+	if err := os.MkdirAll(filepath.Dir(localFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(localFile, []byte("local\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitLocalChanges(ctx, local, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddRemote(ctx, local, remote); err != nil {
+		t.Fatal(err)
+	}
+	if err := Fetch(ctx, local); err != nil {
+		t.Fatal(err)
+	}
+	if err := MergeFromRemote(ctx, local); err != nil {
+		t.Fatalf("merge unrelated backup histories: %v", err)
+	}
+	for _, path := range []string{
+		filepath.Join(local, "chats", "local", "MEMORY.md"),
+		filepath.Join(local, "chats", "remote", "MEMORY.md"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("merged backup missing %s: %v", path, err)
+		}
 	}
 }
 
