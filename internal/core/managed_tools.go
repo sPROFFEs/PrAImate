@@ -77,6 +77,24 @@ func (b *managedToolBroker) Close() error {
 	return b.mcp.Close()
 }
 
+func (b *managedToolBroker) canReadKnowledge() bool {
+	if b == nil || b.agent == nil {
+		return false
+	}
+	return b.agent.Knowledge == "raw" || b.agent.Knowledge == "rag"
+}
+
+func (b *managedToolBroker) canSearchKnowledge() bool {
+	return b.canReadKnowledge()
+}
+
+func (b *managedToolBroker) canQueryKnowledge() bool {
+	if b == nil || b.agent == nil {
+		return false
+	}
+	return b.agent.Knowledge == "rag"
+}
+
 func (b *managedToolBroker) Instructions() string {
 	var tools []string
 	if b.capabilities.ReadProject || b.capabilities.AnalyzeCode || b.capabilities.ModifyFiles {
@@ -97,18 +115,29 @@ func (b *managedToolBroker) Instructions() string {
 	if b.capabilities.Network {
 		tools = append(tools, `{"action":"tool","tool":"network.get","arguments":{"url":"https://example.com/resource"}}`)
 	}
-	if b.agent != nil && b.agent.Knowledge == "raw" {
-		tools = append(tools, `{"action":"tool","tool":"knowledge.read","arguments":{"path":"relative/knowledge-file","offset":0,"limit":65536}}`)
+	if b.canReadKnowledge() {
+		tools = append(tools,
+			`{"action":"tool","tool":"knowledge.read","arguments":{"path":"relative/knowledge-file","offset":0,"limit":65536}}`,
+			`{"action":"tool","tool":"knowledge.search","arguments":{"query":"exact term or identifier","path":"optional/subpath","max_results":20}}`)
 	}
-	if b.agent != nil && b.agent.Knowledge == "rag" {
-		tools = append(tools, `{"action":"tool","tool":"knowledge.query","arguments":{"question":"focused question","budget":2000}}`)
+	if b.canQueryKnowledge() {
+		tools = append(tools, `{"action":"tool","tool":"knowledge.query","arguments":{"question":"focused question","budget":1200}}`)
 	}
 	tools = append(tools, b.mcp.Instructions()...)
 	if len(tools) == 0 {
 		return "Additional managed tools: none."
 	}
-	return "Additional managed tools (use these exact JSON forms):\n" + strings.Join(tools, "\n") +
+	instructions := "Additional managed tools (use these exact JSON forms):\n" + strings.Join(tools, "\n") +
 		"\nproject.write, command.run, and mutating git.run operations pause for explicit user approval."
+	if b.canQueryKnowledge() {
+		instructions += "\n\nKNOWLEDGE USAGE:\n" +
+			"- Use knowledge.query for conceptual, architectural, and relationship questions.\n" +
+			"- Use knowledge.search for exact identifiers, configuration names, versions, errors, and quoted phrases.\n" +
+			"- Use knowledge.read to inspect and verify the original source after locating relevant information.\n" +
+			"- When knowledge affects code, security, deployment, or configuration decisions, verify the original source with knowledge.read when practical.\n" +
+			"- Do not repeat equivalent graph queries. After two unsuccessful queries, switch to knowledge.search / knowledge.read."
+	}
+	return instructions
 }
 
 func (b *managedToolBroker) ExecuteTool(ctx context.Context, tool string, arguments json.RawMessage) (string, error) {
@@ -149,12 +178,17 @@ func (b *managedToolBroker) ExecuteTool(ctx context.Context, tool string, argume
 		}
 		return b.networkGet(ctx, arguments)
 	case "knowledge.read":
-		if b.agent == nil || b.agent.Knowledge != "raw" {
+		if !b.canReadKnowledge() {
 			return "", b.denied(tool)
 		}
 		return b.readKnowledge(arguments)
+	case "knowledge.search":
+		if !b.canSearchKnowledge() {
+			return "", b.denied(tool)
+		}
+		return b.searchKnowledge(ctx, arguments)
 	case "knowledge.query":
-		if b.agent == nil || b.agent.Knowledge != "rag" {
+		if !b.canQueryKnowledge() {
 			return "", b.denied(tool)
 		}
 		return b.queryKnowledge(ctx, arguments)
@@ -391,6 +425,77 @@ func readBoundedFile(path string, offset int64, limit int) (string, error) {
 	return result, nil
 }
 
+type textSearchOptions struct {
+	Root        string
+	BaseDir     string
+	Query       string
+	MaxResults  int
+	SkipDirs    map[string]bool
+	MaxFileSize int64
+}
+
+func searchTextTree(ctx context.Context, opts textSearchOptions) (string, error) {
+	if opts.MaxResults <= 0 {
+		opts.MaxResults = 20
+	}
+	if opts.MaxFileSize <= 0 {
+		opts.MaxFileSize = 2 << 20
+	}
+	base := opts.BaseDir
+	if base == "" {
+		base = opts.Root
+	}
+	var matches []string
+	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != base && opts.SkipDirs != nil && opts.SkipDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if len(matches) >= opts.MaxResults {
+			return fs.SkipAll
+		}
+		info, err := d.Info()
+		if err != nil || !info.Mode().IsRegular() || info.Size() > opts.MaxFileSize {
+			return nil
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 64<<10), 1<<20)
+		line := 0
+		for scanner.Scan() {
+			line++
+			text := scanner.Text()
+			if strings.Contains(text, opts.Query) {
+				rel, _ := filepath.Rel(opts.Root, path)
+				matches = append(matches, fmt.Sprintf("%s:%d:%s", filepath.ToSlash(rel), line, strings.TrimSpace(text)))
+				if len(matches) >= opts.MaxResults {
+					break
+				}
+			}
+		}
+		_ = f.Close()
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "No literal matches.", nil
+	}
+	return boundManagedOutput(strings.Join(matches, "\n")), nil
+}
+
 func (b *managedToolBroker) searchProject(ctx context.Context, raw json.RawMessage) (string, error) {
 	var args struct {
 		Query      string `json:"query"`
@@ -411,54 +516,14 @@ func (b *managedToolBroker) searchProject(ctx context.Context, raw json.RawMessa
 	if err != nil {
 		return "", err
 	}
-	var matches []string
-	err = filepath.WalkDir(base, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if path != base && (d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == "dist") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if len(matches) >= args.MaxResults {
-			return fs.SkipAll
-		}
-		info, err := d.Info()
-		if err != nil || !info.Mode().IsRegular() || info.Size() > 2<<20 {
-			return nil
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			return nil
-		}
-		scanner := bufio.NewScanner(f)
-		scanner.Buffer(make([]byte, 64<<10), 1<<20)
-		line := 0
-		for scanner.Scan() {
-			line++
-			if strings.Contains(scanner.Text(), args.Query) {
-				rel, _ := filepath.Rel(b.root, path)
-				matches = append(matches, fmt.Sprintf("%s:%d:%s", filepath.ToSlash(rel), line, strings.TrimSpace(scanner.Text())))
-				if len(matches) >= args.MaxResults {
-					break
-				}
-			}
-		}
-		_ = f.Close()
-		return nil
+	return searchTextTree(ctx, textSearchOptions{
+		Root:        b.root,
+		BaseDir:     base,
+		Query:       args.Query,
+		MaxResults:  args.MaxResults,
+		SkipDirs:    map[string]bool{".git": true, "node_modules": true, "dist": true},
+		MaxFileSize: 2 << 20,
 	})
-	if err != nil {
-		return "", err
-	}
-	if len(matches) == 0 {
-		return "No literal matches.", nil
-	}
-	return boundManagedOutput(strings.Join(matches, "\n")), nil
 }
 
 func (b *managedToolBroker) writeProject(ctx context.Context, raw json.RawMessage) (string, error) {
@@ -672,6 +737,44 @@ func (b *managedToolBroker) readKnowledge(raw json.RawMessage) (string, error) {
 	return readBoundedFile(path, args.Offset, args.Limit)
 }
 
+func (b *managedToolBroker) searchKnowledge(ctx context.Context, raw json.RawMessage) (string, error) {
+	var args struct {
+		Query      string `json:"query"`
+		Path       string `json:"path"`
+		MaxResults int    `json:"max_results"`
+	}
+	if err := decodeManagedArgs(raw, &args); err != nil {
+		return "", err
+	}
+	args.Query = strings.TrimSpace(args.Query)
+	if args.Query == "" {
+		return "", errors.New("knowledge.search requires a query")
+	}
+	if args.MaxResults <= 0 || args.MaxResults > 100 {
+		args.MaxResults = 20
+	}
+	root, real, err := existingRoot(b.knowledgeDir)
+	if err != nil {
+		return "", err
+	}
+	base := root
+	if strings.TrimSpace(args.Path) != "" {
+		resolved, err := resolveContainedPath(root, real, args.Path, false)
+		if err != nil {
+			return "", err
+		}
+		base = resolved
+	}
+	return searchTextTree(ctx, textSearchOptions{
+		Root:        root,
+		BaseDir:     base,
+		Query:       args.Query,
+		MaxResults:  args.MaxResults,
+		SkipDirs:    map[string]bool{"graphify-out": true, ".git": true},
+		MaxFileSize: 2 << 20,
+	})
+}
+
 func (b *managedToolBroker) queryKnowledge(ctx context.Context, raw json.RawMessage) (string, error) {
 	var args struct {
 		Question string `json:"question"`
@@ -685,7 +788,7 @@ func (b *managedToolBroker) queryKnowledge(ctx context.Context, raw json.RawMess
 		return "", errors.New("knowledge.query requires a question")
 	}
 	if args.Budget <= 0 {
-		args.Budget = 2000
+		args.Budget = 1200
 	}
 	if args.Budget < 200 || args.Budget > 8000 {
 		return "", errors.New("knowledge.query budget must be between 200 and 8000")

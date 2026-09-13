@@ -167,9 +167,8 @@ Save the agent before attaching knowledge. The Agents editor then exposes the
 
 ### Raw documents
 
-Set `knowledge: raw` or select **Raw documents**. PrAImate adds the managed
-knowledge folder to the agent's context and instructs the selected CLI to read
-relevant files with its file tools.
+Set `knowledge: raw` or select **Raw documents**. PrAImate exposes `knowledge.read`
+and `knowledge.search` for inspecting and searching the managed knowledge files.
 
 Raw mode is the simplest choice for a small, focused collection. It requires
 no indexing backend or API key.
@@ -178,6 +177,13 @@ no indexing backend or API key.
 
 Set `knowledge: rag` or select **RAG (graphify)**, install the bundled
 Graphify tool when prompted, then select **Build RAG index**.
+
+In RAG mode, PrAImate exposes a complete three-tier retrieval model:
+- `knowledge.query`: Graphify-backed conceptual and relational retrieval (default budget: 1200 tokens).
+- `knowledge.search`: Bounded literal text search across knowledge files (excluding `graphify-out/`).
+- `knowledge.read`: Exact file reading for source verification.
+
+The intended workflow is: Graphify identifies relevant areas and relationships, `knowledge.search` locates exact identifiers or configuration terms, and `knowledge.read` verifies the original source before taking decisions.
 
 Available indexing backends are:
 
