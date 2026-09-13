@@ -183,6 +183,15 @@
     if (window.runtime?.EventsOn) {
       window.runtime.EventsOn('praimate:close-blocked', (event) => { closeBlocked = event })
     }
+    // A genuinely fresh install chooses between a new workspace and an
+    // existing backup before creating a database password. A cloned backup
+    // already carries its encrypted DB and password envelope, so creating a
+    // new local DB first would make the restore impossible by construction.
+    try {
+      firstRun = await api.firstRun()
+    } catch {
+      firstRun = { needed: false, beforeUnlock: false }
+    }
     try {
       databaseLock = await api.databaseLockStatus()
     } catch (e) {
@@ -198,8 +207,14 @@
     await loadUnlockedApp()
   }
 
-  function setupDone() {
+  async function setupDone() {
     firstRun = { ...firstRun, needed: false }
+    try {
+      databaseLock = await api.databaseLockStatus()
+    } catch (e) {
+      databaseLock = { unlocked: false, setupRequired: false, error: String(e) }
+    }
+    if (databaseLock?.unlocked) await loadUnlockedApp()
   }
 
   function privacyAccepted() {
@@ -232,6 +247,8 @@
   {:else if specialError}<div class="boot-screen"><div class="banner">{specialError}</div></div>{:else}<div class="boot-screen">Opening session…</div>{/if}
 {:else if !databaseLock}
   <div class="boot-screen">Preparing secure storage…</div>
+{:else if firstRun?.needed && firstRun?.beforeUnlock}
+  <Setup defaultRoot={firstRun.defaultRoot} on:done={setupDone} />
 {:else if !databaseLock.unlocked}
   <DatabaseUnlock info={databaseLock} on:unlocked={databaseUnlocked} />
 {:else if editorMode?.active}

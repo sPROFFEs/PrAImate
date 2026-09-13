@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,13 +20,15 @@ import (
 	"git.jtsec.local/lab/PrAImate/internal/backup"
 	"git.jtsec.local/lab/PrAImate/internal/core"
 	"git.jtsec.local/lab/PrAImate/internal/launcher"
+	"git.jtsec.local/lab/PrAImate/internal/store"
 )
 
 // FirstRunInfo tells the frontend whether to show setup and what to
 // pre-fill.
 type FirstRunInfo struct {
-	Needed      bool   `json:"needed"`
-	DefaultRoot string `json:"defaultRoot"`
+	Needed       bool   `json:"needed"`
+	BeforeUnlock bool   `json:"beforeUnlock"`
+	DefaultRoot  string `json:"defaultRoot"`
 }
 
 // FirstRun reports whether the launcher config exists yet.
@@ -35,10 +38,27 @@ func (a *App) FirstRun() (*FirstRunInfo, error) {
 		return nil, err
 	}
 	home, _ := os.UserHomeDir()
+	needed := cfg == nil || cfg.WorkspacesRoot == ""
 	return &FirstRunInfo{
-		Needed:      cfg == nil || cfg.WorkspacesRoot == "",
-		DefaultRoot: filepath.Join(home, "praimate-workspaces"),
+		Needed:       needed,
+		BeforeUnlock: needed && a.databaseFilesAbsent(),
+		DefaultRoot:  filepath.Join(home, "praimate-workspaces"),
 	}, nil
+}
+
+// databaseFilesAbsent reports whether this is a genuinely fresh install. A
+// machine with an existing DB but a missing launcher config must unlock first;
+// otherwise the restore wizard could replace data that belongs to that DB.
+func (a *App) databaseFilesAbsent() bool {
+	if a.dbPath == "" {
+		return false
+	}
+	for _, path := range []string{a.dbPath, store.KeyPath(a.dbPath)} {
+		if _, err := os.Stat(path); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return false
+		}
+	}
+	return true
 }
 
 // CompleteFirstRun creates the workspaces root (or clones it from a
@@ -74,6 +94,12 @@ func (a *App) CompleteFirstRun(root string, seedSamples bool, seedAgents bool, c
 		cctx, ccancel := context.WithTimeout(a.ctx, 10*time.Minute)
 		defer ccancel()
 		if err := backup.Clone(cctx, cloneURL, root); err != nil {
+			return err
+		}
+		// A new machine must adopt the encrypted DB snapshot before it creates
+		// a local password/key. The next screen then asks for the backup's
+		// existing password and opens the restored DB directly.
+		if err := a.installClonedDatabase(root); err != nil {
 			return err
 		}
 		cfg.BackupEnabled = true
@@ -121,6 +147,69 @@ func (a *App) CompleteFirstRun(root string, seedSamples bool, seedAgents bool, c
 				cancel()
 			}
 		}
+	}
+	return nil
+}
+
+func (a *App) installClonedDatabase(root string) error {
+	snapshot := filepath.Join(root, core.BackupStateDir, "db.sqlite")
+	envelope := snapshot + ".key"
+	snapshotInfo, snapshotErr := os.Stat(snapshot)
+	_, envelopeErr := os.Stat(envelope)
+	if errors.Is(snapshotErr, os.ErrNotExist) && errors.Is(envelopeErr, os.ErrNotExist) {
+		return nil // legacy backup: chats/templates only; create a new DB next
+	}
+	if snapshotErr != nil {
+		return fmt.Errorf("restore backup database: %w", snapshotErr)
+	}
+	if envelopeErr != nil {
+		return fmt.Errorf("restore backup password envelope: %w", envelopeErr)
+	}
+	if snapshotInfo.IsDir() {
+		return errors.New("restore backup database: snapshot is a directory")
+	}
+	if a.dbPath == "" {
+		return errors.New("restore backup database: local database path is unavailable")
+	}
+	if !a.databaseFilesAbsent() {
+		return errors.New("restore backup database: local database already exists; unlock it before connecting a backup")
+	}
+	if err := os.MkdirAll(filepath.Dir(a.dbPath), 0o700); err != nil {
+		return fmt.Errorf("restore backup database: create data folder: %w", err)
+	}
+	if err := copyNewPrivateFile(snapshot, a.dbPath); err != nil {
+		return fmt.Errorf("restore backup database: %w", err)
+	}
+	if err := copyNewPrivateFile(envelope, store.KeyPath(a.dbPath)); err != nil {
+		_ = os.Remove(a.dbPath) // rollback the DB created by this function
+		return fmt.Errorf("restore backup password envelope: %w", err)
+	}
+	return nil
+}
+
+func copyNewPrivateFile(source, destination string) (err error) {
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := out.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			_ = os.Remove(destination)
+		}
+	}()
+	if _, err = io.Copy(out, in); err != nil {
+		return err
+	}
+	if err = out.Sync(); err != nil {
+		return err
 	}
 	return nil
 }

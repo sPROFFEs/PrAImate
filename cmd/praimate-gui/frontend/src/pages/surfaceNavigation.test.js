@@ -145,3 +145,10 @@ test('detached mode is resolved before database unlock and heavy pages are lazy-
   assert.doesNotMatch(app, /import Code from '\.\/pages\/Code\.svelte'/)
   assert.match(app, /Close secondary windows first/)
 })
+
+test('fresh-install backup restore happens before database password creation', () => {
+  assert.ok(app.indexOf('firstRun = await api.firstRun()') < app.indexOf('databaseLock = await api.databaseLockStatus()'))
+  assert.match(app, /firstRun\?\.needed && firstRun\?\.beforeUnlock[\s\S]*<Setup/)
+  assert.ok(app.indexOf('firstRun?.needed && firstRun?.beforeUnlock') < app.indexOf('!databaseLock.unlocked'))
+  assert.match(app, /async function setupDone\(\)[\s\S]*databaseLock = await api\.databaseLockStatus\(\)/)
+})

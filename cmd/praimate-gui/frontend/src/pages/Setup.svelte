@@ -94,12 +94,15 @@
         <button class="btn" on:click={testRemote} disabled={!cloneURL.trim()}>Test</button>
       </div>
       {#if probeMsg}<div class="card-sub" style="margin-top:4px">{probeMsg}</div>{/if}
-      <p class="subtitle" style="margin-top:6px">Pulls the chats, templates and settings you pushed from another machine. Backup auto-enables.</p>
+      <p class="subtitle" style="margin-top:6px">
+        Restores chats, agents, templates and settings from the remote. If it contains an encrypted database,
+        PrAImate will next ask for that backup's existing password. Do not create a different password.
+      </p>
     {/if}
 
     <div class="row" style="margin-top:20px">
       <button class="btn primary" on:click={go} disabled={busy || !root.trim() || (mode === 'clone' && !cloneURL.trim())}>
-        {busy ? 'Setting up…' : 'Create & start'}
+        {busy ? 'Setting up…' : mode === 'clone' ? 'Restore backup & continue' : 'Create & continue'}
       </button>
     </div>
   </div>
