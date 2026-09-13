@@ -180,6 +180,12 @@ build_one() {
         if command -v zip >/dev/null 2>&1; then
           rm -f "dist/praimate-$triplet.zip"
           ( cd dist && zip -qr "praimate-$triplet.zip" "$triplet" )
+        elif command -v 7z >/dev/null 2>&1; then
+          rm -f "dist/praimate-$triplet.zip"
+          ( cd dist && 7z a -tzip -r "praimate-$triplet.zip" "$triplet" >/dev/null )
+        elif python3 -c 'import zipfile' >/dev/null 2>&1; then
+          rm -f "dist/praimate-$triplet.zip"
+          ( cd dist && python3 -c "import zipfile, os; z = zipfile.ZipFile('praimate-$triplet.zip', 'w', zipfile.ZIP_DEFLATED); [z.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), '.')) for root, _, files in os.walk('$triplet') for file in files]; z.close()" )
         elif [ -x "/c/Windows/System32/tar.exe" ]; then
           ( cd dist && /c/Windows/System32/tar.exe \
               --options zip:compression=deflate \
