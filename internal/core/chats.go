@@ -460,3 +460,19 @@ func (c *Core) RenameChat(ctx context.Context, chatID, newTitle string) error {
 	_, err := c.store.DB().ExecContext(ctx, "UPDATE chats SET title = ? WHERE id = ?", newTitle, chatID)
 	return err
 }
+
+func (c *Core) UpdateChatWorkspace(ctx context.Context, chatID, newWorkspacePath string) error {
+	if c.store == nil {
+		return errors.New("UpdateChatWorkspace: no store configured")
+	}
+	clean := strings.TrimSpace(newWorkspacePath)
+	if clean != "" {
+		if abs, err := filepath.Abs(clean); err == nil {
+			clean = abs
+		}
+	}
+	_, err := c.store.DB().ExecContext(ctx,
+		"UPDATE chats SET workspace_path = ?, updated_at = ? WHERE id = ?",
+		clean, time.Now().UTC().Format(time.RFC3339Nano), chatID)
+	return err
+}

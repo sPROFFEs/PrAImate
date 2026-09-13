@@ -35,7 +35,7 @@
   function openConfig(chat) {
     error = ''
     cfg = {
-      chat, name: chat.Title || '', cli: chat.CLIAgent, model: chat.Settings?.model || '',
+      chat, name: chat.Title || '', workspacePath: chat.WorkspacePath || '', cli: chat.CLIAgent, model: chat.Settings?.model || '',
       tools: normalizeToolsForCli(chat.CLIAgent, chat.Settings?.tools),
       localEndpoint: chat.Settings?.local?.endpoint || '',
       localApiKey: chat.Settings?.local?.api_key || '',
@@ -64,6 +64,9 @@
       await api.updateChatConfig(cfg.chat.ID, cfg.cli, cfg.model.trim(), normalizeToolsForCli(cfg.cli, cfg.tools), cfg.localEndpoint.trim(), cfg.localApiKey, cfg.localModel.trim())
       if (cfg.name.trim() && cfg.name.trim() !== cfg.chat.Title) {
         await api.renameChat(cfg.chat.ID, cfg.name.trim())
+      }
+      if (cfg.workspacePath !== undefined && cfg.workspacePath.trim() !== (cfg.chat.WorkspacePath || '')) {
+        await api.updateChatWorkspace(cfg.chat.ID, cfg.workspacePath.trim())
       }
       await api.setChatMCPServers(cfg.chat.ID, cfg.mcps || [])
       cfg = null
@@ -383,6 +386,12 @@
 
       <label class="lbl">Session Name</label>
       <input class="field" style="max-width:320px; margin-bottom:12px" bind:value={cfg.name} />
+
+      <label class="lbl">Workspace folder</label>
+      <div class="row" style="margin-bottom:12px">
+        <input class="field grow mono" bind:value={cfg.workspacePath} placeholder="/path/to/workspace" />
+        <button class="btn" type="button" on:click={async () => { const p = await api.pickFolder(); if (p) cfg.workspacePath = p }}>Browse…</button>
+      </div>
 
       <label class="lbl">CLI</label>
       <select class="field" style="max-width:320px" bind:value={cfg.cli} on:change={cfgCliChanged}>

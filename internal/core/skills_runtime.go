@@ -176,18 +176,13 @@ func (c *Core) BuildChatSkillPayload(ctx context.Context, settings ChatSettings,
 	if err != nil {
 		return "", nil, err
 	}
-	// These static transports cannot service model-requested skill tools.
-	// Do not send a catalogue that advertises nonexistent load/read operations.
+	// Static prompts only include pinned bindings in the initial payload.
+	// Dynamic activations (auto/manual) are serviced on demand by the MCP skills shim.
 	var unavailable []skills.SkillDiagnostic
 	config := *scope.Config
 	config.Bindings = make([]skills.SkillBinding, 0, len(scope.Config.Bindings))
 	for _, binding := range scope.Config.Bindings {
 		if binding.Activation == "auto" || binding.Activation == "manual" {
-			diagnostic := skills.SkillDiagnostic{Code: "incompatible_transport", Ref: binding.Ref, Remedy: "Use pinned on this surface, or select an explicitly managed agent for dynamic skill.load/read"}
-			if !binding.Optional {
-				return "", nil, &skills.SkillResolutionError{Diagnostics: []skills.SkillDiagnostic{diagnostic}}
-			}
-			unavailable = append(unavailable, diagnostic)
 			continue
 		}
 		config.Bindings = append(config.Bindings, binding)

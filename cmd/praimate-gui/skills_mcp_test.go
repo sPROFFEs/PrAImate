@@ -79,6 +79,52 @@ func TestMCPSkillsShimProtocol(t *testing.T) {
 	}
 }
 
+func TestSkillAndResourceMatching(t *testing.T) {
+	// 1. Test skill name matching variants
+	cases := []struct {
+		manifest string
+		ref      string
+		input    string
+		match    bool
+	}{
+		{"forge-review", "local/forge-review", "forge-review", true},
+		{"forge-review", "local/forge-review", "forge_review", true},
+		{"forge-review", "local/forge-review", "local/forge-review", true},
+		{"forge-review", "local/forge-review", "skills/own/forge-review", true},
+		{"forge-review", "local/forge-review", "forge-review.md", true},
+		{"forge-review", "local/forge-review", "forge-review/SKILL.md", true},
+		{"forge-review", "local/forge-review", "./skills/own/forge-review/SKILL.md", true},
+		{"forge-review", "local/forge-review", "forge-context", false},
+	}
+	for _, c := range cases {
+		got := skillMatchesTarget(c.manifest, c.ref, c.input)
+		if got != c.match {
+			t.Errorf("skillMatchesTarget(%q, %q, %q) = %v, want %v", c.manifest, c.ref, c.input, got, c.match)
+		}
+	}
+
+	// 2. Test resource path matching variants
+	resCases := []struct {
+		filePath  string
+		skillName string
+		inputPath string
+		match     bool
+	}{
+		{"references/checklist.md", "forge-review", "references/checklist.md", true},
+		{"references/checklist.md", "forge-review", "./references/checklist.md", true},
+		{"references/checklist.md", "forge-review", "/references/checklist.md", true},
+		{"references/checklist.md", "forge-review", "forge-review/references/checklist.md", true},
+		{"references/checklist.md", "forge-review", "skills/own/forge-review/references/checklist.md", true},
+		{"references/checklist.md", "forge-review", "references/other.md", false},
+	}
+	for _, c := range resCases {
+		got := resourceMatchesPath(c.filePath, c.skillName, c.inputPath)
+		if got != c.match {
+			t.Errorf("resourceMatchesPath(%q, %q, %q) = %v, want %v", c.filePath, c.skillName, c.inputPath, got, c.match)
+		}
+	}
+}
+
 func TestSkillsBrokerIsolatedFromUserMCP(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "praimate")
 	st, err := store.InitializeWithPassword(filepath.Join(root, "db.sqlite"), "test-password")

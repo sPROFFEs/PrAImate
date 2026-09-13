@@ -455,9 +455,13 @@ func (a *App) StudioMCPServers() ([]StudioMCPOption, error) {
 	return out, nil
 }
 
-func (a *App) SaveStudioConfig(chatID, name, cli, model, tools, localEndpoint, localModel string, mcpServers []string) error {
+func (a *App) SaveStudioConfig(chatID, name, cli, model, tools, localEndpoint, localModel string, mcpServers []string, workspacePath ...string) error {
+	ws := ""
+	if len(workspacePath) > 0 {
+		ws = workspacePath[0]
+	}
 	body := studioConfigSaveRequest{
-		ChatID: chatID, Name: name, CLI: cli, Model: model, Tools: tools,
+		ChatID: chatID, Name: name, WorkspacePath: ws, CLI: cli, Model: model, Tools: tools,
 		LocalEndpoint: localEndpoint, LocalModel: localModel, MCPServers: mcpServers,
 	}
 	if a.detachedClient != nil {
@@ -472,6 +476,11 @@ func (a *App) saveStudioConfig(body studioConfigSaveRequest) error {
 	}
 	if strings.TrimSpace(body.Name) != "" {
 		if err := a.RenameChat(body.ChatID, strings.TrimSpace(body.Name)); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(body.WorkspacePath) != "" {
+		if err := a.UpdateChatWorkspace(body.ChatID, strings.TrimSpace(body.WorkspacePath)); err != nil {
 			return err
 		}
 	}
@@ -617,6 +626,7 @@ type detachedRPCResponse struct {
 type studioConfigSaveRequest struct {
 	ChatID        string   `json:"chatId"`
 	Name          string   `json:"name"`
+	WorkspacePath string   `json:"workspacePath,omitempty"`
 	CLI           string   `json:"cli"`
 	Model         string   `json:"model"`
 	Tools         string   `json:"tools"`
@@ -727,6 +737,18 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 			return nil, errors.New("chat is outside this detached window")
 		}
 		return nil, d.app.saveStudioConfig(body)
+	case "chat.workspace":
+		var body struct {
+			ChatID        string `json:"chatId"`
+			WorkspacePath string `json:"workspacePath"`
+		}
+		if err := decodeRPCBody(req.Body, &body); err != nil {
+			return nil, err
+		}
+		if body.ChatID != w.sessionID {
+			return nil, errors.New("chat is outside this detached window")
+		}
+		return nil, d.app.UpdateChatWorkspace(body.ChatID, body.WorkspacePath)
 	case "chat.skills":
 		if w.kind != "studio" {
 			return nil, errors.New("operation is outside this window's scope")
@@ -1153,6 +1175,15 @@ func (c *detachedClient) saveStudioConfig(body studioConfigSaveRequest) error {
 		return errors.New("chat is outside this detached window")
 	}
 	return c.rpc("studio.config.save", body, nil)
+}
+func (c *detachedClient) updateChatWorkspace(chatID, workspacePath string) error {
+	if chatID != c.mode.sessionID {
+		return errors.New("chat is outside this detached window")
+	}
+	return c.rpc("chat.workspace", map[string]string{
+		"chatId":        chatID,
+		"workspacePath": workspacePath,
+	}, nil)
 }
 func (c *detachedClient) chatSkills(id string) []string {
 	if id != c.mode.sessionID {

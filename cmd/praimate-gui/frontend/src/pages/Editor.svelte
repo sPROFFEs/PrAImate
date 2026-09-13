@@ -63,6 +63,7 @@
     }
     cfg = {
       name: currentChat.Title || '',
+      workspacePath: currentChat.WorkspacePath || workspace || '',
       cli: currentChat.CLIAgent,
       model: currentChat.Settings?.model || '',
       tools: currentChat.Settings?.tools || 'edits',
@@ -100,12 +101,18 @@
     cfgSaving = true
     error = ''
     try {
+      const newWs = cfg.workspacePath?.trim() || ''
       await api.saveStudioConfig(
         chatId, cfg.name.trim(), cfg.cli, cfg.model.trim(), normalizeToolsForCli(cfg.cli, cfg.tools),
-        cfg.localEndpoint.trim(), cfg.localModel.trim(), cfg.mcps || []
+        cfg.localEndpoint.trim(), cfg.localModel.trim(), cfg.mcps || [], newWs
       )
+      const wsChanged = newWs && newWs !== workspace
       cfg = null
       await loadChat()
+      if (wsChanged) {
+        workspace = newWs
+        await loadFiles()
+      }
     } catch (e) {
       error = String(e)
     } finally {
@@ -976,6 +983,12 @@
 
       <label class="lbl">Session Name</label>
       <input class="field" style="max-width:320px; margin-bottom:12px" bind:value={cfg.name} />
+
+      <label class="lbl">Workspace folder</label>
+      <div class="row" style="margin-bottom:12px">
+        <input class="field grow mono" bind:value={cfg.workspacePath} placeholder="/path/to/workspace" />
+        <button class="btn" type="button" on:click={async () => { const p = await api.pickFolder(); if (p) cfg.workspacePath = p }}>Browse…</button>
+      </div>
 
       <label class="lbl">CLI</label>
       <select class="field" style="max-width:320px" bind:value={cfg.cli} on:change={cfgCliChanged}>

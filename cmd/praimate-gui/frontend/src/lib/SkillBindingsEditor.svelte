@@ -121,9 +121,9 @@
               <label class="mode-choice">
                 <span>Execution mode</span>
                 <select bind:value={version.activation} disabled={busy} aria-label={`Execution mode for ${version.name || version.ref}`}>
-                  <option value="pinned">Always include (portable)</option>
-                  <option value="auto">Load automatically (managed runs only)</option>
-                  <option value="manual">Load when requested (managed runs only)</option>
+                  <option value="pinned">Always include (pinned)</option>
+                  <option value="auto">Load automatically (via MCP)</option>
+                  <option value="manual">Load when requested (via MCP)</option>
                 </select>
               </label>
             {/if}
@@ -133,7 +133,7 @@
         {#if !busy && versions.length && !filteredVersions.length}<div class="empty-state">No skills match this search.</div>{/if}
       </div>
 
-      <p class="mode-note"><strong>Portable:</strong> Always include sends the approved instructions in the next controlled request. <strong>Managed only:</strong> automatic/requested modes use <code>skill.load</code> and <code>skill.read</code>; native CLIs do not map these tools, so they cannot discover a skill by themselves.</p>
+      <p class="mode-note"><strong>Always include:</strong> Pins instructions directly in the initial session prompt (up to 3 skills). <strong>Automatic / Requested:</strong> Available dynamically via the internal MCP skills broker on demand without prompt limits.</p>
       <div class="skill-actions">
         <button class="btn" type="button" on:click={() => (open = false)} disabled={busy}>Cancel</button>
         <button class="btn primary" type="button" on:click={save} disabled={busy}>{busy ? 'Saving…' : 'Save skills'}</button>

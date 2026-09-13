@@ -41,8 +41,8 @@ export const api = {
   studioListCLIModels: (cli) => call('StudioListCLIModels', cli),
   studioLocalLLMModels: () => call('StudioLocalLLMModels'),
   studioMCPServers: () => call('StudioMCPServers'),
-  saveStudioConfig: (chatID, name, cli, model, tools, localEndpoint, localModel, mcpServers) =>
-    call('SaveStudioConfig', chatID, name || '', cli, model || '', tools || '', localEndpoint || '', localModel || '', mcpServers || []),
+  saveStudioConfig: (chatID, name, cli, model, tools, localEndpoint, localModel, mcpServers, workspacePath) =>
+    call('SaveStudioConfig', chatID, name || '', cli, model || '', tools || '', localEndpoint || '', localModel || '', mcpServers || [], workspacePath || ''),
   initializeDatabasePassword: (password, confirmation, remember) =>
     call('InitializeDatabasePassword', password, confirmation, !!remember),
   unlockDatabase: (password, remember) =>
@@ -119,6 +119,7 @@ export const api = {
 
   updateChatConfig: (chatID, cli, model, tools, localEndpoint, localApiKey, localModel) =>
     call('UpdateChatConfig', chatID, cli, model, tools, localEndpoint || '', localApiKey || '', localModel || ''),
+  updateChatWorkspace: (chatID, workspacePath) => call('UpdateChatWorkspace', chatID, workspacePath || ''),
   renameChat: (chatID, newTitle) => call('RenameChat', chatID, newTitle),
   searchChats: (q) => call('SearchChats', q),
 

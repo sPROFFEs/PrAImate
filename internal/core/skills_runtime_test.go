@@ -10,18 +10,17 @@ import (
 	"git.jtsec.local/lab/PrAImate/internal/skills"
 )
 
-func TestStaticSkillTransportRejectsRequiredDynamicAndDiagnosesOptional(t *testing.T) {
+func TestStaticSkillTransportOmitsDynamicBindingsFromPrompt(t *testing.T) {
 	c, agent, version := v2AgentFixture(t)
 	approveRuntimeFixture(t, version)
 	agent.Skills.Bindings[0].Activation = "auto"
 	settings := ChatSettings{SkillsV2: agent.Skills, SkillsLock: agent.SkillsLock}
-	if _, _, err := c.BuildChatSkillPayload(context.Background(), settings, "test"); err == nil || !strings.Contains(err.Error(), "incompatible_transport") {
-		t.Fatal("static chat advertised a broker it cannot provide", err)
-	}
-	agent.Skills.Bindings[0].Optional = true
 	payload, state, err := c.BuildChatSkillPayload(context.Background(), settings, "test")
-	if err != nil || payload != "" || state == nil || len(state.Diagnostics) != 1 {
-		t.Fatal("optional dynamic binding not diagnosed", payload, state, err)
+	if err != nil {
+		t.Fatalf("dynamic skill failed chat resolution: %v", err)
+	}
+	if payload != "" || state == nil {
+		t.Fatalf("expected empty payload for auto skill, got payload=%q, state=%+v", payload, state)
 	}
 }
 
