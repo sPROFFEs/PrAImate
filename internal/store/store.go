@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/vfs/xts"
@@ -33,11 +34,12 @@ var migrationsFS embed.FS
 
 // Store wraps the encrypted SQLite connection pool.
 type Store struct {
-	db       *sql.DB
-	path     string
-	keyPath  string
-	key      []byte
-	password []byte
+	db           *sql.DB
+	path         string
+	keyPath      string
+	key          []byte
+	credentialMu sync.RWMutex
+	password     []byte
 }
 
 // openWithKey opens (or creates) the database with an already-unwrapped key.
@@ -112,6 +114,8 @@ func (s *Store) Close() error {
 	if s == nil {
 		return nil
 	}
+	s.credentialMu.Lock()
+	defer s.credentialMu.Unlock()
 	var err error
 	if s.db != nil {
 		err = s.db.Close()
@@ -174,6 +178,8 @@ func (s *Store) OpenSnapshot(path, envelopePath string) (*sql.DB, bool, error) {
 	if s == nil {
 		return nil, false, errors.New("store.OpenSnapshot: nil store")
 	}
+	s.credentialMu.RLock()
+	defer s.credentialMu.RUnlock()
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, false, err

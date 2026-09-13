@@ -166,6 +166,86 @@ func TestPasswordEnvelopeRejectsWrongPassword(t *testing.T) {
 	}
 }
 
+func TestChangePasswordRewrapsKeyAndPreservesDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db.sqlite")
+	st := openTestStore(t, path)
+	if _, err := st.DB().Exec(`CREATE TABLE rotated_secret (value TEXT); INSERT INTO rotated_secret VALUES ('kept')`); err != nil {
+		t.Fatal(err)
+	}
+	const newPassword = "a different strong password"
+	if err := st.changePassword(testDatabasePassword, newPassword, kdfParams{
+		time: 1, memoryKiB: 8 * 1024, threads: 1,
+	}); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+
+	// The live Store must immediately use the new password for encrypted
+	// backup envelopes, not retain the old password until restart.
+	snapshot := filepath.Join(t.TempDir(), "snapshot.sqlite")
+	if err := st.Snapshot(t.Context(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := os.ReadFile(KeyPath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotEnvelope := KeyPath(snapshot)
+	if err := os.WriteFile(snapshotEnvelope, envelope, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backupDB, legacy, err := st.OpenSnapshot(snapshot, snapshotEnvelope)
+	if err != nil {
+		t.Fatalf("OpenSnapshot after password change: %v", err)
+	}
+	if legacy {
+		t.Fatal("encrypted snapshot reported as legacy plaintext")
+	}
+	_ = backupDB.Close()
+
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenWithPassword(path, testDatabasePassword); !errors.Is(err, ErrInvalidPassword) {
+		t.Fatalf("old password error = %v, want ErrInvalidPassword", err)
+	}
+	reopened, err := OpenWithPassword(path, newPassword)
+	if err != nil {
+		t.Fatalf("open with new password: %v", err)
+	}
+	defer reopened.Close()
+	var got string
+	if err := reopened.DB().QueryRow(`SELECT value FROM rotated_secret`).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "kept" {
+		t.Fatalf("value = %q, want kept", got)
+	}
+}
+
+func TestChangePasswordRejectsWrongCurrentPasswordWithoutChangingEnvelope(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db.sqlite")
+	st := openTestStore(t, path)
+	defer st.Close()
+	before, err := os.ReadFile(KeyPath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = st.changePassword("incorrect current password", "a different strong password", kdfParams{
+		time: 1, memoryKiB: 8 * 1024, threads: 1,
+	})
+	if !errors.Is(err, ErrInvalidPassword) {
+		t.Fatalf("ChangePassword error = %v, want ErrInvalidPassword", err)
+	}
+	after, err := os.ReadFile(KeyPath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("password envelope changed after current-password rejection")
+	}
+}
+
 func TestInitializeWrapsLegacyRawKeyWithoutReencryptingDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "db.sqlite")
 	key := make([]byte, encryptionKeyBytes)

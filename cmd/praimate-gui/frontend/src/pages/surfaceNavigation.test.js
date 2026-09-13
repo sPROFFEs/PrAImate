@@ -13,6 +13,7 @@ const editor = await readFile(new URL('./Editor.svelte', import.meta.url), 'utf8
 const code = await readFile(new URL('./Code.svelte', import.meta.url), 'utf8')
 const detached = await readFile(new URL('./DetachedSession.svelte', import.meta.url), 'utf8')
 const workflowRunner = await readFile(new URL('../lib/WorkflowRunner.svelte', import.meta.url), 'utf8')
+const settings = await readFile(new URL('./Settings.svelte', import.meta.url), 'utf8')
 
 test('Studio owns studio-session navigation and Chats excludes its rows', () => {
   assert.match(app, /id: 'studio', label: 'Studio'/)
@@ -151,4 +152,21 @@ test('fresh-install backup restore happens before database password creation', (
   assert.match(app, /firstRun\?\.needed && firstRun\?\.beforeUnlock[\s\S]*<Setup/)
   assert.ok(app.indexOf('firstRun?.needed && firstRun?.beforeUnlock') < app.indexOf('!databaseLock.unlocked'))
   assert.match(app, /async function setupDone\(\)[\s\S]*databaseLock = await api\.databaseLockStatus\(\)/)
+})
+
+test('Settings changes the database password through the guarded backend binding', async () => {
+  globalThis.window = {
+    go: { main: { App: { ChangeDatabasePassword: (...args) => Promise.resolve(args) } } },
+  }
+  try {
+    const args = await apiBridge.changeDatabasePassword('current password', 'new strong password', 'new strong password', true)
+    assert.deepEqual(args, ['current password', 'new strong password', 'new strong password', true])
+  } finally {
+    delete globalThis.window
+  }
+  assert.match(settings, /Change database password…/)
+  assert.match(settings, /api\.changeDatabasePassword\(/)
+  assert.match(settings, /autocomplete="current-password"/)
+  assert.equal((settings.match(/autocomplete="new-password"/g) || []).length, 2)
+  assert.match(settings, /Existing remote backups keep their previous password until the next successful Git backup sync/)
 })

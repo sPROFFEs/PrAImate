@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -147,6 +148,50 @@ func OpenWithPassword(path, password string) (*Store, error) {
 		return nil, err
 	}
 	return openWithKey(path, key, []byte(password))
+}
+
+// ChangePassword replaces only the password-protected envelope around the
+// live database key. The encrypted database itself is not rewritten. The
+// current password is verified against both the on-disk envelope and the key
+// held by this Store before the replacement is committed.
+func (s *Store) ChangePassword(currentPassword, newPassword string) error {
+	return s.changePassword(currentPassword, newPassword, productionKDF)
+}
+
+func (s *Store) changePassword(currentPassword, newPassword string, params kdfParams) error {
+	if s == nil {
+		return errors.New("store.ChangePassword: nil store")
+	}
+	if err := validatePassword(newPassword); err != nil {
+		return err
+	}
+
+	s.credentialMu.Lock()
+	defer s.credentialMu.Unlock()
+	if s.db == nil || len(s.key) != encryptionKeyBytes {
+		return errors.New("store.ChangePassword: store is closed")
+	}
+
+	verifiedKey, err := unlockEnvelopeFile(s.keyPath, currentPassword)
+	if err != nil {
+		return err
+	}
+	defer zeroBytes(verifiedKey)
+	if subtle.ConstantTimeCompare(verifiedKey, s.key) != 1 {
+		return ErrInvalidPassword
+	}
+
+	envelope, err := sealKeyEnvelope(s.key, newPassword, params)
+	if err != nil {
+		return err
+	}
+	if err := replaceKeyFile(s.keyPath, envelope); err != nil {
+		return fmt.Errorf("change database password: %w", err)
+	}
+
+	zeroBytes(s.password)
+	s.password = []byte(newPassword)
+	return nil
 }
 
 // Open uses an explicitly remembered password. It never creates a raw key and

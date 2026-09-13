@@ -64,6 +64,35 @@ func (a *App) ForgetDatabasePassword() error {
 	return store.ForgetRememberedPassword(a.dbPath)
 }
 
+// ChangeDatabasePassword re-wraps the live database key after verifying the
+// current password. The database remains open and its encrypted pages are not
+// rewritten. Remember controls the OS credential used on the next launch.
+func (a *App) ChangeDatabasePassword(currentPassword, newPassword, confirmation string, remember bool) (*DatabaseUnlockResult, error) {
+	if newPassword != confirmation {
+		return nil, errors.New("new database passwords do not match")
+	}
+
+	a.unlockMu.Lock()
+	defer a.unlockMu.Unlock()
+	if a.st == nil || a.core == nil {
+		return nil, errors.New("database is not unlocked")
+	}
+	if err := a.st.ChangePassword(currentPassword, newPassword); err != nil {
+		return nil, err
+	}
+
+	result := &DatabaseUnlockResult{Unlocked: true}
+	if remember {
+		if err := store.RememberPassword(a.dbPath, newPassword); err != nil {
+			_ = store.ForgetRememberedPassword(a.dbPath)
+			result.Warning = "Database password changed, but this system could not securely remember the new password: " + err.Error()
+		}
+	} else if err := store.ForgetRememberedPassword(a.dbPath); err != nil {
+		result.Warning = "Database password changed, but the old remembered credential could not be removed: " + err.Error()
+	}
+	return result, nil
+}
+
 func (a *App) unlockDatabase(password string, remember, initialize bool) (*DatabaseUnlockResult, error) {
 	a.unlockMu.Lock()
 	defer a.unlockMu.Unlock()

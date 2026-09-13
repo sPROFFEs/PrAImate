@@ -40,6 +40,74 @@
   let deleteUnderstood = false
   let deletingData = false
   let passwordMsg = ''
+  let changePasswordModal = false
+  let changingPassword = false
+  let currentDatabasePassword = ''
+  let newDatabasePassword = ''
+  let confirmDatabasePassword = ''
+  let rememberChangedPassword = false
+  let showDatabasePasswords = false
+  let changePasswordError = ''
+
+  $: canChangePassword =
+    !changingPassword &&
+    currentDatabasePassword.length > 0 &&
+    newDatabasePassword.length >= 12 &&
+    newDatabasePassword === confirmDatabasePassword
+
+  function clearChangePasswordForm() {
+    currentDatabasePassword = ''
+    newDatabasePassword = ''
+    confirmDatabasePassword = ''
+    rememberChangedPassword = false
+    showDatabasePasswords = false
+    changePasswordError = ''
+  }
+
+  function openChangePasswordModal() {
+    clearChangePasswordForm()
+    changePasswordModal = true
+  }
+
+  function closeChangePasswordModal() {
+    if (changingPassword) return
+    changePasswordModal = false
+    clearChangePasswordForm()
+  }
+
+  async function changeDatabasePassword() {
+    if (!canChangePassword) return
+    changingPassword = true
+    changePasswordError = ''
+    try {
+      const result = await api.changeDatabasePassword(
+        currentDatabasePassword,
+        newDatabasePassword,
+        confirmDatabasePassword,
+        rememberChangedPassword,
+      )
+      const warning = result?.warning || ''
+      changePasswordModal = false
+      clearChangePasswordForm()
+      passwordMsg = warning || 'Database password changed successfully.'
+      showToast({
+        title: warning ? 'Password changed with a warning' : 'Database password changed',
+        message: warning || 'Use the new password the next time PrAImate starts and when restoring future backups.',
+        tone: warning ? 'err' : 'ok',
+        duration: warning ? 0 : 5500,
+      })
+    } catch (e) {
+      changePasswordError = String(e).replace(/^Error:\s*/, '')
+    } finally {
+      changingPassword = false
+    }
+  }
+
+  function onWindowKey(event) {
+    if (event.key === 'Escape' && changePasswordModal && !changingPassword) {
+      closeChangePasswordModal()
+    }
+  }
 
   async function requirePasswordNextLaunch() {
     passwordMsg = ''
@@ -294,6 +362,8 @@
   })
   onDestroy(() => buildUnsub())
 </script>
+
+<svelte:window on:keydown={onWindowKey} />
 
 <h1>Settings</h1>
 <p class="subtitle">Automation, privacy, backup, appearance, and updates.</p>
@@ -556,6 +626,9 @@
       </div>
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end">
+      <button class="btn" on:click={openChangePasswordModal}>
+        Change database password…
+      </button>
       <button class="btn" on:click={requirePasswordNextLaunch}>
         Require password next launch
       </button>
@@ -645,7 +718,94 @@
     font-size: 13px;
     line-height: 1.4;
   }
+  .password-modal .field {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .password-backup-note {
+    margin: 14px 0 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.5;
+  }
 </style>
+
+{#if changePasswordModal}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="modal-backdrop" on:click|self={closeChangePasswordModal}>
+    <div class="modal-content password-modal" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
+      <h2 id="change-password-title">Change database password</h2>
+      <p class="subtitle">
+        This replaces the password protecting the database key without rewriting or exposing the database contents.
+      </p>
+
+      <form on:submit|preventDefault={changeDatabasePassword}>
+        <label class="lbl" for="current-database-password">Current password</label>
+        <input
+          id="current-database-password"
+          class="field"
+          type={showDatabasePasswords ? 'text' : 'password'}
+          value={currentDatabasePassword}
+          on:input={(event) => (currentDatabasePassword = event.currentTarget.value)}
+          autocomplete="current-password"
+          disabled={changingPassword} />
+
+        <label class="lbl" for="new-database-password">New password</label>
+        <input
+          id="new-database-password"
+          class="field"
+          type={showDatabasePasswords ? 'text' : 'password'}
+          value={newDatabasePassword}
+          on:input={(event) => (newDatabasePassword = event.currentTarget.value)}
+          minlength="12"
+          autocomplete="new-password"
+          placeholder="At least 12 characters"
+          disabled={changingPassword} />
+
+        <label class="lbl" for="confirm-database-password">Confirm new password</label>
+        <input
+          id="confirm-database-password"
+          class="field"
+          type={showDatabasePasswords ? 'text' : 'password'}
+          value={confirmDatabasePassword}
+          on:input={(event) => (confirmDatabasePassword = event.currentTarget.value)}
+          minlength="12"
+          autocomplete="new-password"
+          placeholder="Repeat the new password"
+          disabled={changingPassword} />
+
+        <label class="confirm-line">
+          <input type="checkbox" bind:checked={showDatabasePasswords} disabled={changingPassword} />
+          <span>Show passwords</span>
+        </label>
+        <label class="confirm-line">
+          <input type="checkbox" bind:checked={rememberChangedPassword} disabled={changingPassword} />
+          <span>
+            Remember the new password on this device using Windows Credential Manager or Linux Secret Service.
+          </span>
+        </label>
+
+        <p class="password-backup-note">
+          Existing remote backups keep their previous password until the next successful Git backup sync.
+          Store the new password safely: it is required to restore future snapshots.
+        </p>
+        {#if changePasswordError}<div class="banner">{changePasswordError}</div>{/if}
+
+        <div class="row" style="margin-top:16px; justify-content:flex-end">
+          <button class="btn" type="button" on:click={closeChangePasswordModal} disabled={changingPassword}>Cancel</button>
+          <button class="btn primary" type="submit" disabled={!canChangePassword}>
+            {changingPassword ? 'Changing…' : 'Change password'}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
 
 {#if deleteModal}
   <!-- svelte-ignore a11y-click-events-have-key-events -->

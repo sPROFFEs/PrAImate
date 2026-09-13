@@ -47,6 +47,8 @@ export const api = {
     call('InitializeDatabasePassword', password, confirmation, !!remember),
   unlockDatabase: (password, remember) =>
     call('UnlockDatabase', password, !!remember),
+  changeDatabasePassword: (currentPassword, newPassword, confirmation, remember) =>
+    call('ChangeDatabasePassword', currentPassword, newPassword, confirmation, !!remember),
   forgetDatabasePassword: () => call('ForgetDatabasePassword'),
   health: () => call('Health'),
   about: () => call('About'),
