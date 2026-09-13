@@ -138,6 +138,8 @@ func candidateUserBinDirs(home string) []string {
 			"/home/linuxbrew/.linuxbrew/sbin",
 			"/usr/local/bin",
 			"/usr/local/sbin",
+			"/usr/bin",
+			"/bin",
 		}
 		nvmDir := filepath.Join(home, ".nvm", "versions", "node")
 		if entries, err := os.ReadDir(nvmDir); err == nil {

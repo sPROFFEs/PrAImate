@@ -18,8 +18,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"path/filepath"
+	"strings"
 	"time"
+
+	"git.jtsec.local/lab/PrAImate/internal/skills"
 )
 
 // ErrChatNotFound is returned by GetChat / DeleteChat when no row

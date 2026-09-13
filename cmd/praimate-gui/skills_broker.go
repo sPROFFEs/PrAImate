@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -261,12 +262,19 @@ func (b *skillsBroker) handleList(ctx context.Context, w http.ResponseWriter, ch
 	}
 
 	// Also list other approved versions available in the store
-	if view, err := host.View(ctx); err == nil {
-		for _, v := range view.Versions {
-			if !seenRefs[v.Ref] && v.Approved {
-				if _, files, err := host.ReadVersion(ctx, v.Ref, v.Digest); err == nil {
-					addFromFiles(v.Ref, files)
+	if summaries, err := core.InstalledSkillSummaries(ctx); err == nil {
+		for _, s := range summaries {
+			if !seenRefs[s.Ref] && s.Approved {
+				seenRefs[s.Ref] = true
+				name := s.Name
+				if name == "" {
+					name = s.Ref
 				}
+				list = append(list, skillListing{
+					Name:        name,
+					Ref:         s.Ref,
+					Description: s.Description,
+				})
 			}
 		}
 	}
@@ -315,10 +323,10 @@ func (b *skillsBroker) handleLoad(ctx context.Context, w http.ResponseWriter, ch
 	}
 
 	// 2. Fallback to all approved versions in the host store
-	if view, err := host.View(ctx); err == nil {
-		for _, v := range view.Versions {
-			if v.Approved {
-				if body, ok := checkVersion(v.Ref, v.Digest); ok {
+	if summaries, err := core.InstalledSkillSummaries(ctx); err == nil {
+		for _, s := range summaries {
+			if s.Approved {
+				if body, ok := checkVersion(s.Ref, s.Digest); ok {
 					w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 					_, _ = w.Write([]byte(body))
 					return
@@ -379,10 +387,10 @@ func (b *skillsBroker) handleResource(ctx context.Context, w http.ResponseWriter
 	}
 
 	// 2. Fallback to all approved versions in host store
-	if view, err := host.View(ctx); err == nil {
-		for _, v := range view.Versions {
-			if v.Approved {
-				if content, ok := checkResource(v.Ref, v.Digest); ok {
+	if summaries, err := core.InstalledSkillSummaries(ctx); err == nil {
+		for _, s := range summaries {
+			if s.Approved {
+				if content, ok := checkResource(s.Ref, s.Digest); ok {
 					w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 					_, _ = w.Write(content)
 					return
