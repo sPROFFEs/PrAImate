@@ -71,13 +71,17 @@ func main() {
 		}
 		os.Exit(runSkillsShim(os.Stdin, os.Stdout, endpoint, token))
 	}
-	// WebKitGTK's accelerated compositing misorders layers on machines
-	// with broken GPU drivers (VMs especially): composited editor
-	// content paints OVER fixed overlays regardless of z-index. CPU
-	// rendering is plenty for this UI — disable compositing outright.
-	// No-op on Windows (different webview).
-	if runtime.GOOS == "linux" && os.Getenv("WEBKIT_DISABLE_COMPOSITING_MODE") == "" {
-		_ = os.Setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
+	// WebKitGTK's accelerated compositing and DMABUF rendering misorder
+	// layers or fail to initialize on systems without direct DRI2/3 acceleration
+	// (e.g. VMs, Nvidia on Wayland, software rasterizers), showing a black screen.
+	// Disable compositing and DMABUF renderer on Linux for reliable CPU rendering.
+	if runtime.GOOS == "linux" {
+		if os.Getenv("WEBKIT_DISABLE_COMPOSITING_MODE") == "" {
+			_ = os.Setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
+		}
+		if os.Getenv("WEBKIT_DISABLE_DMABUF_RENDERER") == "" {
+			_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+		}
 	}
 
 	// PATH hydration — when launched from a desktop shortcut / dock /

@@ -17,11 +17,12 @@ func TestListCLIBackendsRefreshesUserPATHBeforeDetection(t *testing.T) {
 		t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
 		t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
 		t.Setenv("PATHEXT", ".BAT;.CMD;.EXE")
+		t.Setenv("PATH", os.Getenv("SystemRoot")+`\System32;`+os.Getenv("SystemRoot"))
 	} else {
 		t.Setenv("HOME", home)
 		t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+		t.Setenv("PATH", "/usr/bin:/bin")
 	}
-	t.Setenv("PATH", "")
 
 	binDir := filepath.Join(home, ".bun", "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {

@@ -356,6 +356,8 @@
     {/key}
   </main>
 </div>
+{:else}
+  <div class="boot-screen">Preparing PrAImate…</div>
 {/if}
 
 <Toast />
