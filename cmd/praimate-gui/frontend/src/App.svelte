@@ -115,6 +115,20 @@
   let privacyNotice = null
   let databaseLock = null
   let closeBlocked = null
+  let availableUpdate = null
+  let updatingApp = false
+  let updateError = ''
+
+  async function applyUpdate() {
+    updatingApp = true
+    updateError = ''
+    try {
+      await api.performUpdate()
+    } catch (e) {
+      updateError = String(e)
+      updatingApp = false
+    }
+  }
 
   async function loadUnlockedApp() {
     try {
@@ -136,20 +150,6 @@
       health = await api.health()
     } catch (e) {
       health = { ok: false, error: String(e) }
-    }
-    let availableUpdate = null
-    let updatingApp = false
-    let updateError = ''
-
-    async function applyUpdate() {
-      updatingApp = true
-      updateError = ''
-      try {
-        await api.performUpdate()
-      } catch (e) {
-        updateError = String(e)
-        updatingApp = false
-      }
     }
 
     // Warm the CLI & Tools detection cache in the background so the tab

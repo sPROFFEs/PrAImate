@@ -71,14 +71,11 @@ func main() {
 		}
 		os.Exit(runSkillsShim(os.Stdin, os.Stdout, endpoint, token))
 	}
-	// WebKitGTK's accelerated compositing and DMABUF rendering misorder
-	// layers or fail to initialize on systems without direct DRI2/3 acceleration
-	// (e.g. VMs, Nvidia on Wayland, software rasterizers), showing a black screen.
-	// Disable compositing and DMABUF renderer on Linux for reliable CPU rendering.
+	// WebKitGTK's DMABUF renderer fails to initialize on systems without direct
+	// DRI2/3 hardware acceleration (e.g. VMs, Nvidia on Wayland, software rasterizers),
+	// producing an empty/black window. Disable DMABUF renderer on Linux for reliable rendering.
+	// Note: Do NOT set WEBKIT_DISABLE_COMPOSITING_MODE=1 as Wayland requires compositing.
 	if runtime.GOOS == "linux" {
-		if os.Getenv("WEBKIT_DISABLE_COMPOSITING_MODE") == "" {
-			_ = os.Setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
-		}
 		if os.Getenv("WEBKIT_DISABLE_DMABUF_RENDERER") == "" {
 			_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
 		}
