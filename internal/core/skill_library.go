@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,7 +152,25 @@ func inspectLibrarySource(ctx context.Context, in SkillLibraryRequest) (SkillLib
 				return out, nil, err
 			}
 		}
-		out.Packages = append(out.Packages, SkillLibraryPackage{Index: choice.Index, Subpath: candidate.Subpath, Ref: choice.Ref, SourceID: sourceID, Digest: selected[i].Digest(), Manifest: candidate.Manifest, Files: selected[i].Files(), Provenance: p})
+		ref := strings.TrimSpace(choice.Ref)
+		if ref == "" {
+			name := strings.ToLower(strings.TrimSpace(candidate.Manifest.Name))
+			if name == "" {
+				name = strings.ToLower(filepath.Base(candidate.Subpath))
+			}
+			name = strings.Map(func(r rune) rune {
+				if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+					return r
+				}
+				return '-'
+			}, name)
+			name = strings.Trim(name, "-")
+			if name == "" {
+				name = fmt.Sprintf("skill-%d", choice.Index+1)
+			}
+			ref = "imported/" + name
+		}
+		out.Packages = append(out.Packages, SkillLibraryPackage{Index: choice.Index, Subpath: candidate.Subpath, Ref: ref, SourceID: sourceID, Digest: selected[i].Digest(), Manifest: candidate.Manifest, Files: selected[i].Files(), Provenance: p})
 	}
 	out.Review = skillReview(out.Packages)
 	return out, selected, nil
@@ -206,6 +225,13 @@ func (c *Core) SkillLibrary(ctx context.Context, in SkillLibraryRequest) (SkillL
 		}
 		if len(in.Selections) == 0 || in.Review == "" || in.Review != preview.Review {
 			return out, errors.New("review changed or no selection; inspect the exact selection again")
+		}
+		seenRefs := make(map[string]bool)
+		for _, pkg := range preview.Packages {
+			if seenRefs[pkg.Ref] {
+				return out, fmt.Errorf("duplicate skill ref %q in selection: each imported skill must have a unique library name", pkg.Ref)
+			}
+			seenRefs[pkg.Ref] = true
 		}
 		_, err = host.Update(ctx, in.Revision, func(tx *skills.SkillHostTransaction) error {
 			for i, pkg := range preview.Packages {

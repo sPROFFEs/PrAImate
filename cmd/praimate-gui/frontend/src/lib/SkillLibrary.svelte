@@ -52,21 +52,50 @@
     invalidateImport()
     inspection = await command('inspect', sourceRequest())
     if (inspection.git_ref) gitRef = inspection.git_ref
-    selection = inspection.packages.map(p => ({ index: p.index, ref: `imported/${p.manifest.Name}`, shared: [], selected: true }))
+    const seenRefs = new Set()
+    selection = (inspection.packages || []).map((p, i) => {
+      const rawName = p.manifest?.Name || p.manifest?.name || p.subpath?.split('/').pop() || `skill-${i + 1}`
+      const slug = rawName.toLowerCase().replace(/[^a-z0-9._-]/g, '-').replace(/^-+|-+$/g, '') || `skill-${i + 1}`
+      let ref = `imported/${slug}`
+      let counter = 2
+      while (seenRefs.has(ref)) {
+        ref = `imported/${slug}-${counter}`
+        counter++
+      }
+      seenRefs.add(ref)
+      return {
+        index: p.index !== undefined ? p.index : i,
+        ref,
+        shared: [],
+        selected: counter === 2
+      }
+    })
+  }
+
+  function formatChoices() {
+    return selection
+      .filter(p => p.selected)
+      .map(p => ({
+        index: p.index,
+        ref: p.ref.trim(),
+        shared: (p.shared || []).map(s => ({ source: s, destination: s }))
+      }))
   }
 
   async function previewSelection() {
-    const choices = selection.filter(p => p.selected).map(({selected, ...p}) => p)
+    const choices = formatChoices()
     if (!choices.length) throw new Error('Select at least one candidate')
     review = await command('inspect', { ...sourceRequest(), selections: choices })
     reviewed = false
   }
 
   async function install() {
-    await command('install', { ...sourceRequest(), selections: selection.filter(p => p.selected).map(({selected, ...p}) => p), review: review.review })
+    const choices = formatChoices()
+    if (!choices.length) throw new Error('Select at least one candidate')
+    await command('install', { ...sourceRequest(), selections: choices, review: review?.review })
     invalidateImport(); await refresh()
     tab = 'installed'
-    notice = 'Installed without approval or activation. Review a version below before selecting it in a session.'
+    notice = 'Installed successfully. Review and approve the version in the list below to use it.'
   }
 
   async function read(v) {
@@ -168,7 +197,18 @@
     openFile(0)
   }
 
-  function filePreview(f) { try { return decode(f.Content) } catch (_) { return '[Binary file — preserved in the package]' } }
+  function filePreview(f) {
+    const raw = f?.Content ?? f?.content
+    if (raw === undefined || raw === null) return ''
+    try {
+      if (typeof raw === 'string') {
+        return decode(raw)
+      }
+      return new TextDecoder('utf-8').decode(raw)
+    } catch (_) {
+      return '[Binary file — preserved in the package]'
+    }
+  }
 </script>
 
 <svelte:window on:focus={() => run(refresh)} />
@@ -219,46 +259,93 @@
   {:else if tab === 'import'}
     <div class="section-head"><div><h2>Import skills</h2><p>Inspect local directories, ZIP archives, or Git repositories before importing.</p></div></div>
     <div class="authoring-panel">
-    <div class="row source-row">
-      <select class="field" bind:value={kind} on:change={invalidateImport} aria-label="Source kind">
-        <option value="directory">Local folder</option>
-        <option value="zip">ZIP package</option>
-        <option value="github">Git repository</option>
-      </select>
-      {#if kind !== 'github'}<button class="btn" disabled={busy} on:click={() => run(pickSource)}>Browse…</button>{/if}
-      <input class="field" bind:value={source} placeholder={kind === 'github' ? 'https://github.com/org/repo' : 'Path to source'} on:input={invalidateImport} aria-label="Source path or URL" />
-    </div>
-    {#if kind === 'github'}
-      <div class="row source-row" style="margin-top:8px">
-        <input class="field" bind:value={gitRef} placeholder="main (git branch or tag)" on:input={invalidateImport} aria-label="Git ref" />
-        <input class="field" bind:value={subpath} placeholder="Optional repository subpath" on:input={invalidateImport} aria-label="Subpath" />
+      <div class="row source-row">
+        <select class="field" bind:value={kind} on:change={invalidateImport} aria-label="Source kind">
+          <option value="directory">Local folder</option>
+          <option value="zip">ZIP package</option>
+          <option value="github">Git repository</option>
+        </select>
+        {#if kind !== 'github'}<button class="btn" disabled={busy} on:click={() => run(pickSource)}>Browse…</button>{/if}
+        <input class="field" bind:value={source} placeholder={kind === 'github' ? 'https://github.com/org/repo' : 'Path to source'} on:input={invalidateImport} aria-label="Source path or URL" />
       </div>
-    {/if}
-    <button class="btn primary" style="margin-top:12px" disabled={busy || !source.trim()} on:click={() => run(inspect)}>Inspect candidates</button>
-    {#if inspection}
-      {#each inspection.packages as p, i}
-        <div class="candidate">
-          <label class="candidate-title"><input type="checkbox" bind:checked={selection[i].selected} /><strong>{p.manifest.Name}</strong> ({p.relative_path})</label>
-          <p class="card-sub">{p.manifest.Description}</p>
-          <label>Imported library name<input class="field" bind:value={selection[i].ref} /></label>
-          {#if inspection.shared?.length}
-            <div class="card-sub">Shared resources available to this skill:</div>
-            {#each inspection.shared || [] as shared}
-              <label class="card-sub mono"><input type="checkbox" bind:group={selection[i].shared} value={shared.Path} />{shared.Path}</label>
-            {/each}
-          {/if}
+      {#if kind === 'github'}
+        <div class="row source-row" style="margin-top:8px">
+          <input class="field" bind:value={gitRef} placeholder="main (git branch or tag)" on:input={invalidateImport} aria-label="Git ref" />
+          <input class="field" bind:value={subpath} placeholder="Optional repository subpath" on:input={invalidateImport} aria-label="Subpath" />
         </div>
-      {/each}
-      <button class="btn primary" style="margin-top:12px" disabled={busy || !selection.some(p => p.selected)} on:click={() => run(previewSelection)}>Review selected content</button>
-    {/if}
-    {#if review}
-      {#each review.packages as p}
-        <h3>Review {p.ref}</h3>
-        {#each p.files as f}<details><summary>{f.Path}{f.Executable ? ' · executable intent' : ''}</summary><pre>{filePreview(f)}</pre></details>{/each}
-      {/each}
-      <label><input type="checkbox" bind:checked={reviewed} />I inspected the exact file content above. Importing will make this version available for selection.</label>
-      <button class="btn primary" disabled={busy || !reviewed} on:click={() => run(install)}>Install reviewed versions</button>
-    {/if}
+      {/if}
+      <button class="btn primary" style="margin-top:12px" disabled={busy || !source.trim()} on:click={() => run(inspect)}>Inspect candidates</button>
+
+      {#if review}
+        <!-- Review State -->
+        <div class="review-panel" style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px">
+          <h3>Review selected content ({review.packages?.length || 0} skill{(review.packages?.length || 0) === 1 ? '' : 's'})</h3>
+          <p class="card-sub">Inspect the exact files and manifest contents that will be installed into your library.</p>
+          
+          {#each review.packages || [] as p}
+            <div class="card" style="margin-bottom:12px">
+              <div class="row" style="align-items:center; justify-content:space-between">
+                <strong class="mono" style="font-size:14px">{p.ref}</strong>
+                <span class="card-sub mono">{p.subpath || '.'}</span>
+              </div>
+              <p class="card-sub" style="margin:4px 0 8px">{p.manifest?.Description || p.manifest?.description || 'No description provided.'}</p>
+              
+              <div class="files-preview">
+                {#each p.files || [] as f}
+                  <details style="margin-top:6px; background:var(--bg-raised); border:1px solid var(--border); border-radius:var(--radius-sm); padding:6px 10px">
+                    <summary style="cursor:pointer; font-weight:500; font-size:12px">
+                      <span class="mono">{f.Path || f.path}</span>
+                      {#if f.Executable || f.executable}<span class="pill sm" style="margin-left:6px">executable</span>{/if}
+                    </summary>
+                    <pre style="margin-top:8px; max-height:260px; overflow:auto; padding:8px; background:var(--bg); border-radius:4px; font-size:11px; white-space:pre-wrap; font-family:var(--mono)">{filePreview(f)}</pre>
+                  </details>
+                {/each}
+              </div>
+            </div>
+          {/each}
+
+          <label class="row" style="margin:14px 0; gap:8px; cursor:pointer; align-items:flex-start">
+            <input type="checkbox" bind:checked={reviewed} />
+            <span style="font-size:13px">I inspected the exact file content above. Importing will make this version available for selection.</span>
+          </label>
+          <div class="row" style="gap:8px">
+            <button class="btn" type="button" on:click={() => (review = null)}>Back to candidates</button>
+            <button class="btn primary" disabled={busy || !reviewed} on:click={() => run(install)}>Install reviewed versions</button>
+          </div>
+        </div>
+
+      {:else if inspection}
+        <!-- Candidates State -->
+        <div style="margin-top:16px">
+          <div class="card-sub" style="margin-bottom:10px">Found {inspection.packages?.length || 0} candidate skill{(inspection.packages?.length || 0) === 1 ? '' : 's'}. Choose which ones to import:</div>
+          {#each inspection.packages || [] as p, i}
+            <div class="candidate card" style="margin-bottom:10px">
+              <label class="candidate-title row" style="gap:8px; cursor:pointer; align-items:center">
+                <input type="checkbox" bind:checked={selection[i].selected} />
+                <strong>{p.manifest?.Name || p.manifest?.name || p.subpath?.split('/').pop()}</strong>
+                <span class="card-sub mono">({p.subpath || '.'})</span>
+              </label>
+              <p class="card-sub" style="margin:4px 0 8px 24px">{p.manifest?.Description || p.manifest?.description || 'No description provided.'}</p>
+              <div style="margin-left:24px">
+                <label style="font-size:12px; color:var(--text-dim); display:grid; gap:4px">
+                  Imported library name (alias)
+                  <input class="field mono sm" bind:value={selection[i].ref} placeholder="imported/skill-name" style="max-width:320px" />
+                </label>
+                {#if inspection.shared?.length}
+                  <div class="card-sub" style="margin-top:8px">Shared resources in repository:</div>
+                  {#each inspection.shared as shared}
+                    <label class="card-sub mono row" style="gap:6px; cursor:pointer; font-size:11px">
+                      <input type="checkbox" bind:group={selection[i].shared} value={shared} />
+                      <span>{shared}</span>
+                    </label>
+                  {/each}
+                {/if}
+              </div>
+            </div>
+          {/each}
+          <button class="btn primary" style="margin-top:12px" disabled={busy || !selection.some(p => p.selected)} on:click={() => run(previewSelection)}>Review selected content</button>
+        </div>
+      {/if}
     </div>
 
   {:else}
