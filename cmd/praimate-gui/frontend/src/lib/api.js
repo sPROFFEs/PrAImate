@@ -132,6 +132,7 @@ export const api = {
   buildRequirements: (tool) => call('BuildRequirements', tool),
   buildToolFromSource: (tool) => call('BuildToolFromSource', tool),
   checkUpdate: () => call('CheckUpdate'),
+  performUpdate: () => call('PerformUpdate'),
 
   getLocalLLM: () => call('GetLocalLLM'),
   setLocalLLM: (d) => call('SetLocalLLM', d),

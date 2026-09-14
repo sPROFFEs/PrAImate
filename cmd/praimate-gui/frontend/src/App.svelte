@@ -137,11 +137,33 @@
     } catch (e) {
       health = { ok: false, error: String(e) }
     }
+    let availableUpdate = null
+    let updatingApp = false
+    let updateError = ''
+
+    async function applyUpdate() {
+      updatingApp = true
+      updateError = ''
+      try {
+        await api.performUpdate()
+      } catch (e) {
+        updateError = String(e)
+        updatingApp = false
+      }
+    }
+
     // Warm the CLI & Tools detection cache in the background so the tab
     // opens instantly instead of probing on first view. Only for the
     // main app window (skip in editor/setup modes).
     if (editorMode && !editorMode.active && !firstRun?.needed) {
       prefetchCLIs()
+      api.checkUpdate()
+        .then((info) => {
+          if (info && info.hasUpdate) {
+            availableUpdate = info
+          }
+        })
+        .catch(() => {})
     }
   }
 
@@ -309,6 +331,23 @@
   </nav>
 
   <main class="main">
+    {#if availableUpdate}
+      <div class="update-banner" role="alert">
+        <div class="update-copy">
+          <span class="update-tag">UPDATE</span>
+          <span>PrAImate <strong>v{availableUpdate.latest}</strong> available (currently v{availableUpdate.current})</span>
+        </div>
+        <div class="update-actions">
+          {#if updateError}<span class="update-err">{updateError}</span>{/if}
+          <button class="btn sm primary" type="button" on:click={applyUpdate} disabled={updatingApp}>
+            {updatingApp ? 'Updating & restarting…' : 'Update & restart'}
+          </button>
+          <button class="btn sm" type="button" on:click={() => (availableUpdate = null)} disabled={updatingApp}>
+            ✕
+          </button>
+        </div>
+      </div>
+    {/if}
     {#if health && !health.ok}
       <div class="banner">Backend failed to initialise: {health.error}</div>
     {/if}
@@ -340,3 +379,42 @@
 {#if !detachedMode?.active && databaseLock?.unlocked && privacyNotice?.required && !editorMode?.active}
   <PrivacyNotice on:accepted={privacyAccepted} />
 {/if}
+
+<style>
+  .update-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    margin: 0 0 14px 0;
+    background: color-mix(in oklch, var(--accent) 15%, var(--bg-panel));
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm, 6px);
+    color: var(--text);
+  }
+  .update-copy {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .update-tag {
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--accent);
+    color: var(--accent-fg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+  }
+  .update-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .update-err {
+    color: var(--err);
+    font-size: 12px;
+  }
+</style>

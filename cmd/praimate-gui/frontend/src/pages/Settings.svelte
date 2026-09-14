@@ -19,6 +19,7 @@
   // Update check (Settings parity with `praimate -update`'s probe).
   let updateInfo = null
   let checkingUpdate = false
+  let updatingApp = false
   async function checkUpdate() {
     checkingUpdate = true
     try {
@@ -27,6 +28,17 @@
       error = String(e)
     } finally {
       checkingUpdate = false
+    }
+  }
+
+  async function applyUpdate() {
+    updatingApp = true
+    error = ''
+    try {
+      await api.performUpdate()
+    } catch (e) {
+      error = String(e)
+      updatingApp = false
     }
   }
 
@@ -378,16 +390,21 @@
       <div class="card-sub">
         {#if updateInfo}
           {#if updateInfo.hasUpdate}
-            v{updateInfo.current} → <strong>v{updateInfo.latest} available</strong> — run <span class="mono">praimate -update</span> (refreshes the GUI binary too), or download: <span class="mono">{updateInfo.url}</span>
+            v{updateInfo.current} → <strong>v{updateInfo.latest} available</strong> — you can update automatically or download from <span class="mono">{updateInfo.url}</span>
           {:else}
             v{updateInfo.current} — up to date
           {/if}
         {:else}
-          Check GitHub for a newer release.
+          Check for a newer release from GitHub or Gitea mirror.
         {/if}
       </div>
     </div>
-    <button class="btn" on:click={checkUpdate} disabled={checkingUpdate}>{checkingUpdate ? 'Checking…' : 'Check for updates'}</button>
+    {#if updateInfo?.hasUpdate}
+      <button class="btn primary" on:click={applyUpdate} disabled={updatingApp}>
+        {updatingApp ? 'Updating & restarting…' : 'Update & restart'}
+      </button>
+    {/if}
+    <button class="btn" on:click={checkUpdate} disabled={checkingUpdate || updatingApp}>{checkingUpdate ? 'Checking…' : 'Check for updates'}</button>
   </div>
 </div>
 

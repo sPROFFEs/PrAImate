@@ -95,9 +95,9 @@ build_one() {
 
   echo "→ $triplet"
   GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
-    go build -trimpath -ldflags "$LDFLAGS" -o "$out/wpc$ext" ./cmd/wpc
+    go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$out/wpc$ext" ./cmd/wpc
   GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
-    go build -trimpath -ldflags "$LDFLAGS" -o "$out/praimate$ext" ./cmd/praimate
+    go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$out/praimate$ext" ./cmd/praimate
 
   # GUI: Linux must be built natively; Windows is pure-Go cross-buildable.
   if [ "$triplet" = "$NATIVE_TRIPLET" ]; then
@@ -111,7 +111,7 @@ build_one() {
     fi
     ( cd cmd/praimate-gui && \
       GOOS=windows GOARCH="$goarch" CGO_ENABLED=0 \
-      go build -trimpath -tags desktop,production \
+      go build -trimpath -buildvcs=false -tags desktop,production \
         -ldflags "-s -w -H windowsgui" -o praimate-gui.exe . )
     cp cmd/praimate-gui/praimate-gui.exe "$out/praimate-gui.exe"
   else

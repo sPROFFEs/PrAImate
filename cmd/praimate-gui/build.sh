@@ -36,5 +36,5 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) EXT=".exe"; LDFLAGS='-s -w -H windowsgui' ;;
 esac
 
-go build -trimpath -tags "$TAGS" -ldflags "$LDFLAGS" -o "praimate-gui$EXT" .
+go build -trimpath -buildvcs=false -tags "$TAGS" -ldflags "$LDFLAGS" -o "praimate-gui$EXT" .
 echo "built ./praimate-gui$EXT"

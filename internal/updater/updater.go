@@ -171,9 +171,12 @@ func Apply(asset *Asset, progress func(stage string)) error {
 	defer os.Remove(archivePath)
 
 	progress("extracting binary")
-	binName := "praimate"
-	if runtime.GOOS == "windows" {
-		binName = "praimate.exe"
+	binName := filepath.Base(exePath)
+	if binName == "" || binName == "." {
+		binName = "praimate"
+		if runtime.GOOS == "windows" {
+			binName = "praimate.exe"
+		}
 	}
 	stagedBin, err := extractBinary(archivePath, binName)
 	if err != nil {
@@ -187,15 +190,17 @@ func Apply(asset *Asset, progress func(stage string)) error {
 	}
 
 	// Refresh the sibling binaries shipped in the same archive
-	// (praimate-gui, praimate-code) so `praimate -update` keeps them in
-	// step with the main binary — matching what the installer does. Each
-	// is best-effort: absent from this platform's archive, or not
-	// installed next to praimate, simply means "skip".
+	// (praimate, praimate-gui, wpc, praimate-code) so `praimate -update` or GUI
+	// updater keeps them in step with the main binary — matching what the installer does.
 	exeDir := filepath.Dir(exePath)
-	for _, sib := range []string{"praimate-gui", "praimate-code"} {
+	allSiblings := []string{"praimate", "praimate-gui", "wpc", "praimate-code"}
+	for _, sib := range allSiblings {
 		name := sib
 		if runtime.GOOS == "windows" {
 			name += ".exe"
+		}
+		if name == binName {
+			continue
 		}
 		dst := filepath.Join(exeDir, name)
 		// Only refresh a sibling the user actually has installed.
