@@ -725,7 +725,26 @@
     approvals = approvals.filter((a) => a.id !== req.id)
     try { await api.resolveApproval(req.id, allow, always) } catch (e) { error = String(e) }
   }
-  async function send() { const text = draft.trim(); if (!text) return; draft = ''; await sendMsg(text) }
+  async function send() {
+    const text = draft.trim()
+    if (!text || sending) return
+    if (!helperChatId) {
+      if (agentId) {
+        await bootHelperChat()
+      }
+      if (!helperChatId) {
+        error = 'Authoring assistant is initializing. Please save or name the agent first.'
+        return
+      }
+    }
+    draft = ''
+    try {
+      await sendMsg(text)
+    } catch (e) {
+      draft = text
+      error = String(e)
+    }
+  }
   async function sendMsg(text) {
     if (!text || sending || !helperChatId) return
     sending = true; stream = null
@@ -758,8 +777,13 @@
           error = `Assistant replied, but agent.yaml could not be refreshed: ${String(e)}`
         }
       }
-    } catch (e) { error = String(e); messages = messages.filter((m) => !m._pending) }
-    finally { sending = false; stream = null; approvals = []; await scrollChat() }
+    } catch (e) {
+      error = String(e)
+      messages = messages.filter((m) => !m._pending)
+      throw e
+    } finally {
+      sending = false; stream = null; approvals = []; await scrollChat()
+    }
   }
   function onKey(e) {
     if (e.isComposing || e.keyCode === 229) return
@@ -775,11 +799,23 @@
   }
   async function onHelperCli() {
     const seq = ++modelLoadSeq
+    const requestedCli = helperCli
     modelLoading = true
-    modelSuggestions = (await api.listCLIModels(helperCli).catch(() => [])) || []
-    if (seq === modelLoadSeq) modelLoading = false
+    modelSuggestions = []
     helperModel = ''
     await applyHelperConfig()
+    try {
+      const suggestions = (await api.listCLIModels(requestedCli)) || []
+      if (seq === modelLoadSeq && helperCli === requestedCli) {
+        modelSuggestions = suggestions
+        modelLoading = false
+      }
+    } catch {
+      if (seq === modelLoadSeq && helperCli === requestedCli) {
+        modelSuggestions = []
+        modelLoading = false
+      }
+    }
   }
   async function chooseHelperCwd() {
     try {
@@ -807,9 +843,23 @@
     try { clis = (await api.listCLIs()) || [] } catch {}
     const firstAvail = clis.find((c) => c.available)
     helperCli = firstAvail ? firstAvail.id : (clis[0]?.id ?? 'claude')
+    const seq = ++modelLoadSeq
+    const requestedCli = helperCli
     modelLoading = true
-    modelSuggestions = (await api.listCLIModels(helperCli).catch(() => [])) || []
-    modelLoading = false
+    modelSuggestions = []
+    api.listCLIModels(requestedCli)
+      .then((r) => {
+        if (seq === modelLoadSeq && helperCli === requestedCli) {
+          modelSuggestions = r || []
+          modelLoading = false
+        }
+      })
+      .catch(() => {
+        if (seq === modelLoadSeq && helperCli === requestedCli) {
+          modelSuggestions = []
+          modelLoading = false
+        }
+      })
     if (initCfg.id) {
       await loadAll(initCfg.id)
       // Existing-agent flow: the agent already has a row + disk folder,
@@ -1205,7 +1255,7 @@
     </div>
     <div class="row2" style="padding:0 2px 6px">
       <select class="field sm" style="max-width:130px" bind:value={helperCli} on:change={onHelperCli}>{#each clis as c}<option value={c.id} disabled={!c.available}>{c.id}{c.available ? '' : ' (n/a)'}</option>{/each}</select>
-      <input class="field sm mono grow" list="helper-models" placeholder={helperModelSupported ? 'model (blank = default)' : 'no model flag'} bind:value={helperModel} on:change={applyHelperConfig} disabled={!helperModelSupported} />
+      <input class="field sm mono grow" list="helper-models" placeholder={helperModelSupported ? (modelLoading ? 'loading models…' : 'model (blank = default)') : 'no model flag'} bind:value={helperModel} on:change={applyHelperConfig} disabled={!helperModelSupported} />
       <datalist id="helper-models">{#each modelSuggestions as m}<option value={m}></option>{/each}</datalist>
     </div>
     <div class="row2" style="padding:0 2px 6px">
