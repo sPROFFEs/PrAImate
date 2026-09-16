@@ -111,7 +111,7 @@
       await loadChat()
       if (wsChanged) {
         workspace = newWs
-        await loadFiles()
+        await loadTree()
       }
     } catch (e) {
       error = String(e)
@@ -223,9 +223,15 @@
   async function revealFolder() {
     try { await api.openEditorFolder(); error = '' } catch (e) { error = String(e) }
   }
-  async function renameFile(rel) {
-    const next = window.prompt ? window.prompt('Rename to (slash-relative path):', rel) : ''
-    if (!next || next === rel) return
+  let renameModal = null
+  function renameFile(rel) {
+    renameModal = { rel, next: rel }
+  }
+  async function submitRename() {
+    if (!renameModal || !renameModal.next.trim() || renameModal.next.trim() === renameModal.rel) return
+    const rel = renameModal.rel
+    const next = renameModal.next.trim()
+    renameModal = null
     try {
       const dst = await api.editorRenameFile(rel, next)
       await loadTree()
@@ -732,6 +738,22 @@
 <svelte:window on:keydown={onWindowKey} />
 
 <ContextMenu menu={ctx} on:close={() => (ctx = null)} />
+
+{#if renameModal}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="modal-backdrop" style="z-index: 12000" on:click|self={() => (renameModal = null)}>
+    <div class="modal-content" role="dialog" aria-modal="true" style="max-width: 440px">
+      <h2 style="margin: 0 0 8px; font-size: 16px">Rename file</h2>
+      <p class="card-sub" style="margin: 0 0 12px">Enter the new relative path for <strong>{renameModal.rel}</strong>:</p>
+      <input class="field mono" style="width: 100%; margin-bottom: 14px" bind:value={renameModal.next} on:keydown={(e) => e.key === 'Enter' && submitRename()} autofocus />
+      <div class="row" style="justify-content: flex-end; gap: 8px">
+        <button class="btn" type="button" on:click={() => (renameModal = null)}>Cancel</button>
+        <button class="btn primary" type="button" disabled={!renameModal.next?.trim() || renameModal.next.trim() === renameModal.rel} on:click={submitRename}>Rename</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if quickOpen}
   <div class="qopen-backdrop" on:click={() => (quickOpen = false)} on:keydown={() => {}} role="presentation">

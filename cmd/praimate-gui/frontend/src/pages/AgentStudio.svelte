@@ -573,30 +573,51 @@
       dismissError()
     } catch (e) { error = String(e) }
   }
-  async function newFilePrompt() {
+  let newFileModal = null
+  let renameModal = null
+
+  function newFilePrompt() {
     if (!agentId) return
-    const name = window.prompt ? window.prompt('New file (e.g. notes.md, script.py, run.sh, or subdir/file):', '') : ''
-    if (!name) return
+    newFileModal = { name: '' }
+  }
+
+  async function submitNewFile() {
+    if (!agentId || !newFileModal || !newFileModal.name?.trim()) return
+    const name = newFileModal.name.trim()
+    newFileModal = null
     try {
       const rel = await api.agentCreateKnowledgeFile(agentId, name)
-      await refreshTree(); await loadKnowledge()
+      await refreshTree()
+      await loadKnowledge()
       await openFile(rel)
       dismissError()
-    } catch (e) { error = String(e) }
+    } catch (e) {
+      error = String(e)
+    }
   }
-  async function renameFile(rel) {
+
+  function renameFile(rel) {
     if (!agentId) return
-    const next = window.prompt ? window.prompt('Rename to (slash-relative path):', rel) : ''
-    if (!next || next === rel) return
+    renameModal = { rel, next: rel }
+  }
+
+  async function submitRename() {
+    if (!agentId || !renameModal || !renameModal.next?.trim() || renameModal.next.trim() === renameModal.rel) return
+    const rel = renameModal.rel
+    const next = renameModal.next.trim()
+    renameModal = null
     try {
       const dst = await api.agentRenameKnowledgeFile(agentId, rel, next)
       // Update any open tab pointing at the old name so it tracks the new one.
       const t = tabs.find((x) => x.key === rel)
       if (t) { t.key = dst; t.label = dst.split('/').pop(); t.lang = langOf(dst); tabs = tabs }
       if (active === rel) active = dst
-      await refreshTree(); await loadKnowledge()
+      await refreshTree()
+      await loadKnowledge()
       dismissError()
-    } catch (e) { error = String(e) }
+    } catch (e) {
+      error = String(e)
+    }
   }
   async function rmFile(rel) {
     try {
@@ -777,6 +798,9 @@
           error = `Assistant replied, but agent.yaml could not be refreshed: ${String(e)}`
         }
       }
+      // Automatically refresh knowledge tree and documents list in case assistant added/modified files
+      await refreshTree()
+      await loadKnowledge()
     } catch (e) {
       error = String(e)
       messages = messages.filter((m) => !m._pending)
@@ -884,6 +908,38 @@
 <svelte:window on:keydown={onWindowKey} />
 
 <ContextMenu menu={ctx} on:close={() => (ctx = null)} />
+
+{#if newFileModal}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="modal-backdrop" style="z-index: 12000" on:click|self={() => (newFileModal = null)}>
+    <div class="modal-content" role="dialog" aria-modal="true" style="max-width: 440px">
+      <h2 style="margin: 0 0 8px; font-size: 16px">New file</h2>
+      <p class="card-sub" style="margin: 0 0 12px">Create a file or document inside the agent's knowledge folder (e.g. <code>notes.md</code>, <code>rules.txt</code>, <code>subdir/file.md</code>):</p>
+      <input class="field mono" style="width: 100%; margin-bottom: 14px" placeholder="e.g. notes.md" bind:value={newFileModal.name} on:keydown={(e) => e.key === 'Enter' && submitNewFile()} autofocus />
+      <div class="row" style="justify-content: flex-end; gap: 8px">
+        <button class="btn" type="button" on:click={() => (newFileModal = null)}>Cancel</button>
+        <button class="btn primary" type="button" disabled={!newFileModal.name?.trim()} on:click={submitNewFile}>Create file</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if renameModal}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="modal-backdrop" style="z-index: 12000" on:click|self={() => (renameModal = null)}>
+    <div class="modal-content" role="dialog" aria-modal="true" style="max-width: 440px">
+      <h2 style="margin: 0 0 8px; font-size: 16px">Rename file</h2>
+      <p class="card-sub" style="margin: 0 0 12px">Enter the new relative path for <strong>{renameModal.rel}</strong>:</p>
+      <input class="field mono" style="width: 100%; margin-bottom: 14px" bind:value={renameModal.next} on:keydown={(e) => e.key === 'Enter' && submitRename()} autofocus />
+      <div class="row" style="justify-content: flex-end; gap: 8px">
+        <button class="btn" type="button" on:click={() => (renameModal = null)}>Cancel</button>
+        <button class="btn primary" type="button" disabled={!renameModal.next?.trim() || renameModal.next.trim() === renameModal.rel} on:click={submitRename}>Rename</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if selectedRun}
   <div class="name-overlay run-overlay">

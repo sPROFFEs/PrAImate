@@ -55,6 +55,8 @@
 </script>
 
 {#if menu}
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="ctx-backdrop" on:pointerdown|stopPropagation={close} on:contextmenu|preventDefault|stopPropagation={close}></div>
   <div class="ctxmenu" bind:this={el} style={style} role="menu">
     {#each menu.items as it}
       <button
@@ -69,6 +71,12 @@
 {/if}
 
 <style>
+  .ctx-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99998;
+    background: transparent;
+  }
   .ctxmenu {
     position: fixed;
     z-index: 99999;
@@ -76,8 +84,8 @@
     background: var(--bg-raised, var(--bg-panel));
     color: var(--text);
     border: 1px solid var(--border-bright, var(--border));
-    border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    border-radius: var(--radius-sm, 6px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
     padding: 4px;
     font-size: 12px;
     user-select: none;
@@ -88,16 +96,27 @@
     text-align: left;
     background: none;
     border: none;
-    color: inherit;
+    color: var(--text);
     padding: 7px 10px;
-    border-radius: 6px;
+    border-radius: 4px;
     cursor: pointer;
     font: inherit;
+    font-size: 12px;
   }
-  .ctx-item:hover:not([disabled]) { background: var(--bg-panel); }
-  .ctx-item[disabled] { color: var(--text-dim); cursor: not-allowed; }
-  .ctx-item.danger { color: var(--err, #e85c5c); }
+  .ctx-item:hover:not([disabled]) {
+    background: var(--accent-soft, var(--bg-input));
+    color: var(--text);
+  }
+  .ctx-item[disabled] {
+    color: var(--text-dim);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .ctx-item.danger {
+    color: var(--err, #e85c5c);
+  }
   .ctx-item.danger:hover:not([disabled]) {
-    background: color-mix(in oklch, var(--err, #e85c5c) 18%, transparent);
+    background: color-mix(in oklch, var(--err, #e85c5c) 15%, transparent);
+    color: var(--err, #e85c5c);
   }
 </style>

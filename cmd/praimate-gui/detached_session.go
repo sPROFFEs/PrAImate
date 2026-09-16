@@ -455,13 +455,9 @@ func (a *App) StudioMCPServers() ([]StudioMCPOption, error) {
 	return out, nil
 }
 
-func (a *App) SaveStudioConfig(chatID, name, cli, model, tools, localEndpoint, localModel string, mcpServers []string, workspacePath ...string) error {
-	ws := ""
-	if len(workspacePath) > 0 {
-		ws = workspacePath[0]
-	}
+func (a *App) SaveStudioConfig(chatID, name, cli, model, tools, localEndpoint, localModel string, mcpServers []string, workspacePath string) error {
 	body := studioConfigSaveRequest{
-		ChatID: chatID, Name: name, WorkspacePath: ws, CLI: cli, Model: model, Tools: tools,
+		ChatID: chatID, Name: name, WorkspacePath: workspacePath, CLI: cli, Model: model, Tools: tools,
 		LocalEndpoint: localEndpoint, LocalModel: localModel, MCPServers: mcpServers,
 	}
 	if a.detachedClient != nil {

@@ -131,7 +131,7 @@ func TestDetachedStudioConfigUsesScopedMainCore(t *testing.T) {
 	if _, err := child.StudioMCPServers(); err != nil {
 		t.Fatalf("Studio MCP options were not brokered: %v", err)
 	}
-	if err := child.SaveStudioConfig(chat.ID, "After", "claude", "sonnet", "edits", "", "", nil); err != nil {
+	if err := child.SaveStudioConfig(chat.ID, "After", "claude", "sonnet", "edits", "", "", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	updated, err := c.GetChat(ctx, chat.ID)
@@ -141,7 +141,7 @@ func TestDetachedStudioConfigUsesScopedMainCore(t *testing.T) {
 	if updated.Title != "After" || updated.CLIAgent != "claude" || updated.Settings.Model != "sonnet" || updated.Settings.Tools != "edits" {
 		t.Fatalf("studio config was not saved through the parent: %+v", updated)
 	}
-	if err := child.SaveStudioConfig("another-chat", "No", "claude", "", "", "", "", nil); err == nil {
+	if err := child.SaveStudioConfig("another-chat", "No", "claude", "", "", "", "", nil, ""); err == nil {
 		t.Fatal("detached Studio changed a chat outside its assigned scope")
 	}
 	if _, err := d.call(&detachedWindow{kind: "terminal", sessionID: chat.ID}, detachedRPCRequest{Method: "studio.config.save"}); err == nil {
