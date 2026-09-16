@@ -305,10 +305,9 @@ func (a *App) startEditorWatcher() {
 						if !editorSkipDir(filepath.Base(ev.Name)) {
 							addTree(ev.Name)
 						}
-						continue
 					}
 				}
-				if !editableExts[strings.ToLower(filepath.Ext(ev.Name))] {
+				if editorSkipDir(filepath.Base(ev.Name)) {
 					continue
 				}
 				if a.editorIsOwnWrite(ev.Name) {

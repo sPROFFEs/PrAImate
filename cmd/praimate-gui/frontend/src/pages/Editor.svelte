@@ -578,6 +578,7 @@
         await api.sendChatStream(chatId, text + focused, [])
       }
       messages = (await api.chatMessages(chatId)) || messages
+      await loadTree()
       const refreshed = ((await api.listChats().catch(() => [])) || []).find((item) => item.ID === chatId)
       if (refreshed) {
         chat = refreshed
