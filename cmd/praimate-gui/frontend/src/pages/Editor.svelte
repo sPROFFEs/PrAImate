@@ -63,7 +63,7 @@
     }
     cfg = {
       name: currentChat.Title || '',
-      workspacePath: currentChat.WorkspacePath || workspace || '',
+      workspacePath: currentChat.WorkspacePath || folder || '',
       cli: currentChat.CLIAgent,
       model: currentChat.Settings?.model || '',
       tools: currentChat.Settings?.tools || 'edits',
@@ -106,11 +106,11 @@
         chatId, cfg.name.trim(), cfg.cli, cfg.model.trim(), normalizeToolsForCli(cfg.cli, cfg.tools),
         cfg.localEndpoint.trim(), cfg.localModel.trim(), cfg.mcps || [], newWs
       )
-      const wsChanged = newWs && newWs !== workspace
+      const wsChanged = newWs && newWs !== folder
       cfg = null
       await loadChat()
       if (wsChanged) {
-        workspace = newWs
+        folder = newWs
         await loadTree()
       }
     } catch (e) {
