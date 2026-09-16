@@ -863,7 +863,17 @@
     agentStudio.set(null)
   }
 
+  function onWindowPointerDown(ev) {
+    if (askSel) {
+      const askMenuEl = document.querySelector('.ask-menu')
+      if (askMenuEl && !askMenuEl.contains(ev.target)) {
+        closeAsk()
+      }
+    }
+  }
+
   onMount(async () => {
+    window.addEventListener('pointerdown', onWindowPointerDown, true)
     try { clis = (await api.listCLIs()) || [] } catch {}
     const firstAvail = clis.find((c) => c.available)
     helperCli = firstAvail ? firstAvail.id : (clis[0]?.id ?? 'claude')
@@ -902,7 +912,13 @@
       unsubInstall = () => window.runtime.EventsOff('praimate:install')
     }
   })
-  onDestroy(() => { unsubStream(); unsubApproval(); unsubInstall(); if (ragTimer) clearInterval(ragTimer) })
+  onDestroy(() => {
+    window.removeEventListener('pointerdown', onWindowPointerDown, true)
+    unsubStream()
+    unsubApproval()
+    unsubInstall()
+    if (ragTimer) clearInterval(ragTimer)
+  })
 </script>
 
 <svelte:window on:keydown={onWindowKey} />
@@ -1518,16 +1534,15 @@
   .artifact-row { justify-content: space-between; margin-top: 7px; }
   .artifact-preview pre { max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 11px; background: var(--bg); padding: 8px; border-radius: 6px; }
 
-  /* right-click ask menu — HARDCODED black-on-white (WebKitGTK can't
-     reliably render theme vars inside CodeMirror's tooltip). */
   :global(.cm-tooltip.ask-tooltip), :global(.cm-tooltip:has(> .ask-menu)) { background: transparent !important; border: none !important; padding: 0 !important; }
-  :global(.ask-menu) { width: 280px; padding: 10px; background: #ffffff; color: #1a1a1a; border: 1px solid #c9c9c9; border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.45); font-family: inherit; }
-  :global(.ask-menu .ask-head) { font-size: 12px; color: #666; display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-  :global(.ask-menu .ask-item) { display: block; width: 100%; text-align: left; color: #1a1a1a; background: #fff; font-size: 13px; padding: 6px 8px; border-radius: 6px; cursor: pointer; user-select: none; }
-  :global(.ask-menu .ask-item:hover) { background: #ececec; color: #000; }
-  :global(.ask-menu .ask-free) { display: flex; gap: 4px; margin-top: 8px; }
-  :global(.ask-menu .ask-free input) { font-size: 12px; padding: 4px 6px; flex: 1; min-width: 0; background: #fff; color: #1a1a1a; border: 1px solid #c9c9c9; border-radius: 6px; }
-  :global(.ask-menu .ask-free input::placeholder) { color: #888; }
-  :global(.ask-menu .ask-go) { background: #2563eb; color: #fff; border-radius: 8px; font-size: 12px; padding: 5px 12px; cursor: pointer; user-select: none; }
-  :global(.ask-menu .ask-close) { color: #666; cursor: pointer; font-size: 16px; line-height: 1; user-select: none; }
+  :global(.ask-menu) { width: 280px; padding: 10px; background: var(--bg-raised, var(--bg-panel)); color: var(--text); border: 1px solid var(--border-bright, var(--border)); border-radius: var(--radius-sm, 8px); box-shadow: 0 10px 30px rgba(0,0,0,0.45); font-family: inherit; }
+  :global(.ask-menu .ask-head) { font-size: 12px; color: var(--text-dim); display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  :global(.ask-menu .ask-item) { display: block; width: 100%; text-align: left; color: var(--text); background: transparent; font-size: 12.5px; padding: 6px 8px; border-radius: 4px; cursor: pointer; user-select: none; }
+  :global(.ask-menu .ask-item:hover) { background: var(--accent-soft, var(--bg-input)); color: var(--text); }
+  :global(.ask-menu .ask-free) { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+  :global(.ask-menu .ask-free input) { font-size: 12px; padding: 5px 8px; flex: 1; min-width: 0; background: var(--bg-input, var(--bg)); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+  :global(.ask-menu .ask-free input::placeholder) { color: var(--text-dim); }
+  :global(.ask-menu .ask-go) { background: var(--accent); color: var(--accent-fg); border-radius: 4px; font-size: 12px; font-weight: 600; padding: 5px 12px; cursor: pointer; user-select: none; }
+  :global(.ask-menu .ask-close) { color: var(--text-dim); cursor: pointer; font-size: 16px; line-height: 1; user-select: none; }
+  :global(.ask-menu .ask-close:hover) { color: var(--text); }
 </style>
