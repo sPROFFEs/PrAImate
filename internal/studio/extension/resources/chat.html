@@ -213,7 +213,7 @@ function renderMessages(messages) {
 }
 function send() {
   if(!canChange() || !promptInput.value.trim()) return;
-  const text = promptInput.value; notice(''); post('send',{text,useContext:$('use-context').checked},ok => {if(ok && promptInput.value === text) {promptInput.value = ''; persist();}});
+  const text = promptInput.value; notice(''); promptInput.value = ''; persist(); post('send',{text,useContext:$('use-context').checked},ok => {if(!ok && !promptInput.value) {promptInput.value = text; persist();}});
 }
 $('session-form').addEventListener('input',() => {dirty = true; $('saved-label').textContent = 'Unsaved changes';});
 $('cli-select').addEventListener('change',() => {$('model-input').value = ''; if(!localSupported($('cli-select').value)) {$('local-endpoint').value = ''; $('local-model').value = '';} cliChanged();});

@@ -421,8 +421,9 @@ async function selectSkills() {
   await configure({skills:picked.map(p => ({ref:p.sk.ref,digest:p.sk.digest,activation:'pinned'}))});
 }
 async function selectMCP() {
-  const servers = await call('mcp.list');
-  const picked = await vscode.window.showQuickPick(servers.map(s => ({label:s.name,description:s.enabled ? 'Enabled globally' : 'Disabled globally',id:s.id,
+  const servers = (await call('mcp.list')) || [];
+  const list = Array.isArray(servers) ? servers : [];
+  const picked = await vscode.window.showQuickPick(list.map(s => ({label:s.name,description:s.enabled ? 'Enabled globally' : 'Disabled globally',id:s.id,
     picked:currentStatus.mcpServers == null ? s.enabled : currentStatus.mcpServers.includes(s.id)})),{canPickMany:true,placeHolder:'MCP servers selected for this session'});
   if (picked) await configure({mcpServers:picked.map(p => p.id)});
 }
@@ -632,15 +633,17 @@ async function resumeManagedRun(id) {
   finally { provider.busy = false; provider.notifyStatus(); }
 }
 async function managePrivacy() {
-  const patterns = await call('privacy.list');
-  const action = await vscode.window.showQuickPick([{label:'$(add) Add redaction pattern',id:'add'},...patterns.map((pattern,index) => ({label:pattern,description:'Remove pattern',index}))],{placeHolder:'Custom privacy redaction patterns'});
+  const patterns = (await call('privacy.list')) || [];
+  const list = Array.isArray(patterns) ? patterns : [];
+  const action = await vscode.window.showQuickPick([{label:'$(add) Add redaction pattern',id:'add'},...list.map((pattern,index) => ({label:pattern,description:'Remove pattern',index}))],{placeHolder:'Custom privacy redaction patterns'});
   if (!action) return;
   if (action.id === 'add') { const pattern = await vscode.window.showInputBox({prompt:'Regular expression to redact before model calls'}); if (pattern) await call('privacy.add',{pattern}); }
   else if (await vscode.window.showWarningMessage('Remove this redaction pattern?',{modal:true},'Remove') === 'Remove') await call('privacy.delete',{index:action.index});
 }
 async function manageLocalHosts() {
-  const hosts = await call('local.hosts.list');
-  const picked = await vscode.window.showQuickPick([{label:'$(add) Add local model host',add:true},...hosts.map(host => ({label:host.name,description:(host.isDefault ? 'Default · ' : '')+host.endpoint,host}))],{placeHolder:'Local model profiles'});
+  const hosts = (await call('local.hosts.list')) || [];
+  const list = Array.isArray(hosts) ? hosts : [];
+  const picked = await vscode.window.showQuickPick([{label:'$(add) Add local model host',add:true},...list.map(host => ({label:host.name,description:(host.isDefault ? 'Default · ' : '')+host.endpoint,host}))],{placeHolder:'Local model profiles'});
   if (!picked) return;
   if (picked.add) {
     const name = await vscode.window.showInputBox({prompt:'Profile name',value:'Local model'}); if (!name) return;
