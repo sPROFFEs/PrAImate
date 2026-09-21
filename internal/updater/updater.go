@@ -186,6 +186,9 @@ func Apply(asset *Asset, progress func(stage string)) error {
 
 	progress("installing")
 	if err := swapBinary(exePath, stagedBin); err != nil {
+		if os.IsPermission(err) || strings.Contains(err.Error(), "permission denied") {
+			return fmt.Errorf("insufficient permissions to overwrite %s: directory is owned by root/system (run 'sudo praimate -update' in a terminal, or install in ~/.local/bin)", exePath)
+		}
 		return fmt.Errorf("swap binary: %w", err)
 	}
 
@@ -388,6 +391,9 @@ func copyOver(src, dst string) error {
 	defer in.Close()
 	tmp, err := os.CreateTemp(filepath.Dir(dst), filepath.Base(dst)+".tmp-*")
 	if err != nil {
+		if os.IsPermission(err) {
+			return fmt.Errorf("permission denied in directory %s: %w", filepath.Dir(dst), err)
+		}
 		return err
 	}
 	tmpName := tmp.Name()
