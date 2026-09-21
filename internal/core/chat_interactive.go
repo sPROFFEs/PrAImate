@@ -289,11 +289,11 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 
 	// Ask level: wire the approval shim when a provider is registered.
 	var approval *ApprovalConfig
-	if chat.Settings.Tools == "ask" && c.approvalProvider != nil {
-		approval = c.approvalProvider(chatID)
+	if chat.Settings.Tools == "ask" {
+		approval = c.approvalForContext(ctx, chatID)
 	}
 	surface := SurfaceChat
-	if chat.Settings.Surface == "studio" || chat.Settings.Surface == "agent-helper" {
+	if chat.Settings.Surface == "studio" || chat.Settings.Surface == "studio-ide" || chat.Settings.Surface == "agent-helper" {
 		surface = SurfaceStudio
 	}
 	if agent != nil {

@@ -44,6 +44,9 @@ const (
 	// GitHub release into <config>/praimate/bin/, where `praimate code`
 	// looks for it.
 	ToolPraimateCode ToolID = "praimate-code"
+	// ToolPraimateStudio is PrAImate Studio — our managed Code-OSS IDE
+	// distribution with built-in PrAImate Core extension.
+	ToolPraimateStudio ToolID = "praimate-studio"
 )
 
 // PraimateBinDir is <config>/praimate/bin — where managed standalone
@@ -91,6 +94,12 @@ func KnownTools() []Tool {
 			Label:       "ScrapeGraphAI search helper",
 			Binary:      "scrapegraph-search",
 			InstallHint: "uv venv + scrapegraphai/scrapegraph-py   (set SGAI_API_KEY for API mode, or SCRAPEGRAPH_LLM_MODEL for OSS/local mode)",
+		},
+		{
+			ID:          ToolPraimateStudio,
+			Label:       "PrAImate Studio (Code-OSS IDE)",
+			Binary:      "praimate-studio",
+			InstallHint: "Managed Code-OSS distribution with native PrAImate Core extension, terminal and Open VSX support",
 		},
 		// PrAImate Code is intentionally NOT here — it's a coding CLI, not
 		// a companion tool, so it's surfaced in the CLIs browser instead.
@@ -150,6 +159,22 @@ func toolCandidatePaths(id ToolID, binary string) []string {
 
 	if id == ToolPraimateCode {
 		return paths // praimate-code has no managed tool prefix (no node_modules/uv_tool_dir)
+	}
+	if id == ToolPraimateStudio {
+		if root, err := appdata.Root(); err == nil {
+			sDir := filepath.Join(root, "tools", "praimate-studio")
+			binName := "praimate-studio"
+			if runtime.GOOS == "windows" {
+				binName = "praimate-studio.cmd"
+			}
+			paths = append(paths, filepath.Join(sDir, "bin", binName))
+			if runtime.GOOS != "windows" {
+				paths = append(paths, filepath.Join(sDir, "app", "bin", "codium"), filepath.Join(sDir, "app", "codium"))
+			} else {
+				paths = append(paths, filepath.Join(sDir, "app", "bin", "codium.cmd"), filepath.Join(sDir, "app", "VSCodium.exe"))
+			}
+		}
+		return paths
 	}
 
 	// Managed prefixes third: current (praimate) then legacy (clade) —
@@ -515,6 +540,16 @@ func allToolMethods(tool ToolID, action Action, current OS) []Method {
 		}
 	case ToolPraimateCode:
 		return praimateCodeMethods(current)
+	case ToolPraimateStudio:
+		return []Method{
+			{
+				ID:            "studio",
+				Label:         "Install managed PrAImate Studio (Code-OSS + built-in PrAImate extension)",
+				Command:       "praimate studio install",
+				Recommended:   true,
+				ManagedPrefix: "praimate-studio",
+			},
+		}
 	}
 	return nil
 }

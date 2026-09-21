@@ -65,6 +65,24 @@ func (c *Core) SetApprovalProvider(fn func(chatID string) *ApprovalConfig) {
 	c.approvalProvider = fn
 }
 
+type approvalContextKey struct{}
+
+// WithApprovalProvider scopes a frontend's broker to this execution, without
+// replacing the desktop broker or another Studio window's permission handler.
+func WithApprovalProvider(ctx context.Context, fn func(string) *ApprovalConfig) context.Context {
+	return context.WithValue(ctx, approvalContextKey{}, fn)
+}
+
+func (c *Core) approvalForContext(ctx context.Context, scope string) *ApprovalConfig {
+	if fn, ok := ctx.Value(approvalContextKey{}).(func(string) *ApprovalConfig); ok {
+		return fn(scope)
+	}
+	if c.approvalProvider != nil {
+		return c.approvalProvider(scope)
+	}
+	return nil
+}
+
 // Options bundles the inputs Core needs at construction time. Each is
 // optional; leaving them zero gives a no-DB, launcher-only Core that
 // behaves the same as today's TUI.

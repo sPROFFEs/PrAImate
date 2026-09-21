@@ -22,27 +22,7 @@ import (
 // model, when non-empty, is passed with the CLI's own model flag
 // when non-empty, is passed with the CLI's own model flag.
 func terminalCommand(cli, model string) (name string, args []string, err error) {
-	switch cli {
-	case "claude", "openclaude":
-		if model != "" {
-			args = []string{"--model", model}
-		}
-		return cli, args, nil
-	case "codex":
-		if model != "" {
-			args = []string{"-m", model}
-		}
-		return "codex", args, nil
-	case "opencode", "praimate-code":
-		if model != "" {
-			args = []string{"--model", model}
-		}
-		return cli, args, nil
-	case "":
-		return "", nil, fmt.Errorf("no CLI selected for the terminal")
-	default:
-		return "", nil, fmt.Errorf("unknown CLI %q", cli)
-	}
+	return core.InteractiveCLICommand(cli, model)
 }
 
 // prepareLegacyTerminalContext preserves the old native persona convention

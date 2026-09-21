@@ -35,6 +35,15 @@ func run(args []string) int {
 	if len(args) >= 1 && args[0] == "code" {
 		return runCode(args[1:])
 	}
+	if len(args) >= 1 && args[0] == "studio" {
+		return runStudio(args[1:])
+	}
+	if len(args) >= 1 && args[0] == "serve" {
+		return runServe(args[1:])
+	}
+	if len(args) >= 2 && args[0] == "internal" && args[1] == "serve" {
+		return runServe(args[2:])
+	}
 	// Long forms for automation. The top-level --agent spelling remains as a
 	// compact alias for scripts and CI jobs.
 	agentCommand, modelCommand := "", ""
@@ -86,7 +95,9 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "\nUsage: praimate [command] [options]\n\n")
 		fmt.Fprintln(os.Stderr, "Commands:")
 		fmt.Fprintln(os.Stderr, "  (none)                     Launch desktop application (default)")
+		fmt.Fprintln(os.Stderr, "  studio [path]              Launch managed Code-OSS PrAImate Studio")
 		fmt.Fprintln(os.Stderr, "  code [args...]             Launch managed PrAImate Code CLI")
+		fmt.Fprintln(os.Stderr, "  serve [options]            Run PrAImate Core JSON-RPC daemon")
 		fmt.Fprintln(os.Stderr, "  agent run [options]        Execute an agent headless/non-interactively")
 		fmt.Fprintln(os.Stderr, "  agent status [options]     Check durable agent run status")
 		fmt.Fprintln(os.Stderr, "  model check [options]      Check model connectivity and permissions")

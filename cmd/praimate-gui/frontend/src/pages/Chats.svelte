@@ -81,6 +81,7 @@
   let mcpServers = []
   let newMCPs = []
   let newSkillChoices = null
+  let newFolder = ''
 
   // Per-chat settings editor (CLI / model / tools). Works on the open
   // thread and from list rows.
@@ -275,6 +276,7 @@
     newLocalModel = ''
     newMCPs = []
     newSkillChoices = null
+    newFolder = ''
     try {
       clis = (await api.listCLIs()) || []
       const firstAvailable = clis.find((c) => c.available)
@@ -314,7 +316,7 @@
     error = ''
     try {
       const useLocalNow = newUseLocal && localOpt?.configured
-      const chat = await api.startCleanChat(newCli, useLocalNow ? '' : (modelSupported ? newModel.trim() : ''), '')
+      const chat = await api.startCleanChat(newCli, useLocalNow ? '' : (modelSupported ? newModel.trim() : ''), newFolder.trim())
       const tools = normalizeToolsForCli(newCli, newTools)
       if (useLocalNow) {
         // Route the chat at the configured local endpoint — the launcher
@@ -1017,6 +1019,11 @@
           </datalist>
           {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
         {/if}
+        <label class="lbl" for="new-chat-folder">Working folder <span class="card-sub">(optional — defaults to your home directory)</span></label>
+        <div class="row">
+          <input id="new-chat-folder" class="field grow mono" bind:value={newFolder} placeholder="pick a working folder or leave blank for home" />
+          <button class="btn" type="button" on:click={async () => { const p = await api.pickFolder(); if (p) newFolder = p }}>Browse…</button>
+        </div>
         <label class="lbl">Tools</label>
         <div class="row">
           {#each newToolLevels as lvl}

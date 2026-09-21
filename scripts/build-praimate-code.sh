@@ -41,6 +41,8 @@ REPO_ROOT="$(pwd)"
 VENDORED_OPENCODE="$REPO_ROOT/third_party/opencode"
 OPENCODE_REF="${OPENCODE_REF:-}"
 OPENCODE_URL="https://github.com/sst/opencode"
+export OPENCODE_VERSION="${OPENCODE_VERSION:-1.18.1}"
+export OPENCODE_CHANNEL="${OPENCODE_CHANNEL:-latest}"
 
 NATIVE_GOOS="$(go env GOOS 2>/dev/null || uname -s | tr '[:upper:]' '[:lower:]')"
 NATIVE_GOARCH="$(go env GOARCH 2>/dev/null || echo amd64)"

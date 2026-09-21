@@ -353,4 +353,5 @@
   .attachments { display: flex; gap: 6px; flex-wrap: wrap; }
   .attachments button { border: 0; color: inherit; background: transparent; cursor: pointer; }
   .tool-feed { color: var(--text-dim); margin-bottom: 6px; }
+  .typing { color: var(--text-dim); font-style: italic; }
 </style>

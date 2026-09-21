@@ -1,0 +1,216 @@
+{
+  "name": "praimate-studio",
+  "displayName": "PrAImate Studio",
+  "description": "Native PrAImate Core IDE integration for Code-OSS / VSCodium",
+  "version": "0.6.0",
+  "publisher": "PrAImate",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "AI",
+    "Machine Learning"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:praimate.chatView"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "praimate-sidebar",
+          "title": "PrAImate",
+          "icon": "resources/monke.svg"
+        }
+      ]
+    },
+    "views": {
+      "praimate-sidebar": [
+        {
+          "type": "webview",
+          "id": "praimate.chatView",
+          "name": "Workspace"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "praimate.openPanel",
+        "title": "PrAImate: Open Workspace in Editor",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.focusChat",
+        "title": "PrAImate: Focus Assistant",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.ask",
+        "title": "PrAImate: Ask about selection / file",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.explain",
+        "title": "PrAImate: Explain code",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.fix",
+        "title": "PrAImate: Fix issue / bug",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.refactor",
+        "title": "PrAImate: Refactor code",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.generateTests",
+        "title": "PrAImate: Generate tests",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.reviewFile",
+        "title": "PrAImate: Review active file",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.reviewChanges",
+        "title": "PrAImate: Review Git diff",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.openTerminal",
+        "title": "PrAImate: Open Selected CLI Terminal",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.chooseTerminal",
+        "title": "PrAImate: Choose CLI Terminal",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.diagnostics",
+        "title": "PrAImate: Show Diagnostics",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.reconnect",
+        "title": "PrAImate: Reconnect to Core",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.newChat",
+        "title": "PrAImate: New Chat",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.resumeChat",
+        "title": "PrAImate: Resume Chat",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.stop",
+        "title": "PrAImate: Stop Active Run",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.configure",
+        "title": "PrAImate: Configure Session",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.selectSkills",
+        "title": "PrAImate: Select Skills",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.selectMCP",
+        "title": "PrAImate: Select MCP Servers",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.localRoute",
+        "title": "PrAImate: Configure Local Model",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.refresh",
+        "title": "PrAImate: Refresh",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.chooseWorkspace",
+        "title": "PrAImate: Choose Workspace Folder",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.newAgent",
+        "title": "PrAImate: New Agent YAML",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.saveAgentYAML",
+        "title": "PrAImate: Save Active Agent YAML",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.importAgent",
+        "title": "PrAImate: Import Agent",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.importSkill",
+        "title": "PrAImate: Import Skill",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.addMCP",
+        "title": "PrAImate: Add MCP Server",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.managePrivacy",
+        "title": "PrAImate: Manage Privacy Patterns",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.manageLocalHosts",
+        "title": "PrAImate: Manage Local Model Hosts",
+        "category": "PrAImate"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "praimate.ask",
+          "group": "praimate@1"
+        },
+        {
+          "command": "praimate.explain",
+          "group": "praimate@2"
+        },
+        {
+          "command": "praimate.refactor",
+          "group": "praimate@3"
+        },
+        {
+          "command": "praimate.fix",
+          "group": "praimate@4"
+        },
+        {
+          "command": "praimate.generateTests",
+          "group": "praimate@5"
+        }
+      ]
+    }
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  }
+}

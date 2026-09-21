@@ -237,12 +237,12 @@ func (c *Core) RunManagedAgent(ctx context.Context, req ManagedRunRequest) (*Man
 		limits.MaxTotalInputBytes = manifest.Limits.MaxTotalInputBytes
 	}
 	approval := req.Approval
-	if approval == nil && c.approvalProvider != nil {
+	if approval == nil {
 		scope := strings.TrimSpace(req.ApprovalScope)
 		if scope == "" {
 			scope = req.Agent.ID
 		}
-		approval = c.approvalProvider(scope)
+		approval = c.approvalForContext(ctx, scope)
 	}
 	var mcpServers []MCPServer
 	if len(req.Agent.MCPServers) > 0 {

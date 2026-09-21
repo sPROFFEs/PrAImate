@@ -341,6 +341,7 @@
         await notifyTerminalSkills(sessionChatId)
       }
     } catch { /* recording must not stop the terminal */ }
+    cleanSetup = false
     started = true
     await tick()
     try {
@@ -449,6 +450,7 @@
 
   function reset() {
     teardown(true)
+    cleanSetup = false
     started = false
     exited = false
     sessionChatId = ''
@@ -463,6 +465,7 @@
       await api.detachSession('terminal', id, sessionLabel || cli || 'Terminal')
       detachedTerms = new Set([...detachedTerms, id])
       teardown(false)
+      cleanSetup = false
       started = false
       exited = false
       sessionChatId = ''

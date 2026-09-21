@@ -236,7 +236,7 @@
         dlg.busy = true
       }
       const agentLabel = agent?.name || cli
-      const surfaceLabel = surface === 'chat' ? 'chat' : surface === 'terminal' ? 'terminal' : 'Studio'
+      const surfaceLabel = surface === 'chat' ? 'chat' : surface === 'terminal' ? 'Code session' : 'Studio'
       showToast({
         title: `Opening ${surfaceLabel}`,
         message: `Starting ${agentLabel} with ${cli} in ${folder}`,
@@ -261,7 +261,7 @@
         const chatId = created.chatId
         if (sessionName && chatId) await api.renameChat(chatId, sessionName)
         dlg = null
-        showToast({ title: 'Terminal ready', message: `${agentLabel} is running through ${cli}.`, tone: 'ok' })
+        showToast({ title: 'Code session ready', message: `${agentLabel} is running through ${cli}.`, tone: 'ok' })
         pendingTerm.set({ termId, chatId, cli, cwd: folder, label: sessionName || ((agent ? agent.name : cli) + (local ? ' · local' : '')), note: '' })
         activePage.set('code')
         pageRevision.update((n) => n + 1)
@@ -648,7 +648,7 @@
     <button class="btn" disabled={importingAgent} on:click={importYAML}>{importingAgent ? 'Importing…' : 'Import…'}</button>
     <button class="btn primary" on:click={() => agentStudio.set({ id: '' })}>+ New agent</button>
   </div>
-  <p class="subtitle">Portable YAML agents. Launch them in a Chat, a live Terminal, or the document Studio — each agent declares which surfaces it allows.</p>
+  <p class="subtitle">Portable YAML agents. Launch them in a Chat, a live Code session, or the document Studio — each agent declares which surfaces it allows.</p>
 
   {#if error}<div class="banner">{error}</div>{/if}
   {#if notice}<div class="card card-sub">{notice}</div>{/if}
@@ -693,7 +693,7 @@
     <div class="modal-content launch-modal" role="dialog" aria-modal="true" aria-labelledby="agent-launch-title">
       <div class="card-title">
         <span id="agent-launch-title">
-        {dlg.surface === 'chat' ? 'New chat' : dlg.surface === 'terminal' ? 'Open terminal' : 'Open studio'}
+        {dlg.surface === 'chat' ? 'New chat' : dlg.surface === 'terminal' ? 'Open in Code' : 'Open studio'}
         {dlg.agent ? ` — ${dlg.agent.name}` : ''}
         </span>
       </div>
@@ -791,7 +791,7 @@
           <div class="card-sub">{a.description?.split('\n')[0]}</div>
         </div>
         {#if allows(a, 'chat')}<button class="btn primary" on:click={() => openLaunch(a, 'chat')}>Chat</button>{/if}
-        {#if allows(a, 'terminal')}<button class="btn" on:click={() => openLaunch(a, 'terminal')}>Terminal</button>{/if}
+        {#if allows(a, 'terminal')}<button class="btn" on:click={() => openLaunch(a, 'terminal')}>Code</button>{/if}
         {#if allows(a, 'editor')}<button class="btn" on:click={() => openLaunch(a, 'studio')}>Studio</button>{/if}
       </div>
       <div class="row" style="margin-top: 8px">

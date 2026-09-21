@@ -17,10 +17,8 @@ const settings = await readFile(new URL('./Settings.svelte', import.meta.url), '
 
 test('Studio owns studio-session navigation and Chats excludes its rows', () => {
   assert.match(app, /id: 'studio', label: 'Studio'/)
-  assert.match(studio, /Settings\?\.surface === 'studio'/)
-  assert.match(studio, /\+ New Studio/)
-  assert.match(studio, /api\.openEditorWindow/)
-  assert.match(studio, /openChatId\.set\(chat\.ID\)/)
+  assert.match(studio, /api\.studioOpenProject/)
+  assert.match(studio, /Open Studio/)
   assert.doesNotMatch(chats, /studioChats/)
   assert.match(chats, /surface !== 'studio'/)
 })
@@ -59,9 +57,8 @@ test('agent surface launch uses a modal and app-wide completion toast', () => {
   assert.match(agents, /class="modal-backdrop"/)
   assert.match(agents, /aria-labelledby="agent-launch-title"/)
   assert.match(agents, /class="modal-content launch-modal"[\s\S]*\{#if error\}<div class="banner error-banner"/)
-  assert.match(studio, /class="modal-content studio-modal"[\s\S]*\{#if error\}<div class="banner error-banner"/)
   assert.match(agents, /showToast\(\{ title: 'Chat ready'/)
-  assert.match(agents, /showToast\(\{ title: 'Terminal ready'/)
+  assert.match(agents, /showToast\(\{ title: 'Code session ready'/)
   assert.match(agents, /showToast\(\{ title: 'Studio opened'/)
 })
 

@@ -255,6 +255,13 @@ export const api = {
   backupDisconnect: () => call('BackupDisconnect'),
   setBackupAutoSync: (on) => call('SetBackupAutoSync', on),
   setBackupForceLocal: (on) => call('SetBackupForceLocal', on),
+  studioGetStatus: () => call('StudioGetStatus'),
+  studioInstall: () => call('StudioInstall'),
+  studioUpdate: () => call('StudioUpdate'),
+  studioRepair: () => call('StudioRepair'),
+  studioOpenProject: (workspacePath, cli, model, agentID, tools) =>
+    call('StudioOpenProject', workspacePath || '', cli || '', model || '', agentID || '', tools || ''),
+  studioListRecentProjects: () => call('StudioListRecentProjects'),
 }
 
 // onTurn subscribes to streamed workflow turns. Returns an unsubscribe

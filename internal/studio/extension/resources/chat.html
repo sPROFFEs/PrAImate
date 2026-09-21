@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+*{box-sizing:border-box}body{margin:0;height:100vh;display:flex;flex-direction:column;font:13px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground);background:var(--vscode-sideBar-background)}
+button,input,select,textarea{font:inherit}button{cursor:pointer;border:1px solid var(--vscode-widget-border,#8884);border-radius:5px;padding:6px 9px;background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}button:hover{background:var(--vscode-button-secondaryHoverBackground)}button:disabled{opacity:.5;cursor:default}:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}.primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
+input,select,textarea{min-width:0;width:100%;border:1px solid var(--vscode-input-border,#8885);border-radius:5px;padding:8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground)}input[type=checkbox]{width:auto}
+header{padding:12px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--vscode-widget-border,#8884)}header strong{flex:1;font-size:14px}.hint,.muted{color:var(--vscode-descriptionForeground);line-height:1.5}.hint{font-size:12px;margin:6px 0}.badge{font-size:11px}.online{color:var(--vscode-testing-iconPassed,#4ec9b0)}.error{color:var(--vscode-errorForeground,#e88181)}
+#connection,#notice{padding:10px 12px;border-bottom:1px solid var(--vscode-widget-border,#8884);overflow-wrap:anywhere}#connection-message{margin:0 0 8px}nav{padding:8px 12px;display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--vscode-widget-border,#8884)}nav button{border-color:transparent;background:transparent;padding:6px 8px}nav button[aria-current=page]{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground);border-color:var(--vscode-focusBorder)}
+main{flex:1;min-height:0;display:flex}.page{flex:1;min-width:0;overflow:auto;padding:14px}#chat-page{display:flex;flex-direction:column;padding:0 12px 12px}[hidden]{display:none!important}h1{font-size:18px;margin:0 0 6px}h2{font-size:14px;margin:0}.toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0}.grow{flex:1}#session-summary{padding:9px 0;font-size:11px;overflow-wrap:anywhere}
+#messages{flex:1;min-height:90px;overflow:auto;display:flex;flex-direction:column;gap:14px;padding:10px 0}.welcome{margin:auto;padding:20px 4px;max-width:520px}.welcome h1{font-size:21px}.msg{line-height:1.6;overflow-wrap:anywhere;padding:10px;border-radius:7px;width:100%}.msg.user{background:var(--vscode-input-background);border:1px solid var(--vscode-widget-border,#8884)}.role{font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;color:var(--vscode-descriptionForeground)}
+.code-box{margin:10px 0;border:1px solid var(--vscode-widget-border,#8884);border-radius:6px;overflow:hidden}.code-header{padding:5px 8px;background:var(--vscode-editorGroupHeader-tabsBackground);display:flex;align-items:center;gap:5px;font-size:11px}.code-header span{flex:1}.code-header button{padding:3px 7px}pre{margin:0;padding:10px;overflow:auto;font:12px/1.5 var(--vscode-editor-font-family,monospace);background:var(--vscode-editor-background)}.tool-pill{display:block;font-size:11px;color:var(--vscode-descriptionForeground)}.markdown h1,.markdown h2,.markdown h3{margin:10px 0 5px}.markdown h1{font-size:18px}.markdown h2{font-size:16px}.markdown h3{font-size:14px}.markdown code{font-family:var(--vscode-editor-font-family,monospace);background:var(--vscode-textCodeBlock-background);padding:1px 4px;border-radius:3px}.markdown ul,.markdown ol{margin:5px 0;padding-left:22px}.markdown blockquote{margin:7px 0;padding-left:10px;border-left:3px solid var(--vscode-textBlockQuote-border);color:var(--vscode-descriptionForeground)}.markdown a{color:var(--vscode-textLink-foreground)}
+#prompt-input{min-height:84px;max-height:220px;resize:vertical}.composer{border-top:1px solid var(--vscode-widget-border,#8884);padding-top:10px}.composer .toolbar{margin:8px 0 0}#active-file{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;margin:6px 0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:10px}.card{border:1px solid var(--vscode-widget-border,#8884);border-radius:7px;padding:13px;min-width:0;overflow-wrap:anywhere}.card.selected{border-color:var(--vscode-focusBorder)}.card .toolbar{margin-bottom:0}.meta{font-size:11px;color:var(--vscode-descriptionForeground);margin:6px 0}.empty{padding:24px 0;color:var(--vscode-descriptionForeground);line-height:1.6}
+.form-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));margin:18px 0}.field{display:flex;flex-direction:column;gap:6px}.section{border-top:1px solid var(--vscode-widget-border,#8884);padding-top:16px;margin-top:20px}#settings-page{max-width:980px;width:100%;margin:0 auto}@media(min-width:720px){#chat-page{max-width:1000px;margin:auto;height:100%;padding:0 28px 18px}.page{padding:22px}}
+</style>
+</head>
+<body>
+<header><strong>PrAImate</strong><span id="conn-badge" class="badge">Connecting…</span><button id="expand-btn" title="Open in editor area" aria-label="Open in editor area">↗</button></header>
+<section id="connection" aria-live="polite"><p id="connection-message">Connecting to PrAImate Core…</p><div class="toolbar"><button id="reconnect-btn">Reconnect</button><button id="output-btn">Output</button><button id="reset-btn" title="Reset session selection; stored chats are kept">Reset session</button></div></section>
+<div id="notice" class="error" role="alert" hidden></div>
+<nav id="navigation" aria-label="PrAImate sections"></nav>
+<main>
+<section id="chat-page" class="page">
+  <div class="toolbar"><button id="new-btn">New chat</button><span class="grow"></span><button id="chat-terminal-btn" title="Choose an installed native CLI; its own permissions and configuration apply">CLI terminal…</button><button id="settings-btn">Session settings</button></div>
+  <div id="session-summary" class="muted"></div><div id="messages" role="log" aria-label="Conversation"></div>
+  <div class="composer"><details><summary class="hint">Code actions</summary><div id="quick-actions" class="toolbar"></div></details>
+    <div id="active-file" class="muted">No active file</div><label for="prompt-input" class="hint">Message</label>
+    <textarea id="prompt-input" placeholder="Ask about your project or run ! command… (Enter to send, Shift+Enter for a new line)"></textarea>
+    <div id="attachment-list" class="hint"></div><div class="toolbar"><button id="attach-btn" title="Attach images or documents">Attach…</button><label class="hint grow"><input id="use-context" type="checkbox" checked> Include selection / active file</label><button id="stop-btn" disabled>Stop</button><button id="send-btn" class="primary" disabled>Send</button></div>
+  </div>
+</section>
+<section id="catalog-page" class="page" hidden>
+  <h1 id="catalog-title"></h1><p id="catalog-description" class="hint"></p>
+  <div class="toolbar"><input id="search" class="grow" type="search" placeholder="Filter…" aria-label="Filter items"><button id="reload-btn">Refresh</button></div>
+  <div id="catalog-actions" class="toolbar"></div><div id="catalog-items" class="cards"></div>
+</section>
+<section id="settings-page" class="page" hidden>
+  <h1>Session settings</h1><p class="hint">Same Core and catalogues as Desktop. Changes apply to the next message. Changing persona or skill selection starts a new conversation.</p>
+  <form id="session-form"><div class="form-grid">
+    <label class="field">CLI engine<select id="cli-select"></select></label><label class="field">Agent persona<select id="agent-select"></select></label>
+    <label class="field">Model<input id="model-input" list="model-list" placeholder="CLI default / custom model"><datalist id="model-list"></datalist></label>
+    <label class="field">Tool permissions<select id="tools-select"></select></label>
+  </div><p class="hint">Ask requests approval for managed tools. Native CLIs without an approval bridge fall back to safe mode. Full permits autonomous tool use.</p>
+  <div class="section"><h2>Local model routing</h2><p id="local-hint" class="hint">Leave endpoint empty to use the CLI provider.</p><div class="form-grid">
+    <label class="field">Endpoint<input id="local-endpoint" placeholder="http://localhost:11434/v1"></label><label class="field">Local model<input id="local-model" placeholder="Model name"></label>
+  </div><div class="toolbar"><button id="local-hosts-btn" type="button">Manage profiles…</button></div></div><div class="toolbar"><button id="save-session" class="primary" type="submit">Save session</button><span id="saved-label" class="hint" aria-live="polite"></span></div></form>
+  <div class="section"><h2>Workspace, privacy & integrations</h2><p class="hint">Switching workspace starts a new conversation. Credentials are collected by the extension host and never enter this page.</p><div class="toolbar"><button id="workspace-btn">Workspace folder…</button><button id="privacy-btn">Privacy patterns…</button><button id="settings-skills">Skills</button><button id="settings-mcp">MCP servers</button></div></div>
+  <div class="section"><h2>CLI availability & native terminals</h2><p class="hint">Detection can take up to 20 seconds. A failed probe is separate from the Core connection.</p><div id="cli-health" class="cards"></div><div class="toolbar"><button id="rescan-btn">Rescan CLIs</button><button id="terminal-btn">Open selected CLI terminal</button><button id="choose-terminal-btn">Choose CLI…</button></div><p class="hint">Terminals run Claude Code, OpenClaude, Codex, OpenCode or PrAImate Code interactively in this workspace. The selected CLI uses the saved model; choosing another CLI uses its default model. Native CLI permissions and configuration apply: Studio's persona, skills, MCP, local routing and tool permissions are not copied. Save model changes before opening a terminal.</p></div>
+</section>
+</main>
+<script>
+const vscode = acquireVsCodeApi(), $ = id => document.getElementById(id);
+const pages = {chat:'Chat',history:'History',agents:'Agents',workflows:'Workflows',skills:'Skills',mcp:'MCP',runs:'Runs',settings:'Settings'};
+const descriptions = {
+  history:'Conversations in this workspace. Resume, rename or delete a conversation.',
+  agents:'Create, edit, import, export and choose personas. Agent YAML also owns workflow definitions.',
+  workflows:'Run an agent workflow with its declared inputs, using the current model and tool permissions.',
+  skills:'Versioned skill library. Import, inspect exact files, approve/revoke and select pinned versions.',
+  mcp:'Connected MCP servers. Add, edit, enable or remove global definitions and choose the session selection.',
+  runs:'Persisted managed executions. Inspect, resume and open text artifacts.'
+};
+const saved = vscode.getState?.() || {}, pending = new Map();
+let page = pages[saved.page] ? saved.page : 'chat', status = {}, collections = {}, dirty = false, configSignature = '', requestID = 0;
+const messagesDiv = $('messages'), promptInput = $('prompt-input'); promptInput.value = saved.draft || '';
+function persist() { vscode.setState?.({page,draft:promptInput.value}); }
+function post(type,data = {},done) { const requestId = ++requestID; if(done) pending.set(requestId,done); vscode.postMessage({type,...data,requestId}); }
+function button(label,fn,disabled = false) { const b = document.createElement('button'); b.textContent = label; b.disabled = disabled; b.addEventListener('click',fn); return b; }
+function element(tag,text,className = '') { const e = document.createElement(tag); e.textContent = text; e.className = className; return e; }
+function notice(text) { $('notice').textContent = text; $('notice').hidden = !text; }
+function navigate(next) {
+  page = next; persist(); notice(''); $('chat-page').hidden = page !== 'chat'; $('settings-page').hidden = page !== 'settings'; $('catalog-page').hidden = page === 'chat' || page === 'settings';
+  for(const b of $('navigation').children) b.setAttribute('aria-current',b.dataset.page === page ? 'page' : 'false');
+  if(descriptions[page]) { $('search').value = ''; loadCollection(); }
+}
+for(const [id,label] of Object.entries(pages)) { const b = button(label,() => navigate(id)); b.dataset.page = id; $('navigation').appendChild(b); }
+function loadCollection() {
+  if(!descriptions[page]) return;
+  $('catalog-title').textContent = pages[page]; $('catalog-description').textContent = descriptions[page];
+  $('catalog-items').replaceChildren(element('p','Loading…','empty')); $('catalog-actions').replaceChildren(); post('collection',{name:page});
+}
+function canUseAgent(a,cli = status.activeCLI) { return (a.supports || []).includes(cli) && (!a.surfaces?.length || a.surfaces.includes('editor')); }
+function canChange() { return status.connected && !status.busy; }
+function selectConfig(config) { post('updateConfig',{config}); }
+function renderCollection() {
+  const collection = collections[page]; if(!collection) return;
+  const container = $('catalog-items'); container.replaceChildren(); $('catalog-actions').replaceChildren();
+  if(collection.error) { container.appendChild(element('p',collection.error,'empty error')); return; }
+  if(page === 'agents') {
+    $('catalog-actions').appendChild(button('New agent',() => post('newAgent'),!status.connected));
+    $('catalog-actions').appendChild(button('Import…',() => post('importAgent'),!status.connected));
+  }
+  if(page === 'skills' || page === 'mcp') {
+    const key = page === 'skills' ? 'skills' : 'mcpServers';
+    $('catalog-actions').appendChild(element('span',status[key] == null ? 'Selection: inherited' : 'Selection: '+status[key].length,'hint grow'));
+    $('catalog-actions').appendChild(button('Inherit',() => selectConfig({[key]:null}),!canChange()));
+    $('catalog-actions').appendChild(button('None',() => selectConfig({[key]:[]}),!canChange()));
+    $('catalog-actions').appendChild(button('Choose…',() => post(page === 'skills' ? 'selectSkills' : 'selectMCP'),!canChange()));
+    $('catalog-actions').appendChild(button(page === 'skills' ? 'Import skill…' : 'Add server…',() => post(page === 'skills' ? 'importSkill' : 'addMCP'),!status.connected));
+  }
+  const term = $('search').value.toLowerCase(), rows = collection.items.filter(row => JSON.stringify(row).toLowerCase().includes(term));
+  if(!rows.length) { container.appendChild(element('p',term ? 'No matching items.' : 'No '+pages[page].toLowerCase()+' yet. '+(page === 'history' ? 'Start a chat to create a conversation.' : 'The Core catalogue is empty.'),'empty')); return; }
+  for(const row of rows) {
+    const card = element('article','','card'), actions = element('div','','toolbar'); card.appendChild(element('h2',row.title || row.name || row.agentName || row.ref || row.id));
+    if(row.description) card.appendChild(element('p',row.description,'hint'));
+    if(page === 'history') {
+      card.appendChild(element('p',(row.cli || '')+' · '+(row.updatedAt ? new Date(row.updatedAt).toLocaleString() : ''),'meta'));
+      if(row.id === status.chatId) card.className += ' selected';
+      actions.appendChild(button('Resume',() => post('openChat',{id:row.id},ok => {if(ok) navigate('chat');}),!canChange()));
+      actions.appendChild(button('Rename',() => post('renameChat',{id:row.id,title:row.title}),!canChange()));
+      actions.appendChild(button('Delete',() => post('deleteChat',{id:row.id}),!canChange()));
+    } else if(page === 'agents') {
+      const compatible = canUseAgent(row), selected = status.activeAgent === row.id;
+      card.appendChild(element('p',(row.supports || []).join(' · ')+(compatible ? '' : ' · Not compatible with this session'),'meta'));
+      if(selected) card.className += ' selected';
+      actions.appendChild(button(selected ? 'Selected' : 'Use persona',() => selectConfig({agentId:row.id}),!canChange() || !compatible || selected));
+      actions.appendChild(button('Instructions & details',() => post('agentDetails',{id:row.id}),!status.connected));
+      actions.appendChild(button('Edit YAML',() => post('editAgent',{id:row.id}),!status.connected));
+      actions.appendChild(button('Knowledge & export…',() => post('agentKnowledge',{id:row.id}),!status.connected));
+      actions.appendChild(button('Delete',() => post('deleteAgent',{id:row.id}),!canChange()));
+    } else if(page === 'workflows') {
+      card.appendChild(element('p',row.agentName+' · '+(row.inputs || []).length+' inputs','meta'));
+      const agent = (status.agents || []).find(a => a.id === row.agentId);
+      actions.appendChild(button('Run workflow',() => {post('runWorkflow',{workflow:row}); navigate('chat');},!canChange() || !agent || !canUseAgent(agent)));
+    } else if(page === 'skills') {
+      const selected = (status.skills || []).some(s => s.ref === row.ref && s.digest === row.digest);
+      card.appendChild(element('p',row.ref+' · '+(row.approved ? 'Approved' : 'Review required'),'meta')); card.appendChild(element('p',row.digest,'meta'));
+      if(selected) card.className += ' selected';
+      actions.appendChild(button(selected ? 'Remove' : 'Select',() => {const choices = (status.skills || []).filter(s => s.ref !== row.ref); if(!selected) choices.push({ref:row.ref,digest:row.digest,activation:'pinned'}); selectConfig({skills:choices});},!canChange() || !row.approved));
+      actions.appendChild(button('Manage…',() => post('manageSkill',{skill:row}),!status.connected));
+    } else if(page === 'mcp') {
+      const selected = status.mcpServers == null ? row.enabled : status.mcpServers.includes(row.id);
+      card.appendChild(element('p',(row.transport || 'MCP')+' · '+(row.enabled ? 'Enabled globally' : 'Disabled globally'),'meta')); if(selected) card.className += ' selected';
+      actions.appendChild(button(selected ? 'Exclude from session' : 'Include in session',() => {const choices = status.mcpServers == null ? collection.items.filter(s => s.enabled).map(s => s.id) : status.mcpServers; selectConfig({mcpServers:selected ? choices.filter(id => id !== row.id) : [...choices,row.id]});},!canChange()));
+      actions.appendChild(button('Manage…',() => post('manageMCP',{server:row}),!status.connected));
+    } else if(page === 'runs') {
+      card.appendChild(element('p',row.state || row.status || 'Recorded','meta')); actions.appendChild(button('Inspect execution',() => post('inspectRun',{id:row.id}),!status.connected));
+      if(row.canResume) actions.appendChild(button('Resume',() => post('resumeRun',{id:row.id}),!canChange()));
+    }
+    card.appendChild(actions); container.appendChild(card);
+  }
+}
+function options(id,entries,value) { $(id).replaceChildren(...entries.map(([key,label,disabled]) => {const o = document.createElement('option'); o.value = key; o.textContent = label; o.disabled = !!disabled; return o;})); $(id).value = value; }
+const toolLabels = {safe:'Safe / read-only',ask:'Ask for approval',edits:'Apply edits',plan:'Plan',full:'Full / autonomous'};
+function localSupported(cli) { return (status.availableCLIs || []).find(c => c.id === cli)?.capabilities?.localRouting || false; }
+function cliChanged() {
+  const cli = $('cli-select').value, selectedAgent = $('agent-select').value, agents = (status.agents || []).filter(a => canUseAgent(a,cli));
+  options('agent-select',[['','No persona (direct CLI)'],...agents.map(a => [a.id,a.name])],agents.some(a => a.id === selectedAgent) ? selectedAgent : '');
+  const cap = (status.availableCLIs || []).find(c => c.id === cli)?.capabilities, previous = $('tools-select').value || status.activeTools || 'safe';
+  const levels = cap ? (cap.toolLevels || ['']).map(level => level || 'safe') : [previous];
+  options('tools-select',levels.map(level => [level,toolLabels[level] || level]),levels.includes(previous) ? previous : 'safe');
+  $('local-endpoint').disabled = !canChange() || !localSupported(cli); $('local-model').disabled = $('local-endpoint').disabled;
+  $('local-hint').textContent = localSupported(cli) ? 'Leave endpoint empty to use the CLI provider.' : 'Local routing is not supported by this CLI (or detection is pending).';
+}
+function fillSettings() {
+  const clis = status.availableCLIs || [];
+  options('cli-select',clis.length ? clis.map(c => [c.id,c.label+(c.available ? '' : ' — probe failed'),!c.available]) : [[status.activeCLI || 'praimate-code','Detecting CLIs…']],status.activeCLI);
+  options('agent-select',[['','No persona'],...(status.agents || []).map(a => [a.id,a.name])],status.activeAgent || ''); options('tools-select',Object.entries(toolLabels),status.activeTools || 'safe');
+  $('model-input').value = status.activeModel || ''; $('local-endpoint').value = status.localEndpoint || ''; $('local-model').value = status.localModel || ''; cliChanged();
+  $('model-list').replaceChildren(...(status.models || []).map(m => {const o = document.createElement('option'); o.value = m; return o;}));
+}
+function updateStatus(next,context) {
+  const previous = status; status = next;
+  $('conn-badge').textContent = status.connected ? '● Core connected' : status.connecting ? 'Connecting…' : '○ Offline'; $('conn-badge').className = 'badge '+(status.connected ? 'online' : 'error');
+  $('connection').hidden = status.connected; $('connection-message').textContent = status.error || 'Connecting to PrAImate Core…';
+  $('send-btn').disabled = !canChange(); $('stop-btn').disabled = !status.busy || !status.connected; $('new-btn').disabled = !!status.busy; $('save-session').disabled = !canChange();
+  for(const id of ['terminal-btn','choose-terminal-btn','chat-terminal-btn']) $(id).disabled = !status.connected;
+  $('terminal-btn').textContent = 'Open '+(status.activeCLI || 'selected CLI')+' terminal';
+  for(const id of ['cli-select','agent-select','model-input','tools-select']) $(id).disabled = !canChange();
+  $('session-summary').textContent = (status.activeCLI || '')+' · '+(status.activeModel || 'Default model')+' · '+(status.activeTools || 'safe')+' · Skills: '+(status.skills == null ? 'inherited' : status.skills.length)+' · MCP: '+(status.mcpServers == null ? 'inherited' : status.mcpServers.length);
+  $('attachment-list').textContent = status.attachments?.length ? 'Attached for next message: '+status.attachments.join(', ') : '';
+  const signature = JSON.stringify([status.activeCLI,status.activeAgent,status.activeModel,status.activeTools,status.localEndpoint,status.localModel,status.models,status.agents,status.availableCLIs]);
+  if(signature !== configSignature) { configSignature = signature; if(!dirty) fillSettings(); }
+  $('local-endpoint').disabled = !canChange() || !localSupported($('cli-select').value); $('local-model').disabled = $('local-endpoint').disabled;
+  if(JSON.stringify(previous.availableCLIs) !== JSON.stringify(status.availableCLIs)) {
+    $('cli-health').replaceChildren();
+    for(const cli of status.availableCLIs || []) {const card = element('div','','card'); card.appendChild(element('h2',cli.label)); card.appendChild(element('p',cli.available ? 'Ready' : (cli.unavailableReason || 'Probe failed. Install the CLI or fix its PATH, then rescan.'),cli.available ? 'hint online' : 'hint error')); card.appendChild(button(cli.available ? 'Update / reinstall…' : 'Install…',() => post('installCLI',{cli:cli.id}),!canChange())); $('cli-health').appendChild(card);}
+  }
+  if(context) $('active-file').textContent = (context.activeFileRel || context.activeFile || 'No active file')+(context.selection?.text ? ' · lines '+context.selection.startLine+'–'+context.selection.endLine : '');
+  if(descriptions[page]) renderCollection();
+}
+function escapeHtml(value) { return String(value || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function markdown(text) {
+  const inline = value => escapeHtml(value).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/__([^_]+)__/g,'<strong>$1</strong>').replace(/\*([^*]+)\*/g,'<em>$1</em>').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2">$1</a>');
+  const lines = String(text || '').split('\n'), out = []; let list = '';
+  const close = () => {if(list) {out.push('</'+list+'>'); list='';}};
+  for(const line of lines) {
+    const heading = /^(#{1,3})\s+(.+)$/.exec(line), bullet = /^\s*[-*]\s+(.+)$/.exec(line), numbered = /^\s*\d+\.\s+(.+)$/.exec(line);
+    if(heading) {close(); const n=heading[1].length; out.push('<h'+n+'>'+inline(heading[2])+'</h'+n+'>');}
+    else if(bullet || numbered) {const kind=bullet?'ul':'ol'; if(list!==kind) {close();list=kind;out.push('<'+kind+'>');} out.push('<li>'+inline((bullet||numbered)[1])+'</li>');}
+    else if(/^>\s?/.test(line)) {close();out.push('<blockquote>'+inline(line.replace(/^>\s?/,''))+'</blockquote>');}
+    else {close();out.push(line ? inline(line)+'<br>' : '<br>');}
+  }
+  close(); return out.join('');
+}
+function renderMessages(messages) {
+  const nearBottom = messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < 80; messagesDiv.replaceChildren();
+  if(!messages?.length) {const welcome = element('div','','welcome'); welcome.appendChild(element('h1','Your project, with PrAImate.')); welcome.appendChild(element('p','Ask a question, select code in the editor, or choose an agent and workflow. Session settings control the CLI, model and permissions.','hint')); messagesDiv.appendChild(welcome); return;}
+  for(const m of messages) {
+    const el = element('article','','msg '+(m.role === 'user' ? 'user' : 'assistant')+(m.isError ? ' error' : '')); el.appendChild(element('div',m.role === 'user' ? 'You' : m.role === 'command' ? 'Terminal' : 'PrAImate'+(m.inProgress ? ' · working…' : ''),'role'));
+    const content = m.content || '', regex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g; let index = 0, match;
+    const prose = text => {const p = document.createElement('div'); p.className='markdown'; p.innerHTML = markdown(text); el.appendChild(p);};
+    while((match = regex.exec(content)) !== null) {
+      prose(content.slice(index,match.index)); const code = match[2], box = element('div','','code-box'), head = element('div','','code-header');
+      head.appendChild(element('span',match[1] || 'code')); head.appendChild(button('Apply',() => post('applyCode',{code}))); head.appendChild(button('Copy',() => navigator.clipboard.writeText(code).catch(err => notice(err.message))));
+      box.appendChild(head); box.appendChild(element('pre',code)); el.appendChild(box); index = regex.lastIndex;
+    }
+    prose(content.slice(index)); for(const attachment of m.attachments || []) el.appendChild(element('div','📎 '+attachment,'tool-pill')); for(const tool of m.tools || []) el.appendChild(element('div',(tool.status === 'completed' ? '✓ ' : tool.status === 'failed' ? '× ' : '… ')+tool.name+(tool.detail ? ': '+tool.detail : ''),'tool-pill')); messagesDiv.appendChild(el);
+  }
+  if(nearBottom) messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+function send() {
+  if(!canChange() || !promptInput.value.trim()) return;
+  const text = promptInput.value; notice(''); post('send',{text,useContext:$('use-context').checked},ok => {if(ok && promptInput.value === text) {promptInput.value = ''; persist();}});
+}
+$('session-form').addEventListener('input',() => {dirty = true; $('saved-label').textContent = 'Unsaved changes';});
+$('cli-select').addEventListener('change',() => {$('model-input').value = ''; if(!localSupported($('cli-select').value)) {$('local-endpoint').value = ''; $('local-model').value = '';} cliChanged();});
+$('session-form').addEventListener('submit',event => {
+  event.preventDefault(); post('updateConfig',{config:{cli:$('cli-select').value,agentId:$('agent-select').value,model:$('model-input').value.trim(),tools:$('tools-select').value,localEndpoint:$('local-endpoint').value.trim(),localModel:$('local-model').value.trim()}},ok => {if(ok) {dirty = false; fillSettings(); $('saved-label').textContent = 'Saved';}});
+});
+$('send-btn').addEventListener('click',send); promptInput.addEventListener('input',persist);
+$('attach-btn').addEventListener('click',() => post('attach'));
+promptInput.addEventListener('keydown',e => {if(e.key === 'Enter' && !e.shiftKey && !e.isComposing) {e.preventDefault(); send();}});
+for(const [id,type] of Object.entries({'new-btn':'newChat','stop-btn':'stop','expand-btn':'openPanel','reconnect-btn':'reconnect','output-btn':'output','reset-btn':'resetSession','terminal-btn':'openTerminal','choose-terminal-btn':'chooseTerminal','chat-terminal-btn':'chooseTerminal','rescan-btn':'rescan'})) $(id).addEventListener('click',() => post(type));
+$('settings-btn').addEventListener('click',() => navigate('settings')); $('settings-skills').addEventListener('click',() => navigate('skills')); $('settings-mcp').addEventListener('click',() => navigate('mcp'));
+$('workspace-btn').addEventListener('click',() => post('chooseWorkspace')); $('privacy-btn').addEventListener('click',() => post('managePrivacy'));
+$('local-hosts-btn').addEventListener('click',() => post('manageLocalHosts'));
+$('reload-btn').addEventListener('click',loadCollection); $('search').addEventListener('input',renderCollection);
+for(const [action,label] of Object.entries({explain:'Explain',fix:'Fix',refactor:'Refactor',test:'Tests',reviewFile:'Review file',reviewDiff:'Review changes'})) $('quick-actions').appendChild(button(label,() => post('quickAction',{action})));
+window.addEventListener('message',({data:m}) => {
+  if(m.type === 'status') updateStatus(m.status,m.context);
+  else if(m.type === 'messages') renderMessages(m.messages);
+  else if(m.type === 'collection') {collections[m.name] = m; if(page === m.name) renderCollection();}
+  else if(m.type === 'refresh') loadCollection();
+  else if(m.type === 'actionResult') {if(!m.ok) notice(m.error); const done = pending.get(m.id); pending.delete(m.id); if(done) done(m.ok);}
+});
+post('ready'); navigate(page);
+</script>
+</body>
+</html>

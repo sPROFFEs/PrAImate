@@ -37,3 +37,7 @@ node_modules/
 __pycache__/
 *.py[cod]
 .gstack/
+.codex/
+.praimate/
+opencode.json
+backup_main_to_branch.sh
