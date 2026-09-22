@@ -14,6 +14,8 @@ dist/
 dist/**/praimate-code
 cmd/praimate-gui/praimate-gui
 cmd/praimate-gui/praimate-gui.exe
+cmd/praimate-gui/gui.exe
+cmd/praimate-gui/praimate
 /cmd/praimate-gui/gui
 /.release-build-cache/
 
