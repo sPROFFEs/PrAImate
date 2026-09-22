@@ -2,7 +2,7 @@
   "name": "praimate-studio",
   "displayName": "PrAImate Studio",
   "description": "Native PrAImate Core IDE integration for Code-OSS / VSCodium",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "publisher": "PrAImate",
   "engines": {
     "vscode": "^1.75.0"
@@ -180,6 +180,11 @@
       {
         "command": "praimate.manageLocalHosts",
         "title": "PrAImate: Manage Local Model Hosts",
+        "category": "PrAImate"
+      },
+      {
+        "command": "praimate.toggleDesktopWindow",
+        "title": "PrAImate: Hide or Show Desktop Window",
         "category": "PrAImate"
       }
     ],

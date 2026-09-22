@@ -30,6 +30,7 @@ import (
 	"git.jtsec.local/lab/PrAImate/internal/launcher"
 	"git.jtsec.local/lab/PrAImate/internal/ollama"
 	"git.jtsec.local/lab/PrAImate/internal/store"
+	"git.jtsec.local/lab/PrAImate/internal/studio"
 	"git.jtsec.local/lab/PrAImate/internal/version"
 )
 
@@ -97,6 +98,9 @@ type App struct {
 	// open the database or start background daemons.
 	detached       *detachedCoordinator
 	detachedClient *detachedClient
+
+	studioWindowMu     sync.Mutex
+	studioWindowHidden bool
 }
 
 func NewApp() *App {
@@ -233,6 +237,26 @@ func (a *App) initializeUnlockedStore(ctx context.Context, st *store.Store) erro
 
 	a.st = st
 	a.core = c
+	studio.SetDesktopWindowHooks(c, &studio.DesktopWindowHooks{
+		Hide: func() {
+			a.studioWindowMu.Lock()
+			a.studioWindowHidden = true
+			a.studioWindowMu.Unlock()
+			wruntime.WindowHide(a.ctx)
+		},
+		Show: func() {
+			wruntime.WindowShow(a.ctx)
+			wruntime.WindowUnminimise(a.ctx)
+			a.studioWindowMu.Lock()
+			a.studioWindowHidden = false
+			a.studioWindowMu.Unlock()
+		},
+		IsHidden: func() bool {
+			a.studioWindowMu.Lock()
+			defer a.studioWindowMu.Unlock()
+			return a.studioWindowHidden
+		},
+	})
 
 	if editorFolder != "" {
 		// Studio window: stream external file changes (the agent's

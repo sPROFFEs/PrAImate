@@ -18,7 +18,7 @@ main{flex:1;min-height:0;display:flex}.page{flex:1;min-width:0;overflow:auto;pad
 </style>
 </head>
 <body>
-<header><strong>PrAImate</strong><span id="conn-badge" class="badge">Connecting…</span><button id="expand-btn" title="Open in editor area" aria-label="Open in editor area">↗</button></header>
+<header><strong>PrAImate</strong><span id="conn-badge" class="badge">Connecting…</span><button id="core-window-btn" hidden>Hide PrAImate</button><button id="expand-btn" title="Open in editor area" aria-label="Open in editor area">↗</button></header>
 <section id="connection" aria-live="polite"><p id="connection-message">Connecting to PrAImate Core…</p><div class="toolbar"><button id="reconnect-btn">Reconnect</button><button id="output-btn">Output</button><button id="reset-btn" title="Reset session selection; stored chats are kept">Reset session</button></div></section>
 <div id="notice" class="error" role="alert" hidden></div>
 <nav id="navigation" aria-label="PrAImate sections"></nav>
@@ -164,6 +164,7 @@ function fillSettings() {
 function updateStatus(next,context) {
   const previous = status; status = next;
   $('conn-badge').textContent = status.connected ? '● Core connected' : status.connecting ? 'Connecting…' : '○ Offline'; $('conn-badge').className = 'badge '+(status.connected ? 'online' : 'error');
+  $('core-window-btn').hidden = !status.connected || !status.desktopWindow?.available; $('core-window-btn').textContent = status.desktopWindow?.hidden ? 'Show PrAImate' : 'Hide PrAImate';
   $('connection').hidden = status.connected; $('connection-message').textContent = status.error || 'Connecting to PrAImate Core…';
   $('send-btn').disabled = !canChange(); $('stop-btn').disabled = !status.busy || !status.connected; $('new-btn').disabled = !!status.busy; $('save-session').disabled = !canChange();
   for(const id of ['terminal-btn','choose-terminal-btn','chat-terminal-btn']) $(id).disabled = !status.connected;
@@ -222,6 +223,7 @@ $('session-form').addEventListener('submit',event => {
 });
 $('send-btn').addEventListener('click',send); promptInput.addEventListener('input',persist);
 $('attach-btn').addEventListener('click',() => post('attach'));
+$('core-window-btn').addEventListener('click',() => post('toggleDesktopWindow'));
 promptInput.addEventListener('keydown',e => {if(e.key === 'Enter' && !e.shiftKey && !e.isComposing) {e.preventDefault(); send();}});
 for(const [id,type] of Object.entries({'new-btn':'newChat','stop-btn':'stop','expand-btn':'openPanel','reconnect-btn':'reconnect','output-btn':'output','reset-btn':'resetSession','terminal-btn':'openTerminal','choose-terminal-btn':'chooseTerminal','chat-terminal-btn':'chooseTerminal','rescan-btn':'rescan'})) $(id).addEventListener('click',() => post(type));
 $('settings-btn').addEventListener('click',() => navigate('settings')); $('settings-skills').addEventListener('click',() => navigate('skills')); $('settings-mcp').addEventListener('click',() => navigate('mcp'));

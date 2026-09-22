@@ -236,6 +236,17 @@ test('pending CLI detection preserves the persisted permission level on save', (
   const request = h.posted.at(-1);
   assert.equal(request.type,'updateConfig'); assert.equal(request.config.tools,'full');
 });
+test('Desktop window button reflects Core state and requests a toggle', () => {
+  const h = webviewHarness();
+  h.send({type:'status',status:{connected:true,activeCLI:'claude',activeTools:'safe',desktopWindow:{available:true,hidden:false}}});
+  const button = h.elements.get('core-window-btn');
+  assert.equal(button.hidden,false); assert.equal(button.textContent,'Hide PrAImate');
+  button.fire('click'); assert.equal(h.posted.at(-1).type,'toggleDesktopWindow');
+  h.send({type:'status',status:{connected:true,activeCLI:'claude',activeTools:'safe',desktopWindow:{available:true,hidden:true}}});
+  assert.equal(button.textContent,'Show PrAImate');
+  h.send({type:'status',status:{connected:false,desktopWindow:{available:true,hidden:true}}});
+  assert.equal(button.hidden,true);
+});
 test('single navigation loads collections and exposes contextual actions', () => {
   const h = webviewHarness(); h.send({type:'status',status:{connected:true,activeCLI:'claude'}});
   h.eval("navigate('history')"); assert.equal(h.posted.at(-1).name,'history');

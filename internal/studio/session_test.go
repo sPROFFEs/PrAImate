@@ -96,6 +96,31 @@ func TestSessionClearAndPersist(t *testing.T) {
 	}
 }
 
+func TestDesktopWindowControlsAndRestoresWhenStudioDisconnects(t *testing.T) {
+	s, _ := fixture(t)
+	var mu sync.Mutex
+	hidden, shown := false, make(chan struct{}, 1)
+	s.setDesktopWindowHooks(&DesktopWindowHooks{
+		Hide:     func() { mu.Lock(); hidden = true; mu.Unlock() },
+		Show:     func() { mu.Lock(); hidden = false; mu.Unlock(); shown <- struct{}{} },
+		IsHidden: func() bool { mu.Lock(); defer mu.Unlock(); return hidden },
+	})
+	state := rpcOK(t, s, "desktop.window.toggle", nil).(map[string]any)
+	if state["available"] != true || state["hidden"] != true {
+		t.Fatalf("hide state = %+v", state)
+	}
+	s.restoreDesktopWindowWhenIdle(0)
+	select {
+	case <-shown:
+	case <-time.After(time.Second):
+		t.Fatal("hidden Desktop was not restored after Studio disconnected")
+	}
+	state = rpcOK(t, s, "desktop.window.status", nil).(map[string]any)
+	if state["hidden"] != false {
+		t.Fatalf("restored state = %+v", state)
+	}
+}
+
 func TestSlowCLIProbeDoesNotBlockSessionOrStop(t *testing.T) {
 	s, ad := fixture(t)
 	started := make(chan struct{})

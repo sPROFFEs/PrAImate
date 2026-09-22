@@ -9,7 +9,7 @@ const { terminalOptions } = require('./terminal');
 
 let rpc, transport, backend, context, output, statusBar, provider;
 let reconnectTimer, stopped = false, generation = 0, launchInfo = {}, connectionFile, stopWatching;
-let currentStatus = { connected: false, activeCLI: 'praimate-code', activeModel: '', activeAgent: '', activeTools: 'safe', activeWorkspace: '', availableCLIs: [], agents: [], models: [] };
+let currentStatus = { connected: false, activeCLI: 'praimate-code', activeModel: '', activeAgent: '', activeTools: 'safe', activeWorkspace: '', availableCLIs: [], agents: [], models: [], desktopWindow:{available:false,hidden:false} };
 const workspace = () => currentStatus.activeWorkspace || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
 const call = (method, params) => rpc ? rpc.request(method, params) : Promise.reject(new Error('PrAImate Core is offline'));
 const report = err => vscode.window.showErrorMessage('PrAImate: ' + err.message);
@@ -120,6 +120,7 @@ function connect() {
       currentStatus.connecting = false;
       currentStatus.error = '';
       updateStatus(); refresh();
+      request('desktop.window.status').then(state => { if (ownGeneration === generation) { currentStatus.desktopWindow = state; provider.notifyStatus(); } }).catch(err => output.appendLine(err.message));
       // CLI/model probes must not block connection or transcript recovery.
       request('clis.list').then(list => { if (ownGeneration === generation) { currentStatus.availableCLIs = list || []; provider.notifyStatus(); } }).catch(err => output.appendLine(err.message));
       refreshModels().catch(err => output.appendLine(err.message));
@@ -169,6 +170,7 @@ function connect() {
 function incoming(msg) {
   if (msg.method === 'run.event') provider.stream(msg.params);
   if (msg.method === 'install.output') output.appendLine(msg.params?.line || '');
+  if (msg.method === 'desktop.window.changed') { currentStatus.desktopWindow = msg.params || {available:false,hidden:false}; provider.notifyStatus(); }
   if (msg.method === 'run.finished') refresh();
   if (msg.method === 'run.approval.required') {
     const p = msg.params;
@@ -231,6 +233,7 @@ class ChatView {
         chooseWorkspace:() => chooseWorkspace(),
         managePrivacy:() => managePrivacy(),
         manageLocalHosts:() => manageLocalHosts(),
+        toggleDesktopWindow:() => toggleDesktopWindow(),
         reconnect:connect,
         rescan:async () => { currentStatus.availableCLIs = await call('clis.list'); currentStatus.agents = await call('agents.list'); this.notifyStatus(); await refreshModels(); },
         installCLI:() => installCLI(data.cli),
@@ -697,6 +700,11 @@ async function chooseWorkspace() {
   const selected = await vscode.window.showQuickPick(folders.map(folder => ({label:folder.name || path.basename(folder.uri.fsPath),description:folder.uri.fsPath,root:folder.uri.fsPath})),{placeHolder:'PrAImate workspace root'});
   if (selected && path.resolve(selected.root) !== path.resolve(workspace())) await configure({workspace:selected.root});
 }
+async function toggleDesktopWindow() {
+  const state = await call('desktop.window.toggle');
+  currentStatus.desktopWindow = state;
+  provider.notifyStatus();
+}
 async function installCLI(cli) {
   if (provider.busy) throw new Error('Stop the active operation first');
   const methods = await call('clis.install.methods',{cli});
@@ -764,7 +772,7 @@ function activate(ctx) {
     openTerminal, chooseTerminal,
     chooseWorkspace,
     newAgent, saveAgentYAML, importAgent:importAgentPack,
-    importSkill, addMCP, managePrivacy, manageLocalHosts,
+    importSkill, addMCP, managePrivacy, manageLocalHosts, toggleDesktopWindow,
     inspectRun:async id => showJSON(await call('runs.get',{id})),
     diagnostics:async () => showJSON({...await call('system.status'),extensionVersion:require('./package.json').version,
       ui:{openViews:provider.views.size,readyViews:provider.readyViews.size}})

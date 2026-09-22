@@ -41,6 +41,7 @@ type Server struct {
 	running       context.CancelFunc
 	approvals     map[string]pendingApproval
 	approvalRules map[string]map[string]bool
+	window        *DesktopWindowHooks
 }
 
 type pendingApproval struct {
@@ -52,6 +53,20 @@ type pendingApproval struct {
 func NewServer(c *core.Core) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{core: c, ctx: ctx, cancel: cancel, clients: map[net.Conn]bool{}, approvals: map[string]pendingApproval{}, approvalRules: map[string]map[string]bool{}, session: sessionConfig{CLI: "praimate-code", Tools: "safe"}}
+}
+
+// DesktopWindowHooks lets an authenticated Studio connection control only the
+// main Desktop window. Core remains alive while hidden.
+type DesktopWindowHooks struct {
+	Hide     func()
+	Show     func()
+	IsHidden func() bool
+}
+
+func (s *Server) setDesktopWindowHooks(hooks *DesktopWindowHooks) {
+	s.mu.Lock()
+	s.window = hooks
+	s.mu.Unlock()
 }
 
 // StartLocal opens an authenticated, ephemeral loopback endpoint on both Windows
@@ -117,12 +132,35 @@ func (s *Server) accept(l net.Listener) error {
 			child.cancel()
 			child.ctx, child.cancel = context.WithCancel(s.ctx)
 			child.token = token
+			s.mu.Lock()
+			child.window = s.window
+			s.mu.Unlock()
 			defer child.Close()
 			_ = child.ServeStdio(conn, conn)
 			s.mu.Lock()
 			delete(s.clients, conn)
+			idle := len(s.clients) == 0
 			s.mu.Unlock()
+			if idle {
+				go s.restoreDesktopWindowWhenIdle(1500 * time.Millisecond)
+			}
 		}()
+	}
+}
+
+func (s *Server) restoreDesktopWindowWhenIdle(delay time.Duration) {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-s.ctx.Done():
+		return
+	}
+	s.mu.Lock()
+	idle, hooks := len(s.clients) == 0, s.window
+	s.mu.Unlock()
+	if idle && hooks != nil && hooks.Show != nil && hooks.IsHidden != nil && hooks.IsHidden() {
+		hooks.Show()
 	}
 }
 func (s *Server) Close() error {
@@ -285,6 +323,21 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 		return capabilities(), nil
 	case "system.status":
 		return map[string]any{"version": version.Current, "backendRunning": true, "session": s.sessionSnapshot()}, nil
+	case "desktop.window.status", "desktop.window.hide", "desktop.window.show", "desktop.window.toggle":
+		s.mu.Lock()
+		hooks := s.window
+		s.mu.Unlock()
+		if hooks == nil || hooks.Hide == nil || hooks.Show == nil || hooks.IsHidden == nil {
+			return map[string]any{"available": false, "hidden": false}, nil
+		}
+		if method == "desktop.window.hide" || method == "desktop.window.toggle" && !hooks.IsHidden() {
+			hooks.Hide()
+		} else if method == "desktop.window.show" || method == "desktop.window.toggle" && hooks.IsHidden() {
+			hooks.Show()
+		}
+		state := map[string]any{"available": true, "hidden": hooks.IsHidden()}
+		s.Broadcast("desktop.window.changed", state)
+		return state, nil
 	case "session.get":
 		p := s.sessionSnapshot()
 		agents, err := s.core.ListAgents(ctx)

@@ -19,6 +19,18 @@ var desktopServers struct {
 	core            *core.Core
 	server          *Server
 	endpoint, token string
+	window          *DesktopWindowHooks
+}
+
+// SetDesktopWindowHooks attaches the Wails window controller to the shared
+// authenticated Studio server. It is intentionally separate from Core.
+func SetDesktopWindowHooks(c *core.Core, hooks *DesktopWindowHooks) {
+	desktopServers.Lock()
+	defer desktopServers.Unlock()
+	desktopServers.window = hooks
+	if desktopServers.server != nil && desktopServers.core == c {
+		desktopServers.server.setDesktopWindowHooks(hooks)
+	}
 }
 
 func desktopEndpoint(c *core.Core) (string, string, error) {
@@ -28,6 +40,7 @@ func desktopEndpoint(c *core.Core) (string, string, error) {
 		return desktopServers.endpoint, desktopServers.token, nil
 	}
 	srv := NewServer(c)
+	srv.setDesktopWindowHooks(desktopServers.window)
 	endpoint, token, err := srv.StartLocal()
 	if err != nil {
 		return "", "", err

@@ -5,7 +5,7 @@ exports.run = async function () {
   const ext = vscode.extensions.getExtension('PrAImate.praimate-studio');
   assert.ok(ext, 'development extension discovered');
   await ext.activate();
-  assert.equal(ext.packageJSON.version, '0.6.0', 'old built-in extension must not win');
+  assert.equal(ext.packageJSON.version, '0.6.1', 'old built-in extension must not win');
   let status;
   for (let attempt = 0; attempt < 25; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -45,5 +45,5 @@ exports.run = async function () {
     } finally {terminal.dispose();}
   }
   fs.writeFileSync(process.env.PRAIMATE_TEST_RESULT,JSON.stringify({ok:true,version:ext.packageJSON.version,connected:status.backendRunning,cli:status.session.cli,panel:true,sidebar:true,readyWebviews:ui.readyViews,terminals}));
-  console.log('PRAIMATE_EDITOR_SMOKE_OK: extension 0.6.0, authenticated Core, both webviews, five native terminal fixtures');
+  console.log('PRAIMATE_EDITOR_SMOKE_OK: extension 0.6.1, authenticated Core, both webviews, five native terminal fixtures');
 };

@@ -1,6 +1,6 @@
 # Studio extension review — 2026-09-21
 
-Scope: current working tree based on `9181d9c`, extension **0.6.0**. This is a
+Scope: current working tree based on `9181d9c`, extension **0.6.1**. This is a
 self-review, not an independent review. The parity pass implements the gaps that
 can safely share Core with an IDE extension and records the remaining
 application-level boundaries explicitly.
@@ -34,7 +34,7 @@ catalogue is empty, and verifies that Save still submits `full`.
 | Runs | List/details, resume/stop, event execution and UTF-8 artifact viewer | A run not executing in this backend has no process to cancel; persisted resumable runs can be resumed then stopped |
 | Local models | Raw routing plus shared endpoint profiles, encrypted-key preservation, model discovery and connection test | Model installation is provider-specific and remains a native provider/CLI operation |
 | Approvals | Allow once, deny, and remember a tool for the current managed run | Native vendor terminals continue using their own prompt/permission systems |
-| Application settings | Session settings, workspace, privacy patterns, CLI detection/install/update, diagnostics | Git backup/sync and destructive reconciliation stay in Desktop because they own application lifecycle and machine identity |
+| Application settings | Session settings, workspace, privacy patterns, CLI detection/install/update, diagnostics, hide/show Desktop with disconnect restoration | Git backup/sync and destructive reconciliation stay in Desktop because they own application lifecycle and machine identity |
 
 The extension RPC surface delegates these operations to Core rather than
 duplicating storage or execution rules. `runs.cancel` cancels the execution
@@ -61,12 +61,17 @@ confirmation before execution.
   actionable error; they are not interpolated into a command.
 - The terminal UI explicitly states that native CLI permissions/configuration
   apply. The Studio connection token is removed from the child environment.
-- Fifteen JavaScript tests pass, including all five launch choices, model
+- Sixteen JavaScript tests pass, including all five launch choices, model
   isolation, cancellation of the picker, trust checks and Windows argument
   construction. Focused Go tests cover mapping, resolution, managed paths,
   authentication, and absence of chat/session mutations. Desktop terminal
   regressions passed.
-- A real Codium test with an isolated profile loaded extension 0.6.0, connected
+- Desktop window control is authenticated and changes visibility only; it does
+  not stop Core. The shared server counts Studio connections and restores a
+  hidden Desktop 1.5 seconds after the last connection closes, while cancelling
+  restoration if another Studio window reconnects. Closing Desktop remains
+  independent and leaves Codium running with its existing offline indicator.
+- A real Codium test with an isolated profile loaded extension 0.6.1, connected
   to a fixture Core, completed both webview ready handshakes, and executed five
   harmless CLI fixtures in actual terminals. It checked their working folders,
   model arguments and removal of the Studio token. This is not an authenticated
