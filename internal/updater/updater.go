@@ -56,30 +56,79 @@ func LatestURL() string {
 // answers 404 in that case).
 func FetchLatest() (*Release, error) {
 	req, err := http.NewRequest("GET", LatestURL(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "praimate-updater/"+version.Current)
+	if err == nil {
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+		req.Header.Set("User-Agent", "praimate-updater/"+version.Current)
+		if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+			req.Header.Set("Authorization", "token "+token)
+		}
 
-	resp, err := httpClient.Do(req)
+		resp, err := httpClient.Do(req)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == 200 {
+				var rel Release
+				if jerr := json.NewDecoder(resp.Body).Decode(&rel); jerr == nil && rel.TagName != "" {
+					return &rel, nil
+				}
+			}
+		}
+	}
+
+	// Fall back to web redirect on /releases/latest (immune to GitHub API rate limits / 403 Forbidden)
+	if fallbackRel, ferr := fetchLatestWebFallback(); ferr == nil && fallbackRel != nil {
+		return fallbackRel, nil
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("github: %w", err)
 	}
+	return nil, errors.New("unable to resolve latest release from GitHub API or web endpoint")
+}
+
+func fetchLatestWebFallback() (*Release, error) {
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Timeout: 15 * time.Second,
+	}
+	resp, err := client.Get(version.RepoURL + "/releases/latest")
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	if loc == "" {
+		return nil, errors.New("no redirect location returned")
+	}
+	idx := strings.LastIndex(loc, "/tag/")
+	if idx == -1 {
+		return nil, errors.New("invalid release redirect URL")
+	}
+	tag := strings.TrimSpace(loc[idx+len("/tag/"):])
+	if tag == "" {
+		return nil, errors.New("empty tag in release redirect")
+	}
+	triplet := runtime.GOOS + "-" + runtime.GOARCH
+	ext := ".tar.gz"
+	if runtime.GOOS == "windows" {
+		ext = ".zip"
+	}
+	assetName := fmt.Sprintf("praimate-%s%s", triplet, ext)
+	downloadURL := fmt.Sprintf("%s/releases/download/%s/%s", version.RepoURL, tag, assetName)
 
-	if resp.StatusCode == 404 {
-		return nil, errors.New("no releases published yet for " + version.Repo)
-	}
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("github: HTTP %d", resp.StatusCode)
-	}
-
-	var rel Release
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return nil, fmt.Errorf("decode release: %w", err)
-	}
-	return &rel, nil
+	return &Release{
+		TagName: tag,
+		Name:    "PrAImate " + tag,
+		HTMLURL: fmt.Sprintf("%s/releases/tag/%s", version.RepoURL, tag),
+		Assets: []Asset{
+			{
+				Name:               assetName,
+				BrowserDownloadURL: downloadURL,
+			},
+		},
+	}, nil
 }
 
 // IsNewer reports whether remote (e.g. "v0.2.0") is strictly newer than

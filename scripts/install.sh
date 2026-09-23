@@ -374,16 +374,26 @@ fetch() {
 resolve_latest_tag() {
   local dl tag
   dl="$(detect_downloader)"
-  # The pattern is intentionally NOT anchored to line-start: GitHub can
-  # return the JSON minified (everything on one line), so an `^…` anchor
-  # would only match a pretty-printed response and silently fail in
-  # production. `.*` on both sides lets sed find "tag_name" anywhere on
-  # the line; the non-greedy [^"]* keeps the capture tight.
+
+  # 1. Try web redirect first to bypass GitHub API 60 req/hr rate limit / 403 Forbidden
   if [[ "$dl" == "curl" ]]; then
-    tag="$(curl -fsSL -H 'User-Agent: praimate-installer' "$RELEASE_API_URL" 2>/dev/null \
+    tag="$(curl -fsSI "$REPO_URL/releases/latest" 2>/dev/null | grep -i '^location:' | sed -n 's/.*\/tag\/\([^[:space:]\r\n]*\).*/\1/p' | head -1)"
+  fi
+  if [[ -n "$tag" ]]; then
+    printf '%s' "$tag"
+    return
+  fi
+
+  # 2. Fall back to GitHub REST API
+  local auth_headers=()
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    auth_headers=(-H "Authorization: token $GITHUB_TOKEN")
+  fi
+  if [[ "$dl" == "curl" ]]; then
+    tag="$(curl -fsSL -H 'User-Agent: praimate-installer' -H 'Accept: application/vnd.github.v3+json' "${auth_headers[@]}" "$RELEASE_API_URL" 2>/dev/null \
       | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
   else
-    tag="$(wget -q -O - --header='User-Agent: praimate-installer' "$RELEASE_API_URL" 2>/dev/null \
+    tag="$(wget -q -O - --header='User-Agent: praimate-installer' --header='Accept: application/vnd.github.v3+json' "$RELEASE_API_URL" 2>/dev/null \
       | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
   fi
   if [[ -z "$tag" ]]; then

@@ -240,15 +240,34 @@ if ($AllUsers -and -not (Test-IsAdmin)) {
 
 # ---------- binary path: GitHub release ----------
 function Resolve-LatestTag {
+    # 1. Try GitHub REST API
     try {
-        $r = Invoke-RestMethod -Uri $ReleaseApiURL -UseBasicParsing -Headers @{ "User-Agent" = "praimate-installer" } -ErrorAction Stop
-    } catch {
-        Fail "couldn't query GitHub for the latest release ($($_.Exception.Message)). Set `$env:RELEASE_TAG to pin a version and re-run."
-    }
-    if (-not $r.tag_name) {
-        Fail "GitHub API response had no tag_name. Set `$env:RELEASE_TAG to pin a version and re-run."
-    }
-    return $r.tag_name
+        $headers = @{ "User-Agent" = "praimate-installer"; "Accept" = "application/vnd.github.v3+json" }
+        if ($env:GITHUB_TOKEN) {
+            $headers["Authorization"] = "token $env:GITHUB_TOKEN"
+        }
+        $r = Invoke-RestMethod -Uri $ReleaseApiURL -UseBasicParsing -Headers $headers -ErrorAction Stop
+        if ($r.tag_name) {
+            return $r.tag_name
+        }
+    } catch {}
+
+    # 2. Fallback: Query Web release redirect to bypass API rate limits / 403 Forbidden
+    try {
+        $webUrl = "$RepoURL/releases/latest"
+        $req = [System.Net.HttpWebRequest]::Create($webUrl)
+        $req.AllowAutoRedirect = $false
+        $req.UserAgent = "praimate-installer"
+        $req.Timeout = 15000
+        $resp = $req.GetResponse()
+        $loc = $resp.GetResponseHeader("Location")
+        $resp.Close()
+        if ($loc -and $loc -match "/tag/([^/?#]+)") {
+            return $Matches[1]
+        }
+    } catch {}
+
+    Fail "couldn't query GitHub for the latest release. Set `$env:RELEASE_TAG to pin a version and re-run."
 }
 
 function Install-Binary {
