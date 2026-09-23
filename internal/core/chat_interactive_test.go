@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -277,3 +278,77 @@ func TestContinueChat_PreparesOnlySelectedMCPServers(t *testing.T) {
 		t.Fatalf("per-chat MCP config mismatch:\n%s", text)
 	}
 }
+
+func TestContinueChat_ManualCompactCommandResetsSession(t *testing.T) {
+	mock := &mockAdapter{name: "claude", resumable: true, replies: []string{"ok"}}
+	withMockAdapter(t, mock)
+
+	c, _ := New(Options{Store: openTempStore(t)})
+	ctx := context.Background()
+	chat, err := c.CreateChat(ctx, CreateChatRequest{Title: "compact-test", CLIAgent: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.SetChatSessionID(ctx, chat.ID, "session-to-clear")
+
+	turn, err := c.ContinueChat(ctx, chat.ID, "/compact", t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("ContinueChat /compact: %v", err)
+	}
+	if !strings.Contains(turn.Reply, "compacted") {
+		t.Fatalf("unexpected compact reply: %q", turn.Reply)
+	}
+	reloaded, _ := c.GetChat(ctx, chat.ID)
+	if reloaded.SessionID != "" {
+		t.Fatalf("expected empty session id after /compact, got %q", reloaded.SessionID)
+	}
+}
+
+func TestContinueChat_AutoCompactsOnContextOverflow(t *testing.T) {
+	mock := &contextOverflowMockAdapter{
+		name:      "praimate-code",
+		resumable: true,
+	}
+	RegisterCLIAdapter(mock)
+	t.Cleanup(func() { UnregisterCLIAdapter(mock.Name()) })
+
+	c, _ := New(Options{Store: openTempStore(t)})
+	ctx := context.Background()
+	chat, err := c.CreateChat(ctx, CreateChatRequest{Title: "overflow-test", CLIAgent: "praimate-code"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.SetChatSessionID(ctx, chat.ID, "bloated-session-123")
+
+	turn, err := c.ContinueChat(ctx, chat.ID, "tell me what's next", t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("ContinueChat failed after auto-compaction: %v", err)
+	}
+	if turn.Reply != "recovered reply after compaction" {
+		t.Fatalf("unexpected turn reply: %q", turn.Reply)
+	}
+	if turn.SessionID != "fresh-session-after-compact" {
+		t.Fatalf("unexpected turn session ID: %q", turn.SessionID)
+	}
+}
+
+type contextOverflowMockAdapter struct {
+	name      string
+	resumable bool
+}
+
+func (a *contextOverflowMockAdapter) Name() string           { return a.name }
+func (a *contextOverflowMockAdapter) SupportsResume() bool  { return a.resumable }
+func (a *contextOverflowMockAdapter) ManagedSafeMode() bool { return false }
+func (a *contextOverflowMockAdapter) Available(context.Context) error {
+	return nil
+}
+
+func (a *contextOverflowMockAdapter) SingleShot(_ context.Context, opts SingleShotOpts) (*Reply, error) {
+	return &Reply{Text: "recovered reply after compaction", SessionID: "fresh-session-after-compact"}, nil
+}
+
+func (a *contextOverflowMockAdapter) Resume(_ context.Context, sessionID string, opts ResumeOpts) (*Reply, error) {
+	return nil, errors.New("praimate-code stream: request (222011 tokens) exceeds the available context size (212992 tokens), try increasing it.")
+}
+

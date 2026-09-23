@@ -442,6 +442,29 @@ func (m *managedCLIModel) Turn(ctx context.Context, input agentic.ModelInput, em
 			})
 		}
 	}
+	replyText := ""
+	if reply != nil {
+		replyText = reply.Text
+	}
+	if !first && isContextLengthExceeded(err, replyText) {
+		// Context window exceeded during managed run resume — reset session and retry as fresh SingleShot.
+		m.sessionID = ""
+		if streaming, ok := m.adapter.(streamingAdapter); ok {
+			reply, err = streaming.SingleShotStream(ctx, SingleShotOpts{
+				Cwd: m.cwd, Message: input.Message, SystemPrompt: input.SystemPrompt,
+				Model: m.model, Tools: "", Env: m.env,
+			}, stream)
+			if errors.Is(err, ErrStreamUnsupported) {
+				reply, err = nil, nil
+			}
+		}
+		if reply == nil && err == nil {
+			reply, err = m.adapter.SingleShot(ctx, SingleShotOpts{
+				Cwd: m.cwd, Message: input.Message, SystemPrompt: input.SystemPrompt,
+				Model: m.model, Tools: "", Env: m.env,
+			})
+		}
+	}
 	if err != nil {
 		return nil, err
 	}

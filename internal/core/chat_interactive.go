@@ -225,6 +225,28 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 		}
 	}
 
+	start := time.Now()
+	trimmedUser := strings.TrimSpace(userMessage)
+	if trimmedUser == "/compact" || strings.HasPrefix(trimmedUser, "/compact ") {
+		_ = c.SetChatSessionID(ctx, chatID, "")
+		if _, err := c.AddMessage(ctx, chatID, "user", userMessage, map[string]any{"kind": "command"}); err != nil {
+			return nil, fmt.Errorf("persist compact command: %w", err)
+		}
+		replyMsg := "Session context compacted. The session memory has been reset and subsequent turns will use summarized context."
+		if _, err := c.AddMessage(ctx, chatID, "assistant", replyMsg, map[string]any{"compacted": true}); err != nil {
+			return nil, fmt.Errorf("persist compact reply: %w", err)
+		}
+		if onEvent != nil {
+			onEvent(StreamEvent{Type: "text", Text: replyMsg, OK: true})
+		}
+		return &ChatTurn{
+			UserMessage: userMessage,
+			Reply:       replyMsg,
+			SessionID:   "",
+			DurationMs:  time.Since(start).Milliseconds(),
+		}, nil
+	}
+
 	// Redact outbound; the stored user message keeps the original text.
 	privacy := c.PrivacyScanner()
 	outbound, matches := privacy.Redact(userMessage)
@@ -360,7 +382,6 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 		}
 	}
 
-	start := time.Now()
 	var reply *Reply
 	streamed := false
 	shouldStream := onEvent != nil || isOpenCodeLikeAdapter(adapter.Name())
@@ -381,6 +402,43 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 			reply, err = adapter.Resume(ctx, chat.SessionID, resumeOpts)
 		} else {
 			reply, err = adapter.SingleShot(ctx, shotOpts)
+		}
+	}
+
+	replyText := ""
+	if reply != nil {
+		replyText = reply.Text
+	}
+	if isContextLengthExceeded(err, replyText) {
+		// Context window exceeded (frequent with local models like Ollama/LM Studio/vLLM).
+		// Automatically compact conversation history from DB and retry as a fresh single shot.
+		collect(StreamEvent{Type: "step_start", Detail: "Context limit reached on local model. Automatically compacting session history..."})
+		_ = c.SetChatSessionID(ctx, chatID, "")
+
+		compactedPrompt, compErr := c.buildCompactedChatPrompt(ctx, chatID, attachments)
+		if compErr == nil && compactedPrompt != "" {
+			retryShotOpts := shotOpts
+			retryShotOpts.Message = privacyRedactPlain(privacy, compactedPrompt)
+
+			var retryReply *Reply
+			var retryErr error
+			retryStreamed := false
+			if sc, ok := adapter.(streamingAdapter); ok && shouldStream {
+				retryReply, retryErr = sc.SingleShotStream(ctx, retryShotOpts, collect)
+				if errors.Is(retryErr, ErrStreamUnsupported) {
+					retryReply, retryErr = nil, nil
+				} else {
+					retryStreamed = true
+				}
+			}
+			if !retryStreamed {
+				retryReply, retryErr = adapter.SingleShot(ctx, retryShotOpts)
+			}
+			if retryErr == nil && (retryReply == nil || retryReply.ExitCode == 0) {
+				reply = retryReply
+				err = retryErr
+				collect(StreamEvent{Type: "step_finish", Detail: "Session context compacted and resumed successfully.", OK: true})
+			}
 		}
 	}
 
@@ -491,6 +549,97 @@ func compactActivityText(text string, limit int) string {
 		return ""
 	}
 	return truncate(strings.ReplaceAll(text, "\n", " ⏎ "), limit)
+}
+
+// isContextLengthExceeded inspects an execution error and its CLI output
+// for typical token context limit / window exhaustion strings across
+// local backends (Ollama, LM Studio, vLLM, llama.cpp, OpenCode, Claude, Codex).
+func isContextLengthExceeded(err error, output string) bool {
+	combined := strings.ToLower(output)
+	if err != nil {
+		combined += " " + strings.ToLower(err.Error())
+	}
+	patterns := []string{
+		"exceeds the available context size",
+		"context_length_exceeded",
+		"context length exceeded",
+		"maximum context length",
+		"context window is full",
+		"context window exceeded",
+		"context limit exceeded",
+		"exceeds context limit",
+		"exceeds the context window",
+		"context size exceeded",
+		"too many tokens",
+		"prompt is too long",
+		"token limit exceeded",
+		"reduce the length of the messages",
+		"exceeded model token limit",
+		"is greater than the context length",
+		"conversation history too large",
+		"session too large",
+		"context_overflow",
+		"contextoverflow",
+	}
+	for _, p := range patterns {
+		if strings.Contains(combined, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// buildCompactedChatPrompt constructs a bounded, summarized conversation prompt
+// from the persisted chat history so that subsequent turns can continue after
+// reaching model context size limits.
+func (c *Core) buildCompactedChatPrompt(ctx context.Context, chatID string, attachments []string) (string, error) {
+	messages, err := c.ListMessages(ctx, chatID, 0)
+	if err != nil {
+		return "", fmt.Errorf("load chat history: %w", err)
+	}
+	const maxHistoryChars = 24_000
+	type historyItem struct {
+		role    string
+		content string
+	}
+	var eligible []historyItem
+	for _, m := range messages {
+		if m.Role == "user" || m.Role == "assistant" {
+			eligible = append(eligible, historyItem{role: m.Role, content: strings.TrimSpace(m.Content)})
+		}
+	}
+	if len(eligible) == 0 {
+		return "", nil
+	}
+
+	selected := make([]string, 0, len(eligible))
+	used := 0
+	for i := len(eligible) - 1; i >= 0; i-- {
+		item := eligible[i]
+		entry := strings.ToUpper(item.role) + ":\n" + item.content + "\n"
+		if i == len(eligible)-1 && item.role == "user" && len(attachments) > 0 {
+			entry += "ATTACHED FILES:\n"
+			for _, path := range attachments {
+				entry += "- " + path + "\n"
+			}
+		}
+		if used+len(entry) > maxHistoryChars && len(selected) > 0 {
+			break
+		}
+		selected = append(selected, entry)
+		used += len(entry)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Conversation context was compacted to fit model context limits. Continue this conversation:\n\n")
+	if len(selected) < len(eligible) {
+		sb.WriteString("… (earlier conversation turns omitted for compaction) …\n\n")
+	}
+	for i := len(selected) - 1; i >= 0; i-- {
+		sb.WriteString(selected[i])
+		sb.WriteByte('\n')
+	}
+	return strings.TrimSpace(sb.String()), nil
 }
 
 // StartCleanChat creates a DB-backed chat bound to a CLI only — no
