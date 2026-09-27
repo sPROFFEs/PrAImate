@@ -94,6 +94,24 @@ func TestNativeTerminalHistoryCompletionAndOutput(t *testing.T) {
 	}
 }
 
+func TestNativeTerminalArgumentCompletion(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "screen shot.png"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ input, want string }{
+		{"/tools ed", "/tools edits "},
+		{"/model qwen", "/model qwen3-coder "},
+		{"/detach 2", "/detach 2 "},
+		{"/attach scr", `/attach "screen shot.png" `},
+	} {
+		got, _, ok := completeInteractive(tc.input, len(tc.input), '\t', []string{"qwen3-coder", "llama"}, []string{"one", "two"}, root)
+		if !ok || got != tc.want {
+			t.Errorf("complete %q = %q (ok=%v), want %q", tc.input, got, ok, tc.want)
+		}
+	}
+}
+
 func TestNativeCLIQueuedAttachments(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "screen shot.png")

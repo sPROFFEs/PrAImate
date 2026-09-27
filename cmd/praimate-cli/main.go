@@ -64,7 +64,7 @@ func run(ctx context.Context, args []string) error {
 	fs.BoolVar(&o.passwordStdin, "db-password-stdin", false, "Read database password from the first stdin line")
 	fs.BoolVar(&o.version, "version", false, "Print version")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "PrAImate native CLI — shared core runtime\nUsage: praimate-cli [run] [flags] [prompt]\nKeys come from the core vault or OPENAI_API_KEY.\nInteractive: /help, /status, /context, /attach PATH, /model ID, /tools LEVEL, /compact, /exit")
+		fmt.Fprintln(fs.Output(), "PrAImate native CLI — shared core runtime\nUsage: praimate-cli [run] [flags] [prompt]\nKeys come from the core vault or OPENAI_API_KEY.\nInteractive: /help, /status, /context, /attach PATH, /model [ID], /tools [LEVEL], /sessions, /compact, /exit\nTab completes commands and arguments; /model, /tools and /sessions offer selectors.")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -261,35 +261,14 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	system := o.system
-	customSystem := o.system
-	var agent *core.Agent
-	if chat.AgentID != "" {
-		agent, err = c.GetAgent(ctx, chat.AgentID)
-		if err != nil {
-			return err
-		}
-		system = core.AgentSystemPrompt(agent) + "\n" + system
-	}
 	if o.system != "" {
 		if _, err := c.AddMessage(ctx, chat.ID, "system", o.system, nil); err != nil {
 			return err
 		}
 	}
-	if o.chat != "" {
-		messages, e := c.ListMessages(ctx, chat.ID, 0)
-		if e != nil {
-			return e
-		}
-		for _, m := range messages {
-			if m.Role == "system" {
-				system += "\n" + m.Content
-				customSystem += "\n" + m.Content
-			}
-		}
-	}
-	if chat.Settings.SkillsV2 == nil {
-		system = core.ResolveSkillsPrefix(chat.Settings.Skills) + "\n" + system
+	system, customSystem, agent, err := chatSystemPrompt(ctx, c, chat)
+	if err != nil {
+		return err
 	}
 	var pending []string
 	for _, path := range o.attachments {
@@ -299,7 +278,15 @@ func run(ctx context.Context, args []string) error {
 		}
 	}
 	var eventMu sync.Mutex
-	var renderedText, thinking bool
+	width := 80
+	if interactive {
+		if columns, _, sizeErr := term.GetSize(int(os.Stderr.Fd())); sizeErr == nil {
+			width = columns
+		}
+	}
+	colored := interactive && term.IsTerminal(int(os.Stdout.Fd())) && os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb"
+	renderer := newTextRenderer(os.Stdout, colored, width)
+	var renderedText, thinking, reasoningOpen bool
 	var toolCount int
 	emit := func(event core.StreamEvent) {
 		eventMu.Lock()
@@ -311,34 +298,51 @@ func run(ctx context.Context, args []string) error {
 			_ = json.NewEncoder(os.Stdout).Encode(event)
 			return
 		}
+		if interactive && event.Type != "text" {
+			renderer.Flush()
+		}
+		if reasoningOpen && event.Type != "reasoning" {
+			fmt.Fprintln(statusOutput)
+			reasoningOpen = false
+		}
 		switch event.Type {
 		case "text":
 			if interactive && !renderedText {
-				fmt.Fprintln(statusOutput, "\nPrAImate")
+				fmt.Fprintln(statusOutput, "\n  ASSISTANT\n  ─────────")
 				renderedText = true
 			}
-			fmt.Fprint(output, event.Text)
+			if interactive {
+				renderer.WriteChunk(event.Text)
+			} else {
+				fmt.Fprint(output, event.Text)
+			}
 		case "reasoning":
 			if o.showReasoning {
+				if !reasoningOpen {
+					fmt.Fprint(statusOutput, "\n  THINKING  ")
+					reasoningOpen = true
+				}
 				fmt.Fprint(statusOutput, event.Text)
 			} else if interactive && !thinking {
-				fmt.Fprintln(statusOutput, "[thinking]")
+				fmt.Fprintln(statusOutput, "  … thinking")
 				thinking = true
 			}
 		case "tool_start":
 			toolCount++
-			fmt.Fprintf(statusOutput, "\n[tool] %s  %s\n", event.Tool, event.Detail)
+			fmt.Fprintf(statusOutput, "\n  TOOL  %s  %s\n", event.Tool, event.Detail)
 		case "tool_end":
-			state := "done"
+			state := "✓ done"
 			if !event.OK {
-				state = "failed"
+				state = "✗ failed"
 			}
-			fmt.Fprintf(statusOutput, "[%s] %s\n", state, event.Tool)
-		case "context_compacted", "usage":
-			fmt.Fprintf(statusOutput, "\n%s\n", event.Detail)
+			fmt.Fprintf(statusOutput, "  %s  %s\n", state, event.Tool)
+		case "context_compacted":
+			fmt.Fprintf(statusOutput, "  CONTEXT  %s\n", event.Detail)
+		case "usage":
+			fmt.Fprintf(statusOutput, "  USAGE  %s\n", event.Detail)
 		case "context":
 			if interactive {
-				fmt.Fprintln(statusOutput, event.Detail)
+				fmt.Fprintln(statusOutput, "  CONTEXT  "+event.Detail)
 			}
 		}
 	}
@@ -358,6 +362,9 @@ func run(ctx context.Context, args []string) error {
 		result := c.RunWorkflow(workflowCtx, core.RunOptions{Agent: agent, WorkflowName: o.workflow, Inputs: inputs, CLI: "praimate-cli", Cwd: o.cwd, Model: chat.Settings.Model, Tools: chat.Settings.Tools, ChatSettings: chat.Settings, Persist: true, SystemContext: o.system, OnEvent: func(e core.WorkflowRunEvent) {
 			emit(core.StreamEvent{Type: e.Type, Text: e.Text, Tool: e.Tool, Detail: e.Detail, ID: e.ID, OK: e.OK})
 		}})
+		if interactive {
+			renderer.Flush()
+		}
 		if o.format == "json" {
 			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"type": "workflow_result", "chatID": result.ChatID, "outcome": result.Outcome})
 		} else {
@@ -400,18 +407,28 @@ func run(ctx context.Context, args []string) error {
 			pending = nil
 		}
 		eventMu.Lock()
-		renderedText, thinking, toolCount = false, false, 0
+		renderedText, thinking, reasoningOpen, toolCount = false, false, false, 0
+		renderer = newTextRenderer(os.Stdout, colored, width)
 		eventMu.Unlock()
 		start := time.Now()
 		if interactive {
-			fmt.Fprintf(statusOutput, "\n[working] %d attachment(s) · Ctrl+C to cancel\n", len(files))
+			fmt.Fprintf(statusOutput, "\n  WORKING  %d attachment(s) · Ctrl+C to cancel\n", len(files))
 		}
 		_, e := c.ContinueChatStream(turnCtx, chat.ID, message, chat.WorkspacePath, system, files, emit)
 		if o.format == "text" {
+			if interactive {
+				eventMu.Lock()
+				renderer.Flush()
+				if reasoningOpen {
+					fmt.Fprintln(statusOutput)
+					reasoningOpen = false
+				}
+				eventMu.Unlock()
+			}
 			fmt.Fprintln(output)
 			if interactive {
 				eventMu.Lock()
-				fmt.Fprintf(statusOutput, "[%s · %d tool call(s)]\n", time.Since(start).Round(time.Millisecond), toolCount)
+				fmt.Fprintf(statusOutput, "  DONE  %s · %d tool call(s)\n", time.Since(start).Round(time.Millisecond), toolCount)
 				eventMu.Unlock()
 			}
 		}
@@ -425,6 +442,31 @@ func run(ctx context.Context, args []string) error {
 	}
 	if !interactive {
 		return errors.New("a prompt is required in non-interactive mode")
+	}
+	var cachedModels []string
+	var modelsChatID, modelsEndpoint string
+	modelsLoaded := false
+	modelsForChat := func() ([]string, error) {
+		endpoint := ""
+		if chat.Settings.Local != nil {
+			endpoint = chat.Settings.Local.Endpoint
+		}
+		if modelsLoaded && modelsChatID == chat.ID && modelsEndpoint == endpoint {
+			return cachedModels, nil
+		}
+		models, err := c.NativeModels(ctx, endpoint)
+		if err != nil {
+			return nil, err
+		}
+		cachedModels, modelsChatID, modelsEndpoint, modelsLoaded = models, chat.ID, endpoint, true
+		return models, nil
+	}
+	editor.complete = func(line string, pos int, key rune) (string, int, bool) {
+		var models []string
+		if key == '\t' && strings.HasPrefix(line, "/model ") {
+			models, _ = modelsForChat()
+		}
+		return completeInteractive(line, pos, key, models, pending, chat.WorkspacePath)
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -468,6 +510,10 @@ func run(ctx context.Context, args []string) error {
 					return e
 				}
 			}
+			system, customSystem, agent, e = chatSystemPrompt(ctx, c, chat)
+			if e != nil {
+				return e
+			}
 			fmt.Fprintln(statusOutput, "New chat:", chat.ID)
 			continue
 		}
@@ -476,10 +522,108 @@ func run(ctx context.Context, args []string) error {
 			arg = strings.TrimSpace(arg)
 			var commandErr error
 			switch name {
+			case "/models":
+				modelsLoaded = false // an explicit list refreshes the endpoint catalogue
+				var models []string
+				models, commandErr = modelsForChat()
+				if commandErr == nil {
+					for i, model := range models {
+						fmt.Fprintf(statusOutput, "  %d. %s\n", i+1, model)
+					}
+					fmt.Fprintln(statusOutput, "Use /model to choose interactively, or /model ID.")
+				}
+			case "/model":
+				if arg == "" {
+					var models []string
+					models, commandErr = modelsForChat()
+					if commandErr == nil {
+						selected := -1
+						for i, model := range models {
+							if model == chat.Settings.Model {
+								selected = i
+								break
+							}
+						}
+						selected, commandErr = editor.choose(ctx, "Models", models, selected)
+						if commandErr == nil && selected >= 0 {
+							commandErr = command(ctx, c, chat.ID, "/model "+models[selected], statusOutput)
+							if commandErr == nil {
+								fmt.Fprintln(statusOutput, "Model:", models[selected])
+							}
+						}
+					}
+				} else {
+					commandErr = command(ctx, c, chat.ID, line, statusOutput)
+				}
+			case "/tools":
+				if arg == "" {
+					levels := []string{"safe", "ask", "edits", "full"}
+					current := 0
+					for i, level := range levels {
+						if level == chat.Settings.Tools {
+							current = i
+						}
+					}
+					selected, chooseErr := editor.choose(ctx, "Tool permissions", levels, current)
+					commandErr = chooseErr
+					if commandErr == nil && selected >= 0 {
+						commandErr = command(ctx, c, chat.ID, "/tools "+levels[selected], statusOutput)
+						if commandErr == nil {
+							fmt.Fprintln(statusOutput, "Tools:", levels[selected])
+						}
+					}
+				} else {
+					commandErr = command(ctx, c, chat.ID, line, statusOutput)
+				}
+			case "/sessions":
+				var chats []core.Chat
+				chats, commandErr = c.ListChats(ctx, 1000)
+				if commandErr == nil {
+					var sessions []core.Chat
+					var labels []string
+					selected := -1
+					for _, candidate := range chats {
+						if candidate.CLIAgent != "praimate-cli" {
+							continue
+						}
+						if candidate.ID == chat.ID {
+							selected = len(sessions)
+						}
+						sessions = append(sessions, candidate)
+						labels = append(labels, candidate.Title+" · "+candidate.ID+" · "+candidate.WorkspacePath)
+					}
+					var choice int
+					choice, commandErr = editor.choose(ctx, "Native chats", labels, selected)
+					if commandErr == nil && choice >= 0 && choice != selected {
+						next := sessions[choice]
+						var nextSystem, nextCustom string
+						var nextAgent *core.Agent
+						nextSystem, nextCustom, nextAgent, commandErr = chatSystemPrompt(ctx, c, &next)
+						if commandErr == nil {
+							chat, system, customSystem, agent = &next, nextSystem, nextCustom, nextAgent
+							pending = nil
+							fmt.Fprintln(statusOutput, "Switched to chat:", chat.ID, "(queued attachments cleared)")
+						}
+					}
+				}
 			case "/attach":
 				pending, commandErr = queueAttachment(pending, chat.WorkspacePath, arg)
 			case "/detach":
-				pending, commandErr = detachAttachment(pending, arg)
+				if arg == "" {
+					labels := append([]string(nil), pending...)
+					labels = append(labels, "all attachments")
+					selected, chooseErr := editor.choose(ctx, "Detach file", labels, -1)
+					commandErr = chooseErr
+					if commandErr == nil && selected >= 0 {
+						if selected == len(pending) {
+							pending = nil
+						} else {
+							pending, commandErr = detachAttachment(pending, fmt.Sprint(selected+1))
+						}
+					}
+				} else {
+					pending, commandErr = detachAttachment(pending, arg)
+				}
 			case "/attachments":
 				if len(pending) == 0 {
 					fmt.Fprintln(statusOutput, "No queued attachments.")
@@ -494,6 +638,11 @@ func run(ctx context.Context, args []string) error {
 			}
 			if commandErr != nil {
 				fmt.Fprintln(statusOutput, commandErr)
+			} else if name == "/model" || name == "/tools" {
+				chat, commandErr = c.GetChat(ctx, chat.ID)
+				if commandErr != nil {
+					fmt.Fprintln(statusOutput, commandErr)
+				}
 			}
 			continue
 		}
@@ -519,6 +668,37 @@ func toolLevel(value string) (string, error) {
 	default:
 		return "", fmt.Errorf("invalid tools level %q", value)
 	}
+}
+
+func chatSystemPrompt(ctx context.Context, c *core.Core, chat *core.Chat) (string, string, *core.Agent, error) {
+	var agent *core.Agent
+	var system string
+	if chat.AgentID != "" {
+		var err error
+		agent, err = c.GetAgent(ctx, chat.AgentID)
+		if err != nil {
+			return "", "", nil, err
+		}
+		system = core.AgentSystemPrompt(agent)
+	}
+	messages, err := c.ListMessages(ctx, chat.ID, 0)
+	if err != nil {
+		return "", "", nil, err
+	}
+	var custom []string
+	for _, message := range messages {
+		if message.Role == "system" {
+			custom = append(custom, message.Content)
+		}
+	}
+	customSystem := strings.Join(custom, "\n")
+	if customSystem != "" {
+		system += "\n" + customSystem
+	}
+	if chat.Settings.SkillsV2 == nil {
+		system = core.ResolveSkillsPrefix(chat.Settings.Skills) + "\n" + system
+	}
+	return system, customSystem, agent, nil
 }
 
 func openCore(input *bufio.Reader, passwordStdin, interactive bool) (*core.Core, func(), error) {
@@ -594,6 +774,7 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 	case "/help":
 		fmt.Fprintln(output, interactiveHelp)
 	case "/status":
+		fmt.Fprintln(output, "\nSTATUS")
 		level := chat.Settings.Tools
 		if level == "" {
 			level = "safe"
@@ -609,6 +790,7 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 		}
 		fmt.Fprintf(output, "Model: %s · context %d · output reserve %d\n", status.Model, status.Window, status.OutputReserve)
 	case "/context":
+		fmt.Fprintln(output, "\nCONTEXT")
 		status, err := c.NativeContext(ctx, id)
 		if err != nil {
 			return err
@@ -620,6 +802,7 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 			fmt.Fprintln(output, "No endpoint-reported usage yet. Estimates are not exact tokenizer counts.")
 		}
 	case "/models":
+		fmt.Fprintln(output, "\nMODELS")
 		endpoint := ""
 		if chat.Settings.Local != nil {
 			endpoint = chat.Settings.Local.Endpoint
@@ -646,8 +829,10 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 		}
 		return c.UpdateChatSettings(ctx, id, func(s *core.ChatSettings) { s.Tools = level; s.ToolsConfigured = true })
 	case "/mcp":
+		fmt.Fprintln(output, "\nMCP SERVERS")
 		fmt.Fprintln(output, strings.Join(chat.Settings.MCPServers, "\n"))
 	case "/skills":
+		fmt.Fprintln(output, "\nSKILLS")
 		raw, _ := json.MarshalIndent(struct {
 			Legacy    []string `json:"legacy"`
 			Selection any      `json:"selection"`

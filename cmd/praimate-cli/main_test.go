@@ -57,3 +57,38 @@ func TestNativeCLIOpensSameEncryptedCoreAndPreservesInput(t *testing.T) {
 		t.Fatal("accepted wrong database password")
 	}
 }
+
+func TestChatSystemPromptDoesNotLeakBetweenSessions(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeCore()
+	ctx := context.Background()
+	first, err := c.CreateChat(ctx, core.CreateChatRequest{ID: "terminal-first", CLIAgent: "praimate-cli", WorkspacePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := c.CreateChat(ctx, core.CreateChatRequest{ID: "terminal-second", CLIAgent: "praimate-cli", WorkspacePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AddMessage(ctx, first.ID, "system", "first only", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AddMessage(ctx, second.ID, "system", "second only", nil); err != nil {
+		t.Fatal(err)
+	}
+	firstSystem, _, _, err := chatSystemPrompt(ctx, c, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSystem, _, _, err := chatSystemPrompt(ctx, c, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(firstSystem, "first only") || strings.Contains(secondSystem, "first only") || !strings.Contains(secondSystem, "second only") {
+		t.Fatalf("session system context leaked: first=%q second=%q", firstSystem, secondSystem)
+	}
+}

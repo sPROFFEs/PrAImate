@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -18,17 +20,18 @@ var errInputCanceled = errors.New("input cancelled")
 const interactiveHelp = `Commands:
   /help                 Show this help
   /status, /context     Session settings / context budget and last usage
-  /models, /model ID    List endpoint models / select a model
-  /tools LEVEL          safe | ask | edits | full
+  /models, /model [ID]  List endpoint models / choose or set a model
+  /tools [LEVEL]        Choose safe | ask | edits | full
   /attach PATH          Queue one file (spaces and quoted paths supported)
   /attachments          List files queued for the next message
   /detach N|all         Remove a queued file (1-based) or all files
   /mcp, /skills         Show configured core tools and skills
-  /sessions             List native core chats
+  /sessions             Choose a native core chat
   /compact              Compact model history (lossy; drops old images)
   /clear                Start a new chat, keeping the previous transcript
   /exit                 Exit (also Ctrl+D on an empty prompt)
-Keys: arrows/history, Home/End, Tab command completion.
+Keys: arrows/history, Home/End, Tab command and argument completion.
+Selectors: type a number; n/p changes page; Enter cancels.
 End a line with \ for multiline input. Bracketed paste keeps newlines;
 press Enter after pasting. Pasted slash commands are sent as text.
 Ctrl+C cancels the current turn or clears the current input.
@@ -59,6 +62,103 @@ func completeCommand(line string, pos int, key rune) (string, int, bool) {
 		prefix += " "
 	}
 	return prefix, len(prefix), true
+}
+
+func completeInteractive(line string, pos int, key rune, models, attachments []string, cwd string) (string, int, bool) {
+	if key != '\t' || pos != len(line) {
+		return "", 0, false
+	}
+	if !strings.ContainsAny(line, " \t") {
+		return completeCommand(line, pos, key)
+	}
+	name, prefix, _ := strings.Cut(line, " ")
+	var choices []string
+	switch name {
+	case "/tools":
+		choices = []string{"safe", "ask", "edits", "full"}
+	case "/model":
+		choices = models
+	case "/detach":
+		choices = []string{"all"}
+		for i := range attachments {
+			choices = append(choices, strconv.Itoa(i+1))
+		}
+	case "/attach":
+		return completeAttachmentPath(line, prefix, cwd)
+	default:
+		return line, pos, true
+	}
+	return completeArgument(name+" ", prefix, choices)
+}
+
+func completeArgument(command, prefix string, choices []string) (string, int, bool) {
+	var matches []string
+	for _, choice := range choices {
+		if strings.HasPrefix(choice, prefix) && cleanTerminalText(choice) == choice && !strings.ContainsAny(choice, "\r\n") {
+			matches = append(matches, choice)
+		}
+	}
+	if len(matches) == 0 {
+		return command + prefix, len(command) + len(prefix), true
+	}
+	common := matches[0]
+	for _, match := range matches[1:] {
+		for !strings.HasPrefix(match, common) {
+			common = common[:len(common)-1]
+		}
+	}
+	if len(matches) == 1 {
+		common += " "
+	}
+	return command + common, len(command) + len(common), true
+}
+
+func completeAttachmentPath(line, prefix, cwd string) (string, int, bool) {
+	quoted := strings.HasPrefix(prefix, `"`)
+	path := strings.TrimPrefix(prefix, `"`)
+	dir, base := filepath.Split(path)
+	root := dir
+	if !filepath.IsAbs(root) {
+		root = filepath.Join(cwd, root)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return line, len(line), true
+	}
+	var matches []string
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), base) || cleanTerminalText(entry.Name()) != entry.Name() || strings.ContainsAny(entry.Name(), "\r\n\"") {
+			continue
+		}
+		candidate := dir + entry.Name()
+		if entry.IsDir() {
+			candidate += string(filepath.Separator)
+		}
+		matches = append(matches, candidate)
+	}
+	if len(matches) == 0 {
+		return line, len(line), true
+	}
+	common := matches[0]
+	for _, match := range matches[1:] {
+		for !strings.HasPrefix(match, common) {
+			common = common[:len(common)-1]
+		}
+	}
+	if quoted {
+		common = `"` + common
+	} else if strings.Contains(common, " ") {
+		common = `"` + common
+		quoted = true
+	}
+	if len(matches) == 1 && !strings.HasSuffix(common, string(filepath.Separator)) {
+		if quoted {
+			common += `"`
+		}
+		common += " "
+	}
+	result := "/attach " + common
+	return result, len(result), true
 }
 
 // Prompts live only in memory; approvals are never added to history.
@@ -188,9 +288,10 @@ func (r *promptInput) Read(p []byte) (int, error) {
 }
 
 type terminalEditor struct {
-	input   *terminalInput
-	history terminalHistory
-	readMu  sync.Mutex
+	input    *terminalInput
+	history  terminalHistory
+	readMu   sync.Mutex
+	complete func(string, int, rune) (string, int, bool)
 }
 
 func (e *terminalEditor) read(ctx context.Context, prompt string, approval bool) (string, bool, error) {
@@ -213,6 +314,9 @@ func (e *terminalEditor) read(ctx context.Context, prompt string, approval bool)
 	if !approval {
 		editor.History = &e.history
 		editor.AutoCompleteCallback = completeCommand
+		if e.complete != nil {
+			editor.AutoCompleteCallback = e.complete
+		}
 	}
 	editor.SetBracketedPasteMode(true)
 	defer editor.SetBracketedPasteMode(false)
@@ -225,6 +329,64 @@ func (e *terminalEditor) read(ctx context.Context, prompt string, approval bool)
 		e.history.remember(line)
 	}
 	return line, pasted, nil
+}
+
+// choose is a small paged selector. It uses the normal edited input path,
+// so approvals and menu choices do not pollute prompt history.
+func (e *terminalEditor) choose(ctx context.Context, title string, options []string, current int) (int, error) {
+	if len(options) == 0 {
+		fmt.Fprintln(os.Stderr, "No options available.")
+		return -1, nil
+	}
+	const pageSize = 10
+	page := 0
+	labelWidth := 72
+	if columns, _, err := term.GetSize(int(os.Stderr.Fd())); err == nil {
+		labelWidth = max(20, columns-8)
+	}
+	if current >= 0 {
+		page = current / pageSize
+	}
+	for {
+		start := page * pageSize
+		end := min(start+pageSize, len(options))
+		fmt.Fprintf(os.Stderr, "\n%s (%d/%d)\n", title, page+1, (len(options)+pageSize-1)/pageSize)
+		for i := start; i < end; i++ {
+			marker := " "
+			if i == current {
+				marker = "*"
+			}
+			label := strings.NewReplacer("\r", " ", "\n", " ").Replace(options[i])
+			fmt.Fprintf(safeTerminalWriter{os.Stderr}, " %s %2d  %s\n", marker, i-start+1, truncateRunes(label, labelWidth))
+		}
+		line, pasted, err := e.read(ctx, "Select # · n/p page · Enter cancel > ", true)
+		if errors.Is(err, errInputCanceled) || errors.Is(err, io.EOF) {
+			return -1, nil
+		}
+		if err != nil {
+			return -1, err
+		}
+		if pasted || strings.TrimSpace(line) == "" || strings.EqualFold(line, "q") {
+			return -1, nil
+		}
+		switch strings.ToLower(strings.TrimSpace(line)) {
+		case "n":
+			if end < len(options) {
+				page++
+			}
+			continue
+		case "p":
+			if page > 0 {
+				page--
+			}
+			continue
+		}
+		index, err := strconv.Atoi(strings.TrimSpace(line))
+		if err == nil && index >= 1 && index <= end-start {
+			return start + index - 1, nil
+		}
+		fmt.Fprintln(os.Stderr, "Choose a shown number, n/p, or Enter to cancel.")
+	}
 }
 
 func readEditedInput(editor *term.Terminal, reader *promptInput, approval bool) (string, bool, error) {
@@ -264,13 +426,17 @@ func readEditedInput(editor *term.Terminal, reader *promptInput, approval bool) 
 // hyperlinks, cursor movement, etc.). JSONL remains unmodified machine data.
 type safeTerminalWriter struct{ target io.Writer }
 
-func (w safeTerminalWriter) Write(p []byte) (int, error) {
-	text := strings.Map(func(r rune) rune {
+func cleanTerminalText(value string) string {
+	return strings.Map(func(r rune) rune {
 		if (r < 32 && r != '\n' && r != '\t') || (r >= 0x7f && r <= 0x9f) {
 			return -1
 		}
 		return r
-	}, string(p))
+	}, value)
+}
+
+func (w safeTerminalWriter) Write(p []byte) (int, error) {
+	text := cleanTerminalText(string(p))
 	_, err := io.WriteString(w.target, text)
 	if err != nil {
 		return 0, err

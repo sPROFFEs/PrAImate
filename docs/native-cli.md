@@ -96,15 +96,21 @@ provider is model-only to avoid a second, competing tool loop.
 ## Sessions, output and builds
 
 The terminal includes editable prompts, arrow-key history (memory only), Home/End,
-Tab completion for slash commands, multiline input (end a line with `\`), and
+Tab completion for slash commands, tool levels, model IDs, attachment paths and
+detach indices, multiline input (end a line with `\`), and
 bracketed paste. Press Enter after pasting; pasted slash commands remain prompt
 text and pasted approvals are denied. Prompts are limited to 1 MiB overall and
 fewer than 4096 characters per edited line; use attachments or piped stdin for
 larger inputs. Terminal control characters in model/tool output are filtered.
 
-Interactive commands: `/help`, `/status`, `/context`, `/models`, `/model ID`,
-`/tools LEVEL`, `/attach PATH`, `/attachments`, `/detach N|all`, `/mcp`, `/skills`,
-`/sessions`, `/compact`, `/clear`, `/exit`. `/clear` creates a new chat and retains
+Interactive commands: `/help`, `/status`, `/context`, `/models`, `/model [ID]`,
+`/tools [LEVEL]`, `/attach PATH`, `/attachments`, `/detach [N|all]`, `/mcp`, `/skills`,
+`/sessions`, `/compact`, `/clear`, `/exit`. Without an argument, `/model`,
+`/tools` and `/detach` open a numbered selector; `/sessions` lets you switch
+native chats. Type `n`/`p` for another page or Enter to cancel. Switching chats
+clears queued attachments. Responses render headings, lists, code blocks and
+tables in interactive terminals; non-interactive text and JSONL stay raw.
+`/clear` creates a new chat and retains
 the previous transcript. Automatic compaction removes older complete turns and
 trims large tool results before dropping complete tool exchanges, keeping bounded
 excerpts and the latest user request/images. It is lossy, not a semantic summary.
