@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -51,16 +52,8 @@ func DownloadReleaseAsset(ctx context.Context, assetName, destPath string, w io.
 		return fmt.Errorf("resolve latest release: %w", err)
 	}
 
-	var url string
-	var size int64
-	for _, a := range rel.Assets {
-		if a.Name == assetName {
-			url = a.BrowserDownloadURL
-			size = a.Size
-			break
-		}
-	}
-	if url == "" {
+	downloadURL, size := releaseAssetURL(rel, assetName)
+	if downloadURL == "" {
 		fmt.Fprintf(w, "  release %s does not publish %s\n", rel.TagName, assetName)
 		return fmt.Errorf("release %s has no asset %q for %s/%s: %w",
 			rel.TagName, assetName, runtime.GOOS, runtime.GOARCH, ErrNoPrebuiltAsset)
@@ -81,7 +74,7 @@ func DownloadReleaseAsset(ctx context.Context, assetName, destPath string, w io.
 			case <-time.After(time.Duration(attempt) * 2 * time.Second):
 			}
 		}
-		lastErr = downloadTo(ctx, url, destPath, size)
+		lastErr = downloadTo(ctx, downloadURL, destPath, size)
 		if lastErr == nil {
 			fmt.Fprintf(w, "✓ installed %s\n", destPath)
 			return nil
@@ -91,6 +84,21 @@ func DownloadReleaseAsset(ctx context.Context, assetName, destPath string, w io.
 		}
 	}
 	return fmt.Errorf("download %s: %w", assetName, lastErr)
+}
+
+// The web fallback knows the latest tag but cannot enumerate all assets.
+// Try the named release URL in that case; downloadTo distinguishes a real
+// 404 from an asset that merely wasn't listed by the fallback.
+func releaseAssetURL(rel *updater.Release, assetName string) (string, int64) {
+	for _, asset := range rel.Assets {
+		if asset.Name == assetName {
+			return asset.BrowserDownloadURL, asset.Size
+		}
+	}
+	if rel.AssetsIncomplete {
+		return version.RepoURL + "/releases/download/" + url.PathEscape(rel.TagName) + "/" + url.PathEscape(assetName), 0
+	}
+	return "", 0
 }
 
 // downloadTo streams url into destPath via a same-directory temp file +

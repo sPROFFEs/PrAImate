@@ -33,6 +33,9 @@ type Release struct {
 	HTMLURL string  `json:"html_url"`
 	Body    string  `json:"body"`
 	Assets  []Asset `json:"assets"`
+	// AssetsIncomplete means the API was unavailable and the web fallback
+	// could only infer the main archive, not enumerate standalone assets.
+	AssetsIncomplete bool `json:"-"`
 }
 
 type Asset struct {
@@ -119,9 +122,10 @@ func fetchLatestWebFallback() (*Release, error) {
 	downloadURL := fmt.Sprintf("%s/releases/download/%s/%s", version.RepoURL, tag, assetName)
 
 	return &Release{
-		TagName: tag,
-		Name:    "PrAImate " + tag,
-		HTMLURL: fmt.Sprintf("%s/releases/tag/%s", version.RepoURL, tag),
+		TagName:          tag,
+		Name:             "PrAImate " + tag,
+		HTMLURL:          fmt.Sprintf("%s/releases/tag/%s", version.RepoURL, tag),
+		AssetsIncomplete: true,
 		Assets: []Asset{
 			{
 				Name:               assetName,
