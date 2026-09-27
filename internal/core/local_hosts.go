@@ -27,6 +27,37 @@ type LocalHost struct {
 	OutputTokens  int      `json:"outputTokens"`
 	IsDefault     bool     `json:"isDefault"`
 	ActiveModels  []string `json:"activeModels,omitempty"`
+	NativeModels  []string `json:"nativeModels,omitempty"`
+}
+
+// NativeModelAssignment is a model explicitly made available to praimate-cli.
+// Credentials remain in the core vault and are resolved by endpoint at run time.
+type NativeModelAssignment struct {
+	HostID        string
+	HostName      string
+	Endpoint      string
+	Model         string
+	ContextTokens int
+	OutputTokens  int
+}
+
+func (c *Core) NativeModelAssignments(ctx context.Context) ([]NativeModelAssignment, error) {
+	hosts, err := c.ListLocalHosts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []NativeModelAssignment
+	for _, host := range hosts {
+		for _, model := range host.NativeModels {
+			if model = strings.TrimSpace(model); model != "" {
+				out = append(out, NativeModelAssignment{
+					HostID: host.ID, HostName: host.Name, Endpoint: host.Endpoint,
+					Model: model, ContextTokens: host.ContextTokens, OutputTokens: host.OutputTokens,
+				})
+			}
+		}
+	}
+	return out, nil
 }
 
 func localHostKey(id string) string { return "local_llm.host_key." + id }
@@ -111,6 +142,9 @@ func (c *Core) SaveLocalHost(ctx context.Context, host LocalHost) (*LocalHost, e
 			hosts[i].IsDefault = false
 		}
 		if hosts[i].ID == host.ID {
+			if host.NativeModels == nil {
+				host.NativeModels = hosts[i].NativeModels
+			}
 			hosts[i] = host
 			found = true
 		}

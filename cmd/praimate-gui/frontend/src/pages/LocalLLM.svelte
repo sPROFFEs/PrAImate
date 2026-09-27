@@ -181,6 +181,10 @@
     try {
       const list = Array.from(selectedModels)
       notice = await api.applyModelsToCLI(cli, activeHost.id, list)
+      if (cli === 'praimate-cli') {
+        activeHost.nativeModels = [...new Set([...(activeHost.nativeModels || []), ...list])]
+        hosts = hosts.map(h => h.id === activeHost.id ? { ...h, nativeModels: activeHost.nativeModels } : h)
+      }
       await refreshAppliedModels()
     } catch (e) {
       error = String(e)
@@ -196,8 +200,12 @@
     applyBusy = modelName
     error = ''
     try {
-      const cliTarget = cliStr.includes('openclaude') ? 'openclaude' : 'opencode'
+      const cliTarget = cliStr === 'praimate-cli' ? 'praimate-cli' : cliStr.includes('openclaude') ? 'openclaude' : 'opencode'
       notice = await api.removeModelFromCLI(cliTarget, hostId, modelName)
+      if (cliTarget === 'praimate-cli' && activeHost.id === hostId) {
+        activeHost.nativeModels = (activeHost.nativeModels || []).filter(m => m !== modelName)
+        hosts = hosts.map(h => h.id === hostId ? { ...h, nativeModels: activeHost.nativeModels } : h)
+      }
       await refreshAppliedModels()
     } catch (e) {
       error = String(e)
@@ -212,7 +220,7 @@
 </script>
 
 <h1>Local LLM Hosts & Models</h1>
-<p class="subtitle">Configure OpenAI-compatible endpoints (Ollama, GPUStack, vLLM, LiteLLM) and batch-register models across OpenCode, PrAImate Code, and OpenClaude.</p>
+<p class="subtitle">Configure OpenAI-compatible endpoints (Ollama, GPUStack, vLLM, LiteLLM) and batch-register models across PrAImate CLI, OpenCode, PrAImate Code, and OpenClaude.</p>
 
 {#if error}<div class="banner error-banner" role="alert">{error}</div>{/if}
 {#if notice}<div class="card card-sub" style="border-left: 3px solid var(--ok);">{notice}</div>{/if}
@@ -348,7 +356,10 @@
       </div>
 
       <div class="row" style="margin-top:16px; flex-wrap:wrap; gap:10px; align-items:center">
-        <button class="btn primary" on:click={() => applySelectedModels('opencode')} disabled={!!applyBusy || !selectedModels.size}>
+        <button class="btn primary" on:click={() => applySelectedModels('praimate-cli')} disabled={!!applyBusy || !selectedModels.size}>
+          {applyBusy === 'praimate-cli' ? 'Applying…' : `Apply ${selectedModels.size} model(s) to PrAImate CLI`}
+        </button>
+        <button class="btn" on:click={() => applySelectedModels('opencode')} disabled={!!applyBusy || !selectedModels.size}>
           {applyBusy === 'opencode' ? 'Applying…' : `Apply ${selectedModels.size} model(s) to OpenCode / PrAImate Code`}
         </button>
         <button class="btn" on:click={() => applySelectedModels('openclaude')} disabled={!!applyBusy || !selectedModels.size}>

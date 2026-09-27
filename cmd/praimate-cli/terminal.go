@@ -20,7 +20,7 @@ var errInputCanceled = errors.New("input cancelled")
 const interactiveHelp = `Commands:
   /help                 Show this help
   /status, /context     Session settings / context budget and last usage
-  /models, /model [ID]  List endpoint models / choose or set a model
+  /models, /model [ID]  List assigned models / choose one (HOST_ID::MODEL selects a host)
   /tools [LEVEL]        Choose safe | ask | edits | full
   /attach PATH          Queue one file (spaces and quoted paths supported)
   /attachments          List files queued for the next message

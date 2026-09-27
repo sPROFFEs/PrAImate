@@ -49,7 +49,13 @@ func ResolveInteractiveCLIBinary(cli string) (string, error) {
 		return NewPraimateCodeAdapter().resolveBin()
 	}
 	if cli == "praimate-cli" {
-		return (&execAdapter{bin: cli, extraDirs: []string{praimateManagedBinDir(), nativeExecutableDir()}}).resolveBin()
+		return resolvePraimateCLIBinary(nativeExecutableDir(), praimateManagedBinDir())
 	}
 	return exec.LookPath(cli)
+}
+
+// The CLI shipped next to Desktop must win over a separately installed copy:
+// Studio and Desktop share the core version packaged with that Desktop build.
+func resolvePraimateCLIBinary(executableDir, managedDir string) (string, error) {
+	return (&execAdapter{bin: "praimate-cli", extraDirs: []string{executableDir, managedDir}}).resolveBin()
 }

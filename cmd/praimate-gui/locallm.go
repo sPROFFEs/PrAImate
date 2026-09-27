@@ -33,6 +33,7 @@ type LocalHost struct {
 	OutputTokens  int      `json:"outputTokens"`
 	IsDefault     bool     `json:"isDefault"`
 	ActiveModels  []string `json:"activeModels,omitempty"`
+	NativeModels  []string `json:"nativeModels,omitempty"`
 }
 
 // LocalHostOption bundles a host's info with its live probed models.
@@ -125,6 +126,9 @@ func (a *App) SaveLocalHost(h LocalHost) error {
 	found := false
 	for i := range hosts {
 		if hosts[i].ID == h.ID {
+			if h.NativeModels == nil {
+				h.NativeModels = hosts[i].NativeModels
+			}
 			if h.IsDefault {
 				for j := range hosts {
 					hosts[j].IsDefault = false

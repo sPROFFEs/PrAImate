@@ -58,6 +58,45 @@ func TestNativeCLIOpensSameEncryptedCoreAndPreservesInput(t *testing.T) {
 	}
 }
 
+func TestNativeCLIModelSelectionSwitchesAssignedHost(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeCore()
+	ctx := context.Background()
+	for _, host := range []core.LocalHost{
+		{ID: "default", Name: "Local", Endpoint: "http://127.0.0.1:11434", IsDefault: true, NativeModels: []string{"shared"}},
+		{ID: "gpu", Name: "GPU", Endpoint: "http://127.0.0.1:8000", ContextTokens: 16384, NativeModels: []string{"shared", "large"}},
+	} {
+		if _, err := c.SaveLocalHost(ctx, host); err != nil {
+			t.Fatal(err)
+		}
+	}
+	chat, err := c.CreateChat(ctx, core.CreateChatRequest{CLIAgent: "praimate-cli", WorkspacePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, err := nativeModelChoices(ctx, c, "")
+	if err != nil || !strings.Contains(strings.Join(models, " "), "gpu::large") {
+		t.Fatalf("assigned models: %v, %v", models, err)
+	}
+	if err := command(ctx, c, chat.ID, "/model shared", &strings.Builder{}); err == nil {
+		t.Fatal("ambiguous model accepted without a host")
+	}
+	if err := command(ctx, c, chat.ID, "/model gpu::large", &strings.Builder{}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := c.GetChat(ctx, chat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Settings.Model != "large" || updated.Settings.Local == nil || updated.Settings.Local.Endpoint != "http://127.0.0.1:8000" || updated.Settings.Local.ContextTokens != 16384 {
+		t.Fatalf("model selection did not switch host: %+v", updated.Settings)
+	}
+}
+
 func TestChatSystemPromptDoesNotLeakBetweenSessions(t *testing.T) {
 	t.Setenv("PRAIMATE_HOME", t.TempDir())
 	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)

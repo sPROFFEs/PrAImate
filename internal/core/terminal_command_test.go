@@ -1,7 +1,10 @@
 package core
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -32,5 +35,30 @@ func TestInteractiveCLICommand(t *testing.T) {
 		if _, _, err := InteractiveCLICommand("claude", model); err == nil {
 			t.Fatalf("accepted invalid model %q", model)
 		}
+	}
+}
+
+func TestResolvePraimateCLIBinaryPrefersDesktopBundle(t *testing.T) {
+	desktopDir := t.TempDir()
+	managedDir := t.TempDir()
+	name := "praimate-cli"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	for _, dir := range []string{desktopDir, managedDir} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("test"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := resolvePraimateCLIBinary(desktopDir, managedDir)
+	if err != nil || got != filepath.Join(desktopDir, name) {
+		t.Fatalf("with bundled CLI: got %q, %v", got, err)
+	}
+	if err := os.Remove(filepath.Join(desktopDir, name)); err != nil {
+		t.Fatal(err)
+	}
+	got, err = resolvePraimateCLIBinary(desktopDir, managedDir)
+	if err != nil || got != filepath.Join(managedDir, name) {
+		t.Fatalf("without bundled CLI: got %q, %v", got, err)
 	}
 }

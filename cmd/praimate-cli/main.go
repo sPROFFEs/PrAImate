@@ -454,7 +454,7 @@ func run(ctx context.Context, args []string) error {
 		if modelsLoaded && modelsChatID == chat.ID && modelsEndpoint == endpoint {
 			return cachedModels, nil
 		}
-		models, err := c.NativeModels(ctx, endpoint)
+		models, err := nativeModelChoices(ctx, c, endpoint)
 		if err != nil {
 			return nil, err
 		}
@@ -538,10 +538,19 @@ func run(ctx context.Context, args []string) error {
 					models, commandErr = modelsForChat()
 					if commandErr == nil {
 						selected := -1
+						assignments, _ := c.NativeModelAssignments(ctx)
 						for i, model := range models {
 							if model == chat.Settings.Model {
 								selected = i
 								break
+							}
+							if chat.Settings.Local != nil {
+								for _, assignment := range assignments {
+									if model == assignment.HostID+"::"+assignment.Model && chat.Settings.Model == assignment.Model && chat.Settings.Local.Endpoint == assignment.Endpoint {
+										selected = i
+										break
+									}
+								}
 							}
 						}
 						selected, commandErr = editor.choose(ctx, "Models", models, selected)
@@ -807,19 +816,48 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 		if chat.Settings.Local != nil {
 			endpoint = chat.Settings.Local.Endpoint
 		}
-		models, err := c.NativeModels(ctx, endpoint)
+		models, err := nativeModelChoices(ctx, c, endpoint)
 		if err != nil {
 			return err
 		}
 		fmt.Fprintln(output, strings.Join(models, "\n"))
 	case "/model":
 		if arg == "" {
-			return errors.New("usage: /model MODEL_ID")
+			return errors.New("usage: /model MODEL_ID or HOST_ID::MODEL_ID")
+		}
+		assignments, err := c.NativeModelAssignments(ctx)
+		if err != nil {
+			return err
+		}
+		var selected *core.NativeModelAssignment
+		for i := range assignments {
+			candidate := &assignments[i]
+			if arg == candidate.HostID+"::"+candidate.Model {
+				selected = candidate
+				break
+			}
+			if arg == candidate.Model {
+				if selected != nil {
+					return fmt.Errorf("model %q is assigned to multiple hosts; use HOST_ID::MODEL_ID", arg)
+				}
+				selected = candidate
+			}
+		}
+		if strings.Contains(arg, "::") && selected == nil {
+			return fmt.Errorf("assigned model %q not found; use /models", arg)
 		}
 		return c.UpdateChatSettings(ctx, id, func(s *core.ChatSettings) {
-			s.Model = arg
-			if s.Local != nil {
-				s.Local.Model = arg
+			if selected != nil {
+				s.Model = selected.Model
+				s.Local = &core.ChatLocalEndpoint{
+					Endpoint: selected.Endpoint, Model: selected.Model,
+					ContextTokens: selected.ContextTokens, OutputTokens: selected.OutputTokens,
+				}
+			} else {
+				s.Model = arg
+				if s.Local != nil {
+					s.Local.Model = arg
+				}
 			}
 		})
 	case "/tools":
@@ -855,4 +893,19 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 		return fmt.Errorf("unknown command %q; use /help", name)
 	}
 	return nil
+}
+
+func nativeModelChoices(ctx context.Context, c *core.Core, endpoint string) ([]string, error) {
+	assignments, err := c.NativeModelAssignments(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(assignments) == 0 {
+		return c.NativeModels(ctx, endpoint)
+	}
+	choices := make([]string, 0, len(assignments))
+	for _, assignment := range assignments {
+		choices = append(choices, assignment.HostID+"::"+assignment.Model)
+	}
+	return choices, nil
 }

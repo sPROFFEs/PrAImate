@@ -38,6 +38,9 @@ func (a *App) ApplyModelsToCLI(cli, hostID string, models []string) (string, err
 		}
 	}
 	if targetHost == nil {
+		if hostID != "" {
+			return "", fmt.Errorf("local host %q not found", hostID)
+		}
 		if len(hosts) > 0 {
 			targetHost = &hosts[0]
 		} else {
@@ -75,6 +78,17 @@ func (a *App) ApplyModelsToCLI(cli, hostID string, models []string) (string, err
 	}
 
 	switch cli {
+	case "praimate-cli":
+		for _, m := range models {
+			if m = strings.TrimSpace(m); m != "" && !containsString(targetHost.NativeModels, m) {
+				targetHost.NativeModels = append(targetHost.NativeModels, m)
+			}
+		}
+		if err := a.SaveLocalHost(*targetHost); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Assigned %d model(s) on %s to praimate-cli", len(models), targetHost.Name), nil
+
 	case "opencode", "praimate-code":
 		path, err := ollama.ApplyOpenCodeModels(provKey, targetHost.Name, s, models, targetHost.IsDefault)
 		if err != nil {
@@ -106,7 +120,7 @@ func (a *App) ApplyModelsToCLI(cli, hostID string, models []string) (string, err
 		return fmt.Sprintf("Applied %s to OpenClaude profile (%s)", s.Model, targetHost.Name), nil
 
 	default:
-		return "", fmt.Errorf("apply-to-local supports opencode/praimate-code and openclaude — Claude Code stays on Anthropic")
+		return "", fmt.Errorf("apply-to-local supports praimate-cli, opencode/praimate-code and openclaude — Claude Code stays on Anthropic")
 	}
 }
 
@@ -132,6 +146,16 @@ func (a *App) RemoveModelFromCLI(cli, hostID, model string) (string, error) {
 	}
 
 	switch cli {
+	case "praimate-cli":
+		if targetHost == nil {
+			return "", fmt.Errorf("local host %q not found", hostID)
+		}
+		targetHost.NativeModels = append([]string{}, removeString(targetHost.NativeModels, model)...)
+		if err := a.SaveLocalHost(*targetHost); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Removed %s from praimate-cli (%s)", model, targetHost.Name), nil
+
 	case "opencode", "praimate-code":
 		path, err := ollama.RemoveOpenCodeModel(provKey, model)
 		if err != nil {
@@ -161,6 +185,18 @@ func (a *App) ListAppliedCLIModels() ([]AppliedModelItem, error) {
 	hosts, _ := a.ListLocalHosts()
 	var out []AppliedModelItem
 	seen := make(map[string]bool)
+	for _, host := range hosts {
+		for _, model := range host.NativeModels {
+			key := "praimate-cli:" + host.ID + ":" + model
+			if model != "" && !seen[key] {
+				seen[key] = true
+				out = append(out, AppliedModelItem{
+					HostID: host.ID, HostName: host.Name, Endpoint: host.Endpoint,
+					Model: model, CLI: "praimate-cli",
+				})
+			}
+		}
+	}
 
 	// 1. OpenCode / PrAImate Code models from opencode.json
 	ocModels, err := ollama.ListConfiguredOpenCodeModels()
@@ -258,6 +294,7 @@ func removeString(slice []string, s string) []string {
 	}
 	return next
 }
+
 // ollama_remote route applied. praimate-code is
 // the OpenCode fork (name-only rebrand) and reads the SAME opencode.json,
 // so the opencode route covers it.
