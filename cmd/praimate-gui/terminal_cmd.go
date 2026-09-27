@@ -6,7 +6,9 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -77,6 +79,30 @@ func prepareLegacyTerminalContext(cwd, cli string, agent *core.Agent, prefix str
 			}
 		})
 	}, nil
+}
+
+// Preserve the existing temporary skill context when the project file is free.
+// A versioned Code chat can use its skills MCP if that file already belongs
+// to the project or another terminal. A persona can only use this fallback
+// when the CLI is continuing a native session that already received it.
+func prepareTerminalContext(cwd, cli string, agent *core.Agent, prefix string, versionedChat, nativeResume bool) (func(), bool, error) {
+	cleanup, err := prepareLegacyTerminalContext(cwd, cli, agent, prefix)
+	if err != nil && versionedChat && (agent == nil || nativeResume) && errors.Is(err, fs.ErrExist) {
+		return nil, true, nil
+	}
+	return cleanup, false, err
+}
+
+func isNativeResumeCommand(cli string, args []string) bool {
+	if cli == "codex" {
+		return len(args) > 0 && args[0] == "resume"
+	}
+	for _, arg := range args {
+		if arg == "--continue" {
+			return true
+		}
+	}
+	return false
 }
 
 func claudeSlug(cwd string) string {

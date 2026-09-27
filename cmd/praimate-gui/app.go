@@ -311,14 +311,15 @@ func (a *App) PickProjectFolder() (string, error) {
 }
 
 // StartTerminal launches a third-party CLI live in a PTY for an agent. The
-// existing project instructions are never overwritten. Persona and controlled
-// pinned-skill context is temporary and exclusive. Returns the
+// existing project instructions are never overwritten. Temporary context is
+// exclusive; versioned Code chats can fall back to skills MCP on collision.
+// Returns the
 // terminal session id; output streams over "term:data:<id>" events.
 func (a *App) StartTerminal(agentID, cli, model, cwd, localEndpoint, _ string, localModel string, resume bool, skills []string) (string, error) {
-	return a.startTerminal(agentID, cli, model, cwd, localEndpoint, localModel, resume, skills, nil)
+	return a.startTerminal(agentID, cli, model, cwd, localEndpoint, localModel, resume, skills, nil, "")
 }
 
-func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel string, resume bool, skills []string, skillSettings *core.ChatSettings) (string, error) {
+func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel string, resume bool, skills []string, skillSettings *core.ChatSettings, chatID string) (string, error) {
 	c, err := a.requireCore()
 	if err != nil {
 		return "", err
@@ -374,20 +375,23 @@ func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel 
 	if err != nil {
 		return "", err
 	}
+	nativeResume := false
 	if resume {
 		var supported bool
 		name, args, supported, err = terminalResumeCommand(cli, model, cwd)
 		if err != nil {
 			return "", err
 		}
+		nativeResume = isNativeResumeCommand(cli, args)
 		// For CLIs without a safe non-interactive resume selector, retain the
 		// normal launch rather than opening an interactive picker unexpectedly.
 		_ = supported
 	}
-	// Interactive CLIs do not expose their final prompt. PrAImate therefore
-	// uses an explicit compatible fallback: the exact reviewed pinned bodies go
-	// into the CLI's temporary project context and resources into a private,
-	// per-launch root. This never claims observable native activation.
+	// Interactive CLIs do not expose their final prompt. PrAImate prepares the
+	// reviewed skill payload and private resources for a compatible fallback.
+	// Versioned Code chats can use their skills MCP when an existing project
+	// context file prevents the temporary fallback. An agent requires a native
+	// session being resumed so its persona has already been supplied.
 	prefix := core.ResolveSkillsPrefix(skills)
 	var nativePrefix string
 	var nativeSkills *core.NativeSkillMaterialization
@@ -407,7 +411,8 @@ func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel 
 		}
 		prefix = nativePrefix
 	}
-	legacyCleanup, err := prepareLegacyTerminalContext(cwd, cli, agent, prefix)
+	versionedChat := chatID != "" && skillSettings != nil && skillSettings.SkillsV2 != nil
+	legacyCleanup, bridgeOnly, err := prepareTerminalContext(cwd, cli, agent, prefix, versionedChat, nativeResume)
 	if err != nil {
 		if nativeSkills != nil {
 			_ = nativeSkills.Cleanup()
@@ -425,11 +430,15 @@ func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel 
 			}
 		}
 	}()
-	targetChatID := ""
-	if agentID != "" {
+	targetChatID := chatID
+	if targetChatID == "" && agentID != "" {
 		targetChatID = "agent:" + agentID
 	}
-	if prov := a.skillsProvider(targetChatID); prov != nil {
+	prov := a.skillsProvider(targetChatID)
+	if bridgeOnly && prov == nil {
+		return "", fmt.Errorf("cannot provide selected skills through the internal MCP bridge")
+	}
+	if prov != nil {
 		effective.InternalMCPServers = append(effective.InternalMCPServers, core.MCPServer{
 			ID:        "praimate_skills",
 			Name:      "PrAImate Skills",

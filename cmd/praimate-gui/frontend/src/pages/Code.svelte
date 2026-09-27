@@ -315,8 +315,7 @@
     }
     error = ''
     try {
-      // agent.id when launched from an agent; '' for a clean session
-      // (StartTerminal skips the persona/context-file write).
+      // agent.id when launched from an agent; '' for a clean session.
       const created = await api.startCodeSessionWithSkills(
         agent ? agent.id : '',
         cli,

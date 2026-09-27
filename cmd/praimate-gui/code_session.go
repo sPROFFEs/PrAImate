@@ -50,7 +50,7 @@ func (a *App) StartCodeSessionWithSkills(agentID, cli, model, cwd, localEndpoint
 	if cli == "praimate-cli" {
 		termID, err = a.startNativeTerminal(chat)
 	} else {
-		termID, err = a.startTerminal(agentID, cli, model, cwd, localEndpoint, localModel, false, nil, &chat.Settings)
+		termID, err = a.startTerminal(agentID, cli, model, cwd, localEndpoint, localModel, false, nil, &chat.Settings, chatID)
 	}
 	if err != nil {
 		return fail(err)
@@ -100,6 +100,7 @@ func (a *App) StartTerminalForChat(chatID string, resume bool) (string, error) {
 		resume,
 		nil,
 		&chat.Settings,
+		chatID,
 	)
 	if err != nil {
 		return "", err
