@@ -30,6 +30,8 @@ type skillsBroker struct {
 	mu    sync.Mutex
 }
 
+const defaultSkillsChatID = "_defaults"
+
 func newSkillsBroker(c *core.Core) (*skillsBroker, error) {
 	tok := make([]byte, 24)
 	if _, err := rand.Read(tok); err != nil {
@@ -188,7 +190,7 @@ func (b *skillsBroker) resolveChatSkillEntries(ctx context.Context, chatID strin
 				}
 			}
 		}
-	} else if chatID != "" {
+	} else if chatID != "" && chatID != defaultSkillsChatID {
 		chat, err := b.core.GetChat(ctx, chatID)
 		if err == nil && chat != nil {
 			if chat.Settings.SkillsLock != nil {
@@ -433,6 +435,9 @@ func (a *App) skillsProvider(chatID string) *skillsProviderConfig {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil
+	}
+	if chatID == "" {
+		chatID = defaultSkillsChatID
 	}
 	return &skillsProviderConfig{
 		Command: exe,

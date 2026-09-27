@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -152,5 +153,37 @@ func TestSkillsBrokerIsolatedFromUserMCP(t *testing.T) {
 		if mcp.ID == "praimate_skills" || strings.Contains(mcp.Name, "Skills") {
 			t.Fatalf("internal skills broker leaked into user MCP catalog: %+v", mcp)
 		}
+	}
+}
+
+func TestSkillsProviderWithoutAgentReachesBroker(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	root := filepath.Join(t.TempDir(), "praimate")
+	st, err := store.InitializeWithPassword(filepath.Join(root, "db.sqlite"), "test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	c, err := core.New(core.Options{Store: st})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{ctx: context.Background(), core: c}
+	provider := app.skillsProvider("")
+	if provider == nil {
+		t.Fatal("skills provider unavailable")
+	}
+	req, err := http.NewRequest(http.MethodGet, provider.Args[1]+"/list", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Praimate-Token", provider.Args[3])
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list skills status = %d, want 200", resp.StatusCode)
 	}
 }

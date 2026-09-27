@@ -97,6 +97,47 @@ func TestNativeCLIModelSelectionSwitchesAssignedHost(t *testing.T) {
 	}
 }
 
+func TestNativeCLIMCPAndSkillStatus(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeCore()
+	ctx := context.Background()
+	chat, err := c.CreateChat(ctx, core.CreateChatRequest{CLIAgent: "praimate-cli", WorkspacePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	if err := command(ctx, c, chat.ID, "/mcp", &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "No registered MCP servers") || !strings.Contains(output.String(), "skill tools: inactive") {
+		t.Fatalf("empty MCP status is unclear: %s", output.String())
+	}
+	if _, err := c.ConnectMCP(ctx, core.ConnectMCPRequest{ID: "local-docs", Name: "Local Docs", Transport: core.MCPTransportHTTP, URL: "http://127.0.0.1:9999"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.UpdateChatSettings(ctx, chat.ID, func(s *core.ChatSettings) { s.MCPServers = []string{"local-docs"} }); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	if err := command(ctx, c, chat.ID, "/mcp", &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "local-docs (Local Docs) [selected]") {
+		t.Fatalf("selected MCP missing: %s", output.String())
+	}
+	output.Reset()
+	if err := command(ctx, c, chat.ID, "/skills", &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "Available approved versions:") {
+		t.Fatalf("skill catalogue status missing: %s", output.String())
+	}
+}
+
 func TestChatSystemPromptDoesNotLeakBetweenSessions(t *testing.T) {
 	t.Setenv("PRAIMATE_HOME", t.TempDir())
 	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)

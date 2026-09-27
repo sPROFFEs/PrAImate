@@ -868,7 +868,35 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 		return c.UpdateChatSettings(ctx, id, func(s *core.ChatSettings) { s.Tools = level; s.ToolsConfigured = true })
 	case "/mcp":
 		fmt.Fprintln(output, "\nMCP SERVERS")
-		fmt.Fprintln(output, strings.Join(chat.Settings.MCPServers, "\n"))
+		servers, err := c.ListMCPServers(ctx, false)
+		if err != nil {
+			return err
+		}
+		if len(servers) == 0 {
+			fmt.Fprintln(output, "No registered MCP servers.")
+		}
+		for _, server := range servers {
+			status := "available"
+			if !server.Enabled {
+				status = "disabled"
+			}
+			for _, selected := range chat.Settings.MCPServers {
+				if selected == server.ID {
+					if server.Enabled {
+						status = "selected"
+					} else {
+						status = "selected, disabled"
+					}
+					break
+				}
+			}
+			fmt.Fprintf(output, "%s (%s) [%s]\n", server.ID, server.Name, status)
+		}
+		if chat.Settings.SkillsV2 != nil {
+			fmt.Fprintln(output, "Internal native skill tools: skill_load, skill_read (see /skills)")
+		} else {
+			fmt.Fprintln(output, "Internal native skill tools: inactive (no versioned skill selection; see /skills)")
+		}
 	case "/skills":
 		fmt.Fprintln(output, "\nSKILLS")
 		raw, _ := json.MarshalIndent(struct {
@@ -877,6 +905,21 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 			Receipt   any      `json:"receipt"`
 		}{chat.Settings.Skills, chat.Settings.SkillsV2, chat.Settings.SkillRuntime}, "", "  ")
 		fmt.Fprintln(output, string(raw))
+		available, err := core.InstalledSkillSummaries(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(output, "Available approved versions:")
+		count := 0
+		for _, skill := range available {
+			if skill.Approved {
+				fmt.Fprintf(output, "%s (%s)\n", skill.Name, skill.Ref)
+				count++
+			}
+		}
+		if count == 0 {
+			fmt.Fprintln(output, "None installed and approved.")
+		}
 	case "/sessions":
 		chats, err := c.ListChats(ctx, 50)
 		if err != nil {

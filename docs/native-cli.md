@@ -85,6 +85,9 @@ MCP uses the core's registered servers, transports, authentication and timeouts.
 Choose them in Desktop/Studio or use `--mcp ID1,ID2`. A workspace `.mcp.json`
 never starts processes automatically. `AGENTS.md` and `.praimate/rules.md` are
 read as bounded project instructions, not permission grants.
+`/mcp` shows registered servers and the chat's selection. Native skill tools
+are separate from external MCP servers and appear when the chat has a versioned
+skill selection. `/skills` shows that selection and approved installed versions.
 
 Pinned skills and dynamic `skill_load`/`skill_read` use the existing core trust,
 exact version locks, resource limits and context budgets. Skill bodies are
