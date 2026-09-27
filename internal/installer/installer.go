@@ -1004,6 +1004,8 @@ func allMethods(agent AgentID, action Action, current OS) []Method {
 	openclaudeDisplayCmd := "npm install --no-fund --no-audit --ignore-scripts " + openclaudePkg
 
 	switch agent {
+	case AgentID("praimate-cli"):
+		return praimateCLIMethods(current)
 	case AgentID("praimate-code"):
 		// PrAImate Code isn't pip/npm installable — it's our prebuilt
 		// standalone, downloaded from the GitHub release. Reuse the

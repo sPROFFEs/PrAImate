@@ -46,7 +46,7 @@
   }
 
   function supportsNativeTerminalResume(cli) {
-    return ['claude', 'openclaude', 'codex', 'opencode', 'praimate-code'].includes(cli)
+    return ['claude', 'openclaude', 'codex', 'opencode', 'praimate-code', 'praimate-cli'].includes(cli)
   }
 
   function toolLevelsForCli(cli) {
@@ -462,19 +462,22 @@
     try { await api.resolveApproval(req.id, allow, always) } catch (e) { error = String(e) }
   }
 
-  async function send() {
-    const text = draft.trim()
+  async function send(override = null) {
+    const compact = override === '/compact'
+    const text = compact ? override : draft.trim()
     if ((!text && attachments.length === 0) || sending || !selected) return
     const chatID = selected.ID
     sending = true
     error = ''
     stream = null
     const isCommand = text.startsWith('!')
-    const staged = attachments
+    const staged = compact ? [] : attachments
     // Optimistically show the user's message.
     messages = [...messages, { Role: 'user', Content: text, TS: new Date().toISOString(), _pending: true }]
-    draft = ''
-    attachments = []
+    if (!compact) {
+      draft = ''
+      attachments = []
+    }
     await scrollToBottom(true)
     try {
       if (isCommand) {
@@ -501,7 +504,7 @@
       } catch {
         messages = messages.filter((m) => !m._pending)
       }
-      attachments = staged
+      if (!compact) attachments = staged
     } finally {
       sending = false
       stream = null
@@ -920,7 +923,7 @@
     </div>
   {/if}
   <div class="composer">
-    <button class="btn" on:click={attach} disabled={sending} title="Attach images, PDFs or documents — the agent reads them from disk">📎</button>
+    <button class="btn composer-action" on:click={attach} disabled={sending} title="Attach images, PDFs or documents" aria-label="Add files">📎 <span>Add files</span></button>
     <textarea
       class="field"
       rows="2"
@@ -928,9 +931,10 @@
       bind:value={draft}
       on:keydown={onKey}
       disabled={sending}></textarea>
-    <button class="btn" on:click={detachChat} disabled={approvals.length > 0} title="Move this chat into its own window">Detach</button>
+    <button class="btn composer-action" on:click={() => send('/compact')} disabled={sending || approvals.length > 0} title="Compact saved conversation context" aria-label="Compact context">◫ <span>Compact</span></button>
+    <button class="btn composer-action" on:click={detachChat} disabled={approvals.length > 0} title="Move this chat into its own window">↗ <span>Detach</span></button>
     {#if sending}
-      <button class="btn danger" on:click={stop} title="Interrupt the turn — text streamed so far is kept">■ Stop</button>
+      <button class="btn danger composer-action stop-action" on:click={stop} title="Interrupt the turn — text streamed so far is kept">■ <span>Stop</span></button>
     {:else}
       <button class="btn primary" on:click={send} disabled={!draft.trim() && attachments.length === 0}>Send</button>
     {/if}
@@ -1097,6 +1101,11 @@
     align-items: flex-end;
   }
   .composer textarea { resize: none; }
+  .composer textarea { min-width: 0; flex: 1; }
+  .composer-action { display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; min-height: 38px; background: var(--bg-raised); }
+  .composer-action:hover { border-color: var(--accent); }
+  .stop-action { border-color: var(--err); color: var(--err); }
+  @media (max-width: 800px) { .composer-action span { display: none; } .composer-action { min-width: 38px; padding: 7px; } }
   .msg.pending { opacity: 0.6; }
   .typing { color: var(--text-dim); font-style: italic; }
   .toolpick { display: flex; align-items: center; gap: 4px; }

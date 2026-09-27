@@ -26,7 +26,7 @@ instructions: |
   - instructions: the system prompt the agent runs under. Second person
     ("You are..."), concrete, scoped. Say what NOT to do when it matters.
   - supports: list of wrapped CLIs the agent can run on. Valid values:
-    claude, openclaude, codex, opencode, praimate-code.
+    claude, openclaude, codex, opencode, praimate-code, praimate-cli.
     List only the CLIs whose capabilities the instructions actually need.
   - tools: optional advisory list — file_read, file_write, file_edit,
     file_search, shell_run, git. Unsupported entries are dropped per-CLI.
@@ -104,6 +104,7 @@ supports:
   - codex
   - opencode
   - praimate-code
+  - praimate-cli
 
 workflows:
   - name: Build an agent

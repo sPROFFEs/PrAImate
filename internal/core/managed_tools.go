@@ -259,7 +259,7 @@ func (b *managedToolBroker) callMCP(ctx context.Context, raw json.RawMessage) (s
 		return "", errors.New("mcp.call requires server and tool")
 	}
 	if err := b.requireApproval(ctx, "mcp."+args.Server+"."+args.Tool, map[string]any{
-		"server": args.Server, "tool": args.Tool,
+		"server": args.Server, "tool": args.Tool, "arguments": args.Arguments,
 	}); err != nil {
 		return "", err
 	}
@@ -647,6 +647,8 @@ func (b *managedToolBroker) execBounded(parent context.Context, timeout time.Dur
 		return "", err
 	}
 	cmd := exec.CommandContext(ctx, path, args...)
+	hideConsole(cmd)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = b.root
 	cmd.Env = managedCommandEnv()
 	var out limitedBuffer

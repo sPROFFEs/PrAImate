@@ -46,7 +46,12 @@ func (a *App) StartCodeSessionWithSkills(agentID, cli, model, cwd, localEndpoint
 	if err != nil {
 		return fail(err)
 	}
-	termID, err := a.startTerminal(agentID, cli, model, cwd, localEndpoint, localModel, false, nil, &chat.Settings)
+	var termID string
+	if cli == "praimate-cli" {
+		termID, err = a.startNativeTerminal(chat)
+	} else {
+		termID, err = a.startTerminal(agentID, cli, model, cwd, localEndpoint, localModel, false, nil, &chat.Settings)
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -68,6 +73,17 @@ func (a *App) StartTerminalForChat(chatID string, resume bool) (string, error) {
 	chat, err := c.GetChat(a.ctx, chatID)
 	if err != nil {
 		return "", err
+	}
+	if chat.CLIAgent == "praimate-cli" {
+		termID, err := a.startNativeTerminal(chat)
+		if err != nil {
+			return "", err
+		}
+		if err := a.BindChatToTerminal(termID, chatID); err != nil {
+			a.CloseTerminal(termID)
+			return "", err
+		}
+		return termID, nil
 	}
 	var endpoint, localModel string
 	if chat.Settings.Local != nil {
@@ -93,6 +109,19 @@ func (a *App) StartTerminalForChat(chatID string, resume bool) (string, error) {
 		return "", err
 	}
 	return termID, nil
+}
+
+// Pass only the shared chat identity. No temporary AGENTS.md, duplicated MCP
+// configuration, API credentials or lossy skill payload is needed.
+func (a *App) startNativeTerminal(chat *core.Chat) (string, error) {
+	if a.terms == nil {
+		return "", fmt.Errorf("terminal manager is not available")
+	}
+	command, err := core.ResolveInteractiveCLIBinary("praimate-cli")
+	if err != nil {
+		return "", err
+	}
+	return a.terms.startWithCleanup(command, []string{"--chat", chat.ID}, chat.WorkspacePath, nil, a.emitTerminalEvent, nil)
 }
 
 // RecordCodeSession persists a surface="code" chat pointer for a freshly

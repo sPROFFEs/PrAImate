@@ -374,7 +374,7 @@ func PreviewGuidedAgent(req GuidedAgentRequest) (*GuidedAgentPreview, error) {
 		return nil, errors.New("agent name needs at least one letter or digit")
 	}
 	if len(req.Supports) == 0 {
-		req.Supports = []string{"claude", "openclaude", "codex", "opencode", "praimate-code"}
+		req.Supports = []string{"claude", "openclaude", "codex", "opencode", "praimate-code", "praimate-cli"}
 	}
 	agent := &Agent{
 		ID: id, Name: req.Name, Description: req.Purpose,

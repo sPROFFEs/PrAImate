@@ -1,6 +1,7 @@
 package studio
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -38,9 +39,8 @@ func terminalCLIs() []terminalCLI {
 	return result
 }
 
-// prepareTerminal only resolves a launch; it never spawns a process or writes
-// project configuration. The extension host launches it in Codium's real PTY.
-// Native permissions/authentication remain under that CLI's own control.
+// prepareTerminal never spawns a process or writes project configuration.
+// PrAImate CLI gets a core chat snapshot; other CLIs retain their own sessions.
 func (s *Server) prepareTerminal(body []byte) (*terminalPlan, error) {
 	var request struct {
 		CLI string `json:"cli"`
@@ -70,6 +70,21 @@ func (s *Server) prepareTerminal(body []byte) (*terminalPlan, error) {
 	command, err := core.ResolveInteractiveCLIBinary(cli)
 	if err != nil {
 		return nil, fmt.Errorf("%s executable not found; install it from Desktop → CLIs, then reopen Studio", cli)
+	}
+	if cli == "praimate-cli" {
+		ctx := context.Background()
+		if cli != config.CLI {
+			config = sessionConfig{CLI: cli, Workspace: config.Workspace}
+		}
+		settings, err := s.settings(ctx, config)
+		if err != nil {
+			return nil, err
+		}
+		chat, err := s.core.CreateChat(ctx, core.CreateChatRequest{Title: "Studio native terminal", CLIAgent: cli, AgentID: config.AgentID, WorkspacePath: config.Workspace, Settings: settings})
+		if err != nil {
+			return nil, err
+		}
+		args = []string{"--chat", chat.ID}
 	}
 	// Export only PATH, not Desktop's credential-bearing environment. This lets
 	// installed CLI wrappers find node/bun and other managed runtime tools.

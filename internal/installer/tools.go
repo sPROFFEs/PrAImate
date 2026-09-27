@@ -592,6 +592,26 @@ func praimateCodeMethods(current OS) []Method {
 	return []Method{m}
 }
 
+func praimateCLIMethods(current OS) []Method {
+	goos := "linux"
+	if current == OSWindows {
+		goos = "windows"
+	} else if current != OSLinux && current != OSWSL {
+		return nil
+	}
+	binDir, err := PraimateBinDir()
+	if err != nil {
+		return nil
+	}
+	ext := ""
+	if goos == "windows" {
+		ext = ".exe"
+	}
+	asset := fmt.Sprintf("praimate-cli-%s-%s%s", goos, runtime.GOARCH, ext)
+	dest := filepath.Join(binDir, "praimate-cli"+ext)
+	return []Method{{ID: "download", Label: "Install PrAImate CLI (bundled copy or release download)", Command: assetDownloadDisplayCmd(asset, dest), DownloadAsset: asset, DownloadDest: dest, Recommended: true, VerifyRun: true}}
+}
+
 // ErrNoPrebuiltAsset signals to the caller that the requested binary is
 // neither bundled in the install dir NOR published as a release asset
 // for the current OS/arch — the right next step is to build from source

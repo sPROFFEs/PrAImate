@@ -245,7 +245,7 @@ func Apply(asset *Asset, progress func(stage string)) error {
 	// (praimate, praimate-gui, wpc, praimate-code) so `praimate -update` or GUI
 	// updater keeps them in step with the main binary — matching what the installer does.
 	exeDir := filepath.Dir(exePath)
-	allSiblings := []string{"praimate", "praimate-gui", "wpc", "praimate-code"}
+	allSiblings := []string{"praimate", "praimate-gui", "wpc", "praimate-code", "praimate-cli"}
 	for _, sib := range allSiblings {
 		name := sib
 		if runtime.GOOS == "windows" {

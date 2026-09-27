@@ -1,4 +1,4 @@
-export const LOCAL_ROUTABLE_CLIS = Object.freeze(['openclaude', 'opencode', 'praimate-code'])
+export const LOCAL_ROUTABLE_CLIS = Object.freeze(['openclaude', 'opencode', 'praimate-code', 'praimate-cli'])
 
 export function supportsLocalRouting(cli) {
   return LOCAL_ROUTABLE_CLIS.includes(cli)

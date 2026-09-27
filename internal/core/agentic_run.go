@@ -32,9 +32,11 @@ type ManagedRunEvent struct {
 }
 
 type ManagedRunRequest struct {
+	ChatID         string
 	TaskBudgetID   string
 	FinishEvidence []agentic.EvidenceRequirement
 	SkillSettings  *ChatSettings
+	Attachments    []string
 	Surface        ExecutionSurface
 	Agent          *Agent
 	CLI            string
@@ -51,6 +53,8 @@ type ManagedRunRequest struct {
 }
 
 type managedRunSpec struct {
+	ChatID         string                        `json:"chat_id,omitempty"`
+	Attachments    []string                      `json:"attachments,omitempty"`
 	TaskBudgetID   string                        `json:"task_budget_id,omitempty"`
 	FinishEvidence []agentic.EvidenceRequirement `json:"finish_evidence,omitempty"`
 	SkillsV2       *skills.SkillConfig           `json:"skills_v2,omitempty"`
@@ -166,12 +170,23 @@ func (c *Core) RunManagedAgent(ctx context.Context, req ManagedRunRequest) (*Man
 		Surface: req.Surface, CLI: req.CLI, Cwd: req.Cwd,
 		Model: req.Model, Tools: "", Local: req.Local,
 		SkillSettings: &skillSettings, skillSnapshot: true,
+		Attachments: req.Attachments,
 	})
 	if err != nil {
 		return nil, err
 	}
 	if err := c.PrepareExecution(ctx, execution); err != nil {
 		return nil, err
+	}
+	if execution.native != nil {
+		// The managed engine is the sole owner of tools, approvals and budgets.
+		execution.native.modelOnly = true
+		execution.native.chatID = req.ChatID
+		execution.native.images, err = nativeAttachmentImages(req.Attachments)
+		if err != nil {
+			return nil, err
+		}
+		ctx = withNativeExecution(ctx, execution.native)
 	}
 	root, err := managedRunsRoot()
 	if err != nil {
@@ -190,6 +205,8 @@ func (c *Core) RunManagedAgent(ctx context.Context, req ManagedRunRequest) (*Man
 			local = &copyLocal
 		}
 		spec := managedRunSpec{
+			ChatID:         req.ChatID,
+			Attachments:    req.Attachments,
 			TaskBudgetID:   skillTaskBudgetID(ctx, req.TaskBudgetID),
 			FinishEvidence: req.FinishEvidence,
 			SkillsV2:       skillSettings.SkillsV2, SkillsLock: skillSettings.SkillsLock,
@@ -378,6 +395,8 @@ func (c *Core) ResumeManagedRun(ctx context.Context, runID string, onEvent func(
 		return nil, err
 	}
 	return c.RunManagedAgent(ctx, ManagedRunRequest{
+		ChatID:         spec.ChatID,
+		Attachments:    spec.Attachments,
 		TaskBudgetID:   spec.TaskBudgetID,
 		FinishEvidence: spec.FinishEvidence,
 		SkillSettings:  &ChatSettings{SkillsV2: spec.SkillsV2, SkillsLock: spec.SkillsLock},
@@ -408,7 +427,7 @@ func (m *managedCLIModel) Turn(ctx context.Context, input agentic.ModelInput, em
 		if emit == nil || ev.Type == "text" {
 			return
 		}
-		emit(agentic.Event{Type: "model." + ev.Type, Tool: ev.Tool, Detail: ev.Detail, OK: ev.OK})
+		emit(agentic.Event{Type: "model." + ev.Type, Tool: ev.Tool, Detail: ev.Detail, OK: ev.OK, Payload: ev.Raw})
 	}
 	// V2 requests carry the complete measured payload each time. Starting a
 	// fresh safe CLI call prevents private native history duplicating it.

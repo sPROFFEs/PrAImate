@@ -370,6 +370,9 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 		if p.CLI == "" {
 			p.CLI = s.sessionSnapshot().CLI
 		}
+		if p.CLI == "praimate-cli" {
+			return s.core.NativeModels(ctx, s.sessionSnapshot().LocalEndpoint)
+		}
 		return core.ListCLIModels(ctx, p.CLI), nil
 	case "terminals.list":
 		return terminalCLIs(), nil

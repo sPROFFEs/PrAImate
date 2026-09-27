@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"git.jtsec.local/lab/PrAImate/internal/skills"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -183,6 +184,18 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	if err != nil {
 		return nil, err
 	}
+	if chat.CLIAgent == "praimate-cli" {
+		var release func()
+		ctx, release, err = c.nativeLease(ctx, "chat."+chatID)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		chat, err = c.GetChat(ctx, chatID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	var agent *Agent
 	managedChat := false
 	if chat.AgentID != "" {
@@ -197,7 +210,7 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	}
 	var skillPayload string
 	var skillState *SkillRuntimeState
-	if !managedChat {
+	if !managedChat && chat.CLIAgent != "praimate-cli" {
 		skillPayload, skillState, err = c.BuildChatSkillPayload(ctx, chat.Settings, systemPrompt+"\n"+userMessage)
 		if err != nil {
 			return nil, err
@@ -228,11 +241,22 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	start := time.Now()
 	trimmedUser := strings.TrimSpace(userMessage)
 	if trimmedUser == "/compact" || strings.HasPrefix(trimmedUser, "/compact ") {
-		_ = c.SetChatSessionID(ctx, chatID, "")
+		replyMsg := "Session reset. The next turn will receive bounded excerpts from the saved conversation. Full chat history remains in PrAImate."
+		sessionID := ""
+		if chat.CLIAgent == "praimate-cli" {
+			if chat.SessionID != "" {
+				if err := c.compactNativeSession(ctx, chat.SessionID); err != nil {
+					return nil, err
+				}
+			}
+			sessionID = chat.SessionID
+			replyMsg = "Model context compacted into bounded excerpts. Full chat history is retained in PrAImate."
+		} else if err := c.SetChatSessionID(ctx, chatID, ""); err != nil {
+			return nil, err
+		}
 		if _, err := c.AddMessage(ctx, chatID, "user", userMessage, map[string]any{"kind": "command"}); err != nil {
 			return nil, fmt.Errorf("persist compact command: %w", err)
 		}
-		replyMsg := "Session context compacted. The session memory has been reset and subsequent turns will use summarized context."
 		if _, err := c.AddMessage(ctx, chatID, "assistant", replyMsg, map[string]any{"compacted": true}); err != nil {
 			return nil, fmt.Errorf("persist compact reply: %w", err)
 		}
@@ -242,7 +266,7 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 		return &ChatTurn{
 			UserMessage: userMessage,
 			Reply:       replyMsg,
-			SessionID:   "",
+			SessionID:   sessionID,
 			DurationMs:  time.Since(start).Milliseconds(),
 		}, nil
 	}
@@ -253,9 +277,16 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	if len(attachments) > 0 {
 		var b strings.Builder
 		b.WriteString(outbound)
-		b.WriteString("\n\nThe user attached these files — read them from disk with your file tools:\n")
-		for _, p := range attachments {
-			b.WriteString("- " + p + "\n")
+		if chat.CLIAgent == "praimate-cli" && !managedChat {
+			b.WriteString("\n\nUser-selected attachments (images are included visually; for text use read_attachment with the index):\n")
+			for i, p := range attachments {
+				fmt.Fprintf(&b, "- %d: %s\n", i, filepath.Base(p))
+			}
+		} else {
+			b.WriteString("\n\nThe user attached these files — read them from disk with your file tools:\n")
+			for _, p := range attachments {
+				b.WriteString("- " + p + "\n")
+			}
 		}
 		outbound = b.String()
 	}
@@ -273,6 +304,30 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	}
 	if _, err := c.AddMessage(ctx, chatID, "user", userMessage, meta); err != nil {
 		return nil, fmt.Errorf("persist user message: %w", err)
+	}
+	// A manual compact discards the provider's private session. Rehydrate the
+	// first new session from our persisted transcript, including this turn.
+	// Keep doing so if a failed attempt produced no resumable session ID.
+	if chat.CLIAgent != "praimate-cli" && chat.SessionID == "" {
+		messages, historyErr := c.ListMessages(ctx, chatID, 0)
+		if historyErr != nil {
+			return nil, historyErr
+		}
+		pendingCompact := false
+		for _, m := range messages {
+			if m.Role == "assistant" {
+				pendingCompact = m.Meta["compacted"] == true
+			}
+		}
+		if pendingCompact {
+			compactedPrompt, historyErr := c.buildCompactedChatPrompt(ctx, chatID, attachments)
+			if historyErr != nil {
+				return nil, historyErr
+			}
+			if compactedPrompt != "" {
+				outbound = privacyRedactPlain(privacy, compactedPrompt)
+			}
+		}
 	}
 
 	// Wrap the caller's handler to also collect a compact activity log
@@ -311,7 +366,7 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 
 	// Ask level: wire the approval shim when a provider is registered.
 	var approval *ApprovalConfig
-	if chat.Settings.Tools == "ask" {
+	if chat.Settings.Tools == "ask" || chat.CLIAgent == "praimate-cli" {
 		approval = c.approvalForContext(ctx, chatID)
 	}
 	surface := SurfaceChat
@@ -334,7 +389,7 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 			managedTask, _ = redaction.Redact(managedTask)
 			managedSystem, _ := redaction.Redact(systemPrompt)
 			return c.continueManagedChat(ctx, chat, agent, surface, managedTask, userMessage,
-				cwd, managedSystem, redaction, collect, &activity)
+				cwd, managedSystem, attachments, redaction, collect, &activity)
 		}
 	}
 	executionAgent := agent
@@ -351,6 +406,7 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 		Local:           chat.Settings.Local, MCPServers: chat.Settings.MCPServers,
 		ExplicitMCP: chat.Settings.MCPConfigured || len(chat.Settings.MCPServers) > 0,
 		Approval:    approval,
+		Attachments: attachments,
 	})
 	if err != nil {
 		return nil, err
@@ -358,6 +414,7 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	if err := c.PrepareExecution(ctx, effective); err != nil {
 		return nil, err
 	}
+	ctx = withNativeExecution(ctx, effective.native)
 	resumeOpts := ResumeOpts{Message: outbound, Cwd: cwd, Model: effective.Model, Tools: effective.Tools, Approval: effective.Approval, Env: effective.Env}
 	shotOpts := SingleShotOpts{
 		Cwd:          cwd,
@@ -384,7 +441,7 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 
 	var reply *Reply
 	streamed := false
-	shouldStream := onEvent != nil || isOpenCodeLikeAdapter(adapter.Name())
+	shouldStream := onEvent != nil || isOpenCodeLikeAdapter(adapter.Name()) || adapter.Name() == "praimate-cli"
 	if sc, ok := adapter.(streamingAdapter); ok && shouldStream {
 		if resuming {
 			reply, err = sc.ResumeStream(ctx, chat.SessionID, resumeOpts, collect)
@@ -409,7 +466,7 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	if reply != nil {
 		replyText = reply.Text
 	}
-	if isContextLengthExceeded(err, replyText) {
+	if chat.CLIAgent != "praimate-cli" && isContextLengthExceeded(err, replyText) {
 		// Context window exceeded (frequent with local models like Ollama/LM Studio/vLLM).
 		// Automatically compact conversation history from DB and retry as a fresh single shot.
 		collect(StreamEvent{Type: "step_start", Detail: "Context limit reached on local model. Automatically compacting session history..."})
@@ -604,7 +661,7 @@ func (c *Core) buildCompactedChatPrompt(ctx context.Context, chatID string, atta
 	}
 	var eligible []historyItem
 	for _, m := range messages {
-		if m.Role == "user" || m.Role == "assistant" {
+		if (m.Role == "user" && m.Meta["kind"] != "command") || (m.Role == "assistant" && m.Meta["compacted"] != true) {
 			eligible = append(eligible, historyItem{role: m.Role, content: strings.TrimSpace(m.Content)})
 		}
 	}
@@ -613,8 +670,17 @@ func (c *Core) buildCompactedChatPrompt(ctx context.Context, chatID string, atta
 	}
 
 	selected := make([]string, 0, len(eligible))
-	used := 0
+	// Preserve the opening request as well as recent turns: the task goal is
+	// often older than the last 24 KB of tool chatter.
+	opening := ""
+	if len(eligible) > 1 && eligible[0].role == "user" {
+		opening = "USER:\n" + truncate(eligible[0].content, 1200) + "\n"
+	}
+	used := len(opening)
 	for i := len(eligible) - 1; i >= 0; i-- {
+		if i == 0 && opening != "" {
+			break
+		}
 		item := eligible[i]
 		entry := strings.ToUpper(item.role) + ":\n" + item.content + "\n"
 		if i == len(eligible)-1 && item.role == "user" && len(attachments) > 0 {
@@ -632,7 +698,11 @@ func (c *Core) buildCompactedChatPrompt(ctx context.Context, chatID string, atta
 
 	var sb strings.Builder
 	sb.WriteString("Conversation context was compacted to fit model context limits. Continue this conversation:\n\n")
-	if len(selected) < len(eligible) {
+	if opening != "" {
+		sb.WriteString(opening)
+		sb.WriteByte('\n')
+	}
+	if (opening == "" && len(selected) < len(eligible)) || (opening != "" && len(selected)+1 < len(eligible)) {
 		sb.WriteString("… (earlier conversation turns omitted for compaction) …\n\n")
 	}
 	for i := len(selected) - 1; i >= 0; i-- {

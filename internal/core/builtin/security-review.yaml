@@ -42,6 +42,7 @@ supports:
   - codex
   - opencode
   - praimate-code
+  - praimate-cli
 
 tools:
   - file_read

@@ -351,7 +351,7 @@ func (w *Workflow) validate(agentID string) error {
 
 func isKnownCLI(name string) bool {
 	switch name {
-	case "claude", "codex", "opencode", "openclaude", "praimate-code":
+	case "claude", "codex", "opencode", "openclaude", "praimate-code", "praimate-cli":
 		return true
 	}
 	return false

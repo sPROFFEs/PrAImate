@@ -326,6 +326,31 @@ func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel 
 	if cwd == "" {
 		return "", fmt.Errorf("a project folder is required")
 	}
+	if cli == "praimate-cli" {
+		id, err := a.RecordCodeSession(agentID, cli, model, cwd, localEndpoint, "", localModel)
+		if err != nil {
+			return "", err
+		}
+		if skillSettings != nil || len(skills) > 0 {
+			err = c.UpdateChatSettings(a.ctx, id, func(s *core.ChatSettings) {
+				if skillSettings != nil {
+					*s = *skillSettings
+				} else {
+					s.Skills = skills
+				}
+				s.Surface = "code"
+			})
+			if err != nil {
+				_ = c.DeleteChat(a.ctx, id)
+				return "", err
+			}
+		}
+		termID, err := a.StartTerminalForChat(id, false)
+		if err != nil {
+			_ = c.DeleteChat(a.ctx, id)
+		}
+		return termID, err
+	}
 	var agent *core.Agent
 	if agentID != "" {
 		agent, err = c.GetAgent(a.ctx, agentID)
@@ -654,6 +679,13 @@ func (a *App) ListCLIs() []CLIInfo {
 }
 
 func (a *App) ListCLIModels(cli string) []string {
+	if cli == "praimate-cli" {
+		if c, err := a.requireCore(); err == nil {
+			if models, err := c.NativeModels(a.ctx, ""); err == nil {
+				return models
+			}
+		}
+	}
 	return core.ListCLIModels(a.ctx, cli)
 }
 

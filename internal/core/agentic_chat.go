@@ -14,12 +14,15 @@ func (c *Core) continueManagedChat(
 	agent *Agent,
 	surface ExecutionSurface,
 	task, userMessage, cwd, systemPrompt string,
+	attachments []string,
 	redaction *PrivacyRedaction,
 	emit StreamHandler,
 	activity *[]map[string]any,
 ) (*ChatTurn, error) {
 	start := time.Now()
 	managed, runErr := c.RunManagedAgent(ctx, ManagedRunRequest{
+		ChatID:        chat.ID,
+		Attachments:   attachments,
 		TaskBudgetID:  "chat:" + chat.ID,
 		SkillSettings: &chat.Settings,
 		Surface:       surface, Agent: agent, CLI: chat.CLIAgent, Cwd: cwd,
@@ -151,6 +154,9 @@ func managedStreamEvent(event ManagedRunEvent) StreamEvent {
 		out.Type = "tool_end"
 	case "model.reasoning", "model.step_start", "model.step_finish":
 		out.Type = strings.TrimPrefix(event.Type, "model.")
+	case "model.context", "model.usage", "model.context_compacted":
+		out.Type = strings.TrimPrefix(event.Type, "model.")
+		out.Raw = event.Payload
 	}
 	return out
 }

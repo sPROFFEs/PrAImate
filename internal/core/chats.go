@@ -63,7 +63,7 @@ type ChatSettings struct {
 
 	// Tools pins the CLI's permission level for every turn: "" (safe
 	// default — read/answer only), "ask" (mid-turn Allow/Deny dialog;
-	// claude/openclaude only, others degrade to safe), "edits"
+	// claude/openclaude/praimate-cli; others degrade to safe), "edits"
 	// (auto-approve file edits), "full" (skip approvals entirely). See
 	// SingleShotOpts.Tools for the per-CLI flag mapping.
 	Tools string `json:"tools,omitempty"`
@@ -98,7 +98,7 @@ type ChatSettings struct {
 
 	// Local, if set, routes this chat through a self-hosted
 	// OpenAI-compatible endpoint instead of the CLI's cloud backend —
-	// resolved at launch for OpenClaude, OpenCode, and PrAImate Code.
+	// resolved at launch for OpenClaude, OpenCode, PrAImate Code and CLI.
 	// Claude Code and Codex local routing are deliberately unsupported.
 	Local *ChatLocalEndpoint `json:"local,omitempty"`
 }
@@ -266,6 +266,29 @@ func (c *Core) EndChat(ctx context.Context, id, exitKind string) error {
 func (c *Core) DeleteChat(ctx context.Context, id string) error {
 	if c.store == nil {
 		return errors.New("DeleteChat: no store configured")
+	}
+	chat, err := c.GetChat(ctx, id)
+	if err != nil {
+		return err
+	}
+	if chat.CLIAgent == "praimate-cli" {
+		leaseCtx, release, err := c.nativeLease(ctx, "chat."+id)
+		if err != nil {
+			return err
+		}
+		defer release()
+		tx, err := c.store.DB().BeginTx(leaseCtx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		if _, err := tx.ExecContext(leaseCtx, `DELETE FROM settings_cli WHERE key LIKE 'native.session.%' AND (json_extract(value_json, '$.chat_id') = ? OR key = ?)`, id, "native.session."+chat.SessionID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(leaseCtx, `DELETE FROM chats WHERE id = ?`, id); err != nil {
+			return err
+		}
+		return tx.Commit()
 	}
 	res, err := c.store.DB().ExecContext(ctx, `DELETE FROM chats WHERE id = ?`, id)
 	if err != nil {

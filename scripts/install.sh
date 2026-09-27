@@ -80,7 +80,7 @@ do_uninstall() {
   else
     dests=("$HOME/.local/bin" "/usr/local/bin")
   fi
-  local files=(praimate wpc praimate-gui praimate-code praimate-launch
+  local files=(praimate wpc praimate-gui praimate-code praimate-cli praimate-launch
                praimate-gui-launch PRAIMATE-CODE-LICENSE PRAIMATE-CODE-NOTICE)
   for d in "${dests[@]}"; do
     [[ -d "$d" ]] || continue
@@ -321,6 +321,10 @@ sync_samples() {
 sync_bundle_extras() {
   local bundle="$1" graphify
 
+  if [[ -f "$bundle/praimate-cli" ]]; then
+    $SUDO install -m 0755 "$bundle/praimate-cli" "$DEST/praimate-cli"
+  fi
+
   if [[ -f "$bundle/praimate-gui" ]]; then
     $SUDO install -m 0755 "$bundle/praimate-gui" "$DEST/praimate-gui"
     c_grn "  praimate-gui installed (launch with: praimate)"
@@ -546,6 +550,7 @@ install_from_source() {
     GOARCH="$(case $(uname -m) in x86_64|amd64) printf amd64;; aarch64|arm64) printf arm64;; esac)" \
     CGO_ENABLED=0 \
     go build -trimpath -ldflags '-s -w' -o "$builddir/wpc" ./cmd/wpc
+    CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o "$builddir/praimate-cli" ./cmd/praimate-cli
   )
 
   step "Building GUI"
@@ -560,6 +565,7 @@ install_from_source() {
   step "Installing to $DEST"
   $SUDO install -m 0755 "$builddir/praimate" "$DEST/praimate"
   $SUDO install -m 0755 "$builddir/wpc"   "$DEST/wpc"
+  $SUDO install -m 0755 "$builddir/praimate-cli" "$DEST/praimate-cli"
   installed="praimate + wpc"
   if [[ -f "$gui_bin" ]]; then
     $SUDO install -m 0755 "$gui_bin" "$DEST/praimate-gui$ext"

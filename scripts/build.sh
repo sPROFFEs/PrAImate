@@ -33,7 +33,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.2.9}"
+VERSION="${VERSION:-1.2.10}"
 EXTRA_LDFLAGS="${LDFLAGS:--s -w}"  # strip symbols by default — tiny binaries
 ARCHIVE=1
 WITH_CODE=0
@@ -98,6 +98,9 @@ build_one() {
     go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$out/wpc$ext" ./cmd/wpc
   GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
     go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$out/praimate$ext" ./cmd/praimate
+  GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+    go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$out/praimate-cli$ext" ./cmd/praimate-cli
+  cp "$out/praimate-cli$ext" "dist/praimate-cli-$triplet$ext"
 
   # GUI: Linux must be built natively; Windows is pure-Go cross-buildable.
   if [ "$triplet" = "$NATIVE_TRIPLET" ]; then

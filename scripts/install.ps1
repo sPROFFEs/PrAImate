@@ -107,7 +107,7 @@ if ($Uninstall) {
     foreach ($d in $dests) {
         if (-not (Test-Path $d)) { continue }
         Step "Removing binaries from $d"
-        foreach ($f in @("praimate.exe","wpc.exe","praimate-gui.exe","praimate-code.exe",
+        foreach ($f in @("praimate.exe","wpc.exe","praimate-gui.exe","praimate-code.exe","praimate-cli.exe","praimate-cli.exe.old",
                          "praimate.exe.old","praimate-gui.exe.old","praimate-code.exe.old",
                          "PRAIMATE-CODE-LICENSE","PRAIMATE-CODE-NOTICE")) {
             $p = Join-Path $d $f
@@ -316,6 +316,8 @@ function Install-Binary {
         Step "Installing to $Dest"
         Copy-Item -Path (Join-Path $extracted "praimate.exe") -Destination $Dest -Force
         Copy-Item -Path (Join-Path $extracted "wpc.exe")   -Destination $Dest -Force
+        $nativeSrc = Join-Path $extracted "praimate-cli.exe"
+        if (Test-Path $nativeSrc) { Copy-Item -Path $nativeSrc -Destination $Dest -Force }
         # Desktop GUI ships prebuilt in both Windows architecture archives.
         # Install it next to praimate.exe so the default launcher finds it.
         $guiSrc = Join-Path $extracted "praimate-gui.exe"
@@ -406,6 +408,8 @@ function Install-Source {
             if ($LASTEXITCODE -ne 0) { Fail "go build (praimate) failed" }
             & go build -trimpath -ldflags '-s -w' -o wpc.exe   ./cmd/wpc
             if ($LASTEXITCODE -ne 0) { Fail "go build (wpc) failed" }
+            & go build -trimpath -ldflags '-s -w' -o praimate-cli.exe ./cmd/praimate-cli
+            if ($LASTEXITCODE -ne 0) { Fail "go build (praimate-cli) failed" }
             Push-Location "cmd\praimate-gui\frontend"
             try {
                 & npm install
@@ -423,6 +427,7 @@ function Install-Source {
             Step "Installing to $Dest"
             Copy-Item -Path ".\praimate.exe" -Destination $Dest -Force
             Copy-Item -Path ".\wpc.exe"   -Destination $Dest -Force
+            Copy-Item -Path ".\praimate-cli.exe" -Destination $Dest -Force
             Copy-Item -Path ".\cmd\praimate-gui\praimate-gui.exe" -Destination $Dest -Force
             Write-Host "  v PrAImate GUI + maintenance CLI + wpc installed" -ForegroundColor Green
         } finally {
@@ -440,6 +445,8 @@ function Install-Local {
     if (-not (Test-Path $gui)) { Fail "local bundle is missing mandatory praimate-gui.exe" }
     Copy-Item -Path (Join-Path $LocalBins "praimate.exe") -Destination $Dest -Force
     Copy-Item -Path (Join-Path $LocalBins "wpc.exe")   -Destination $Dest -Force
+    $nativeSrc = Join-Path $LocalBins "praimate-cli.exe"
+    if (Test-Path $nativeSrc) { Copy-Item -Path $nativeSrc -Destination $Dest -Force }
     Copy-Item -Path $gui -Destination $Dest -Force
     Write-Host "  v PrAImate GUI + maintenance CLI + wpc installed" -ForegroundColor Green
 }

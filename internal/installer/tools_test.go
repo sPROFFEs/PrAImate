@@ -191,6 +191,18 @@ func TestPraimateCodeMethods_PresentPerOS(t *testing.T) {
 	}
 }
 
+func TestPraimateCLIMethods_PresentPerOS(t *testing.T) {
+	for _, platform := range []OS{OSLinux, OSWSL, OSWindows} {
+		methods := praimateCLIMethods(platform)
+		if len(methods) != 1 || !methods[0].Recommended || !methods[0].VerifyRun || !strings.HasPrefix(methods[0].DownloadAsset, "praimate-cli-") {
+			t.Fatalf("native methods for %v: %+v", platform, methods)
+		}
+		if platform == OSWindows && !strings.HasSuffix(methods[0].DownloadDest, "praimate-cli.exe") {
+			t.Fatal("missing Windows executable suffix")
+		}
+	}
+}
+
 func TestKnownTools_ExcludesPraimateCode(t *testing.T) {
 	// PrAImate Code is a CLI surfaced in the CLIs browser, not a
 	// companion tool — it must NOT appear in the Tools catalog.

@@ -43,3 +43,7 @@ __pycache__/
 .praimate/
 opencode.json
 backup_main_to_branch.sh
+/cmd/praimate-cli/praimate-cli
+/cmd/praimate-cli/praimate-cli.exe
+/cmd/praimate-gui/praimate-cli
+/cmd/praimate-gui/praimate-cli.exe

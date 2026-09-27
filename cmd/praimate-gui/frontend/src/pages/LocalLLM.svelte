@@ -342,7 +342,7 @@
         {#each models as m}
           <label class="model-check-item" class:checked={selectedModels.has(m)}>
             <input type="checkbox" checked={selectedModels.has(m)} on:change={() => toggleModel(m)} />
-            <span class="mono" style="font-size:12.5px">{m}</span>
+            <span class="mono model-check-name" title={m}>{m}</span>
           </label>
         {/each}
       </div>
@@ -383,7 +383,7 @@
           {@const cliLabel = item.cli || item.CLI || ''}
           <div class="applied-card">
             <div class="applied-info grow">
-              <div class="applied-model-title mono">{modelName}</div>
+              <div class="applied-model-title mono" title={modelName}>{modelName}</div>
               <div class="row" style="gap:5px; margin-top:4px; align-items:center; flex-wrap:wrap">
                 <span class="pill sm">{hostName}</span>
                 {#if endpoint}<span class="card-sub mono" style="font-size:10.5px">{endpoint}</span>{/if}
@@ -410,11 +410,15 @@
   .key-box.configured { border-color: color-mix(in oklch, var(--ok) 35%, var(--border)); }
   .key-icon { font-size: 16px; }
   .models-checklist { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; max-height: 240px; overflow-y: auto; padding: 4px 0; }
-  .model-check-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-raised); cursor: pointer; }
+  .model-check-item { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-raised); cursor: pointer; }
+  .model-check-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
   .model-check-item.checked { border-color: var(--accent); background: var(--accent-soft); }
   .applied-container { max-height: 280px; overflow-y: auto; padding: 2px 0; }
-  .applied-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
-  .applied-card { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-raised); }
+  .applied-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 8px; }
+  .applied-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-raised); }
+  .applied-info { min-width: 0; overflow: hidden; }
+  .applied-info .row { min-width: 0; overflow: hidden; }
+  .applied-info .card-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .applied-model-title { font-weight: 600; font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .transport-warning { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px; margin: 8px 0 14px; padding: 12px 13px; border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--warn) 8%, var(--bg-panel)); }
   .transport-label { align-self: start; padding: 2px 6px; border-radius: 4px; background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); font: 700 10px/1.5 var(--mono); letter-spacing: .05em; }

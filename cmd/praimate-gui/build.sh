@@ -37,4 +37,6 @@ case "$(uname -s)" in
 esac
 
 go build -trimpath -buildvcs=false -tags "$TAGS" -ldflags "$LDFLAGS" -o "praimate-gui$EXT" .
+# The terminal frontend shares this core but is a console executable on Windows.
+(cd ../.. && go build -trimpath -buildvcs=false -ldflags '-s -w' -o "cmd/praimate-gui/praimate-cli$EXT" ./cmd/praimate-cli)
 echo "built ./praimate-gui$EXT"

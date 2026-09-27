@@ -12,7 +12,7 @@ import (
 func InteractiveCLICommand(cli, model string) (string, []string, error) {
 	flag := "--model"
 	switch cli {
-	case "claude", "openclaude", "opencode", "praimate-code":
+	case "claude", "openclaude", "opencode", "praimate-code", "praimate-cli":
 	case "codex":
 		flag = "-m"
 	case "":
@@ -47,6 +47,9 @@ func ResolveInteractiveCLIBinary(cli string) (string, error) {
 	}
 	if cli == "praimate-code" {
 		return NewPraimateCodeAdapter().resolveBin()
+	}
+	if cli == "praimate-cli" {
+		return (&execAdapter{bin: cli, extraDirs: []string{praimateManagedBinDir(), nativeExecutableDir()}}).resolveBin()
 	}
 	return exec.LookPath(cli)
 }

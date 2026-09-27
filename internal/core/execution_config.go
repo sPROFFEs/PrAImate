@@ -85,11 +85,16 @@ type ExecutionRequest struct {
 	ExplicitMCP   bool
 	AllEnabledMCP bool
 	Approval      *ApprovalConfig
+	// Attachments are host-selected paths, never model-supplied read grants.
+	Attachments []string
 }
 
 // EffectiveExecutionConfig is consumed only inside the Go backend. Env may
 // contain credentials and therefore must never be returned through Wails.
 type EffectiveExecutionConfig struct {
+	native             *nativeExecution
+	skillSettings      *ChatSettings
+	attachments        []string
 	Surface            ExecutionSurface
 	Agent              *Agent
 	ChatID             string
@@ -138,6 +143,13 @@ func CapabilitiesForCLI(cli string) CLICapabilities {
 		// Headless OpenCode auto-rejects requested permissions unless its
 		// all-permissions flag is used. It has no edits-only mode.
 		cap.ToolLevels = []string{"", "plan", "full"}
+	case "praimate-cli":
+		cap.Streaming = true
+		cap.Resume = true
+		cap.MCP = true
+		cap.LocalRouting = true
+		cap.ManagedApproval = true
+		cap.ToolLevels = []string{"", "ask", "edits", "full"}
 	default:
 		if a, err := GetCLIAdapter(cli); err == nil {
 			cap.Resume = a.SupportsResume()
@@ -170,6 +182,7 @@ func (c *Core) ResolveExecutionConfig(ctx context.Context, req ExecutionRequest)
 		if err := c.guardBoundSkills(ctx, nil, nil, chat.Settings); err != nil {
 			return nil, err
 		}
+		req.SkillSettings = &chat.Settings
 	} else {
 		state := ChatSettings{}
 		if req.SkillSettings != nil {
@@ -194,6 +207,13 @@ func (c *Core) ResolveExecutionConfig(ctx context.Context, req ExecutionRequest)
 	}
 	if req.Cwd == "" {
 		return nil, errors.New("execution preflight: a working folder is required")
+	}
+	if req.CLI == "praimate-cli" {
+		local, err := c.resolveNativeRoute(ctx, req.Local, req.Model)
+		if err != nil {
+			return nil, err
+		}
+		req.Local = local
 	}
 	if !validToolLevel(req.Tools) {
 		return nil, fmt.Errorf("execution preflight: unknown tools level %q", req.Tools)
@@ -226,7 +246,9 @@ func (c *Core) ResolveExecutionConfig(ctx context.Context, req ExecutionRequest)
 
 	cap := CapabilitiesForCLI(req.CLI)
 	out := &EffectiveExecutionConfig{
-		Surface: req.Surface, Agent: req.Agent, ChatID: req.ChatID,
+		skillSettings: req.SkillSettings,
+		attachments:   append([]string(nil), req.Attachments...),
+		Surface:       req.Surface, Agent: req.Agent, ChatID: req.ChatID,
 		CLI: req.CLI, Cwd: req.Cwd, Model: req.Model, Tools: req.Tools,
 		Approval: req.Approval, Capabilities: cap,
 		mcpServers:  append([]string(nil), req.MCPServers...),
@@ -261,7 +283,7 @@ func (c *Core) ResolveExecutionConfig(ctx context.Context, req ExecutionRequest)
 		if local.Model == "" {
 			return nil, errors.New("execution preflight: local routing requires a model")
 		}
-		if local.APIKey == "" {
+		if local.APIKey == "" && req.CLI != "praimate-cli" {
 			key, err := c.localLLMAPIKey(ctx)
 			if err != nil {
 				return nil, err
@@ -293,6 +315,9 @@ func (c *Core) ResolveExecutionConfig(ctx context.Context, req ExecutionRequest)
 		case "opencode", "praimate-code":
 			out.Model = "praimate-local/" + local.Model
 			out.Env = ollama.OpenAIEnv(settings)
+		case "praimate-cli":
+			out.Model = local.Model
+			// In-process transport reads cfg.Local; no credentials in child env.
 		}
 		out.Local = &local
 		if insecureRemoteEndpoint(local.Endpoint) {
@@ -324,6 +349,9 @@ func (c *Core) ResolveExecutionConfig(ctx context.Context, req ExecutionRequest)
 func (c *Core) PrepareExecution(ctx context.Context, cfg *EffectiveExecutionConfig) error {
 	if cfg == nil {
 		return errors.New("PrepareExecution: nil config")
+	}
+	if cfg.CLI == "praimate-cli" {
+		return c.prepareNativeExecution(ctx, cfg)
 	}
 	if cfg.Local != nil {
 		if cfg.CLI == "opencode" || cfg.CLI == "praimate-code" {

@@ -30,15 +30,17 @@ var modelHints = map[string]string{
 	"codex":         "model id, e.g. gpt-5.1-codex",
 	"opencode":      "provider/model, e.g. anthropic/claude-sonnet-4-5",
 	"praimate-code": "provider/model, e.g. anthropic/claude-sonnet-4-5",
+	"praimate-cli":  "model name or provider/model (e.g. qwen2.5-coder:7b, llama3.2, gpt-4o)",
 }
 
 // staticModelSuggestions are fallback datalist entries for CLIs without
 // a list command. They are SUGGESTIONS — the input stays free text, so
 // new models work without a PrAImate release.
 var staticModelSuggestions = map[string][]string{
-	"claude":     {"sonnet", "opus", "haiku", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"},
-	"openclaude": {"sonnet", "opus", "haiku", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"},
-	"codex":      {"gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1", "o4-mini"},
+	"claude":       {"sonnet", "opus", "haiku", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"},
+	"openclaude":   {"sonnet", "opus", "haiku", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"},
+	"codex":        {"gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1", "o4-mini"},
+	"praimate-cli": {"qwen2.5-coder:7b", "qwen2.5-coder:14b", "llama3.2", "mistral", "deepseek-coder-v2", "gpt-4o"},
 }
 
 // ListCLIs returns every launchable CLI with availability probed

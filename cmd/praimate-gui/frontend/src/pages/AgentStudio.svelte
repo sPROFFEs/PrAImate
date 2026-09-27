@@ -51,7 +51,7 @@
   let guidedPreview = null
   let guidedForm = {
     name: '', purpose: '', knowledge: '', preset: 'simple',
-    supports: ['claude', 'openclaude', 'codex', 'opencode', 'praimate-code'],
+    supports: ['claude', 'openclaude', 'codex', 'opencode', 'praimate-code', 'praimate-cli'],
     capabilities: { read_project: true, analyze_code: true, use_git: false, execute_commands: false, modify_files: false, network: false, external_services: false },
   }
   let runtimeConfigured = false
@@ -1375,7 +1375,8 @@
     </div>
     <div class="composer">
       <textarea class="field" rows="2" placeholder="Ask the assistant to help build this agent…" bind:value={draft} on:keydown={onKey} disabled={sending}></textarea>
-      {#if sending}<button class="btn danger" on:click={stopChat}>■</button>{:else}<button class="btn primary" on:click={send} disabled={!draft.trim() || !helperChatId}>Send</button>{/if}
+      <button class="btn" on:click={() => sendMsg('/compact')} disabled={sending || !helperChatId} title="Compact saved helper chat context">◫ Compact</button>
+      {#if sending}<button class="btn danger" on:click={stopChat} title="Interrupt assistant turn">■ Stop</button>{:else}<button class="btn primary" on:click={send} disabled={!draft.trim() || !helperChatId}>Send</button>{/if}
     </div>
   </aside>
   {/if}

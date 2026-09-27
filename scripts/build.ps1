@@ -21,7 +21,7 @@ param(
         "windows-amd64",
         "windows-arm64"
     ),
-    [string] $Version = "1.2.9",
+    [string] $Version = "1.2.10",
     [string] $LdFlags = "-s -w",
     [switch] $NoArchive
 )
@@ -58,6 +58,9 @@ function Build-One($triplet) {
 
     & go build -trimpath -ldflags $FullLdFlags -o (Join-Path $out "wpc$ext") "./cmd/wpc"
     if ($LASTEXITCODE -ne 0) { throw "wpc build failed for $triplet" }
+    & go build -trimpath -ldflags $FullLdFlags -o (Join-Path $out "praimate-cli$ext") "./cmd/praimate-cli"
+    if ($LASTEXITCODE -ne 0) { throw "praimate-cli build failed for $triplet" }
+    Copy-Item -Force (Join-Path $out "praimate-cli$ext") "dist/praimate-cli-$triplet$ext"
     & go build -trimpath -ldflags $FullLdFlags -o (Join-Path $out "praimate$ext") "./cmd/praimate"
     if ($LASTEXITCODE -ne 0) { throw "praimate build failed for $triplet" }
 

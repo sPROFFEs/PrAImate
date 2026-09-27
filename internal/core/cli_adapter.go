@@ -39,9 +39,10 @@ type SingleShotOpts struct {
 	//   ""      — PrAImate safe mode. CLIs with sandbox flags are forced
 	//             read-only; others use their safest available default.
 	//   "ask"   — route each permission request to the user mid-turn.
-	//             Only claude/openclaude support this headlessly (via
+	//             claude/openclaude support this headlessly (via
 	//             --permission-prompt-tool + the approval shim in
-	//             Approval); other CLIs treat it as safe/read-only.
+	//             Approval); praimate-cli calls the core approval broker
+	//             directly. Other CLIs treat it as safe/read-only.
 	//   "edits" — auto-approve file edits in the working directory
 	//             (claude --permission-mode acceptEdits,
 	//             codex --sandbox workspace-write).

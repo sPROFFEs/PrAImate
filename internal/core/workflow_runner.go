@@ -284,7 +284,10 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 		Workflow: plans[0].Workflow, SkillSettings: &cfg.ChatSettings,
 		Surface: SurfaceWorkflow, Agent: cfg.Agent, CLI: cfg.CLI, Cwd: cfg.Cwd,
 		Model: cfg.Model, Tools: cfg.Tools, ToolsConfigured: true,
-		Local: cfg.ChatSettings.Local,
+		Local:       cfg.ChatSettings.Local,
+		Approval:    c.approvalForContext(ctx, cfg.Agent.ID),
+		MCPServers:  cfg.ChatSettings.MCPServers,
+		ExplicitMCP: cfg.ChatSettings.MCPConfigured || len(cfg.ChatSettings.MCPServers) > 0,
 	})
 	if err != nil {
 		res.Err = err
@@ -294,6 +297,7 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 		res.Err = err
 		return res
 	}
+	ctx = withNativeExecution(ctx, effective.native)
 	cfg.Model = effective.Model
 	cfg.Tools = effective.Tools
 	cfg.Env = mergeStringMaps(cfg.Env, effective.Env)
@@ -378,7 +382,16 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 				adapterBody = "Previous workflow results (task context):\n" + previousResults.String() + "\nCurrent task:\n" + adapterBody
 			}
 			adapterBody, _ = privacy.Redact(adapterBody)
-			skillPayload, skillState, skillErr := c.BuildChatSkillPayload(ctx, settings, systemPrompt+"\n"+adapterBody)
+			var skillPayload string
+			var skillState *SkillRuntimeState
+			var skillErr error
+			if effective.native != nil {
+				effective.native.settings = settings
+				effective.native.settings.Local = effective.Local
+				effective.native.chatID = chatID
+			} else {
+				skillPayload, skillState, skillErr = c.BuildChatSkillPayload(ctx, settings, systemPrompt+"\n"+adapterBody)
+			}
 			if skillErr != nil {
 				res.Err = skillErr
 				c.maybeEndChat(ctx, chatID, res.Outcome)

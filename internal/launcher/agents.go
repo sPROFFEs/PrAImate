@@ -35,6 +35,7 @@ const (
 	AgentGemini       AgentID = "gemini"
 	AgentDeepSeek     AgentID = "deepseek"
 	AgentPraimateCode AgentID = "praimate-code"
+	AgentPraimateCLI  AgentID = "praimate-cli"
 )
 
 // Agent describes one supported CLI agent. WpcTarget is the wpc target
@@ -114,6 +115,13 @@ func KnownAgents() []Agent {
 			// file praimate-code picks up at launch.
 			WpcTarget:   "codex",
 			InstallHint: "install from the CLIs tab, or: praimate -install-tool... (downloads the bundled build)",
+		},
+		{
+			ID:          AgentPraimateCLI,
+			Label:       "PrAImate CLI (Native Go Agent)",
+			Binary:      "praimate-cli",
+			WpcTarget:   "codex",
+			InstallHint: "bundled native Go CLI agent (0 external runtime dependencies)",
 		},
 	}
 }
@@ -223,13 +231,16 @@ func knownInstallPaths(id AgentID, binary string) []string {
 				dirs = append(dirs, filepath.Join(appdata, "npm"))
 			}
 		}
-	case AgentPraimateCode:
+	case AgentPraimateCode, AgentPraimateCLI:
 		// InstallPraimateCode drops the binary into <config>/praimate/bin.
 		// ImportPraimateBinToPath normally puts that dir on PATH, but probe
 		// it explicitly so detection works even when the PATH import hasn't
 		// run in this process (fresh GUI start, tests, `praimate code`).
 		if binDir, err := installer.PraimateBinDir(); err == nil {
 			dirs = append(dirs, binDir)
+		}
+		if exe, err := os.Executable(); err == nil {
+			dirs = append(dirs, filepath.Dir(exe))
 		}
 	case AgentOpenClaude:
 		// OpenClaude installs into a PrAImate-managed prefix (hoisted

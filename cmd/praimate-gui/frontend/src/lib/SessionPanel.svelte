@@ -77,7 +77,7 @@
   }
 
   function supportsNativeTerminalResume(cli) {
-    return ['claude', 'openclaude', 'codex', 'opencode', 'praimate-code'].includes(cli)
+    return ['claude', 'openclaude', 'codex', 'opencode', 'praimate-code', 'praimate-cli'].includes(cli)
   }
 
   function fmtAgo(iso) {

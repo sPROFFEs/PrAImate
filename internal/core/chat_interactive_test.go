@@ -280,7 +280,7 @@ func TestContinueChat_PreparesOnlySelectedMCPServers(t *testing.T) {
 }
 
 func TestContinueChat_ManualCompactCommandResetsSession(t *testing.T) {
-	mock := &mockAdapter{name: "claude", resumable: true, replies: []string{"ok"}}
+	mock := &mockAdapter{name: "claude", resumable: true, replies: []string{"continued"}}
 	withMockAdapter(t, mock)
 
 	c, _ := New(Options{Store: openTempStore(t)})
@@ -290,17 +290,37 @@ func TestContinueChat_ManualCompactCommandResetsSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = c.SetChatSessionID(ctx, chat.ID, "session-to-clear")
+	if _, err := c.AddMessage(ctx, chat.ID, "user", "Remember the project codename is Orion.", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AddMessage(ctx, chat.ID, "assistant", "I will remember Orion.", nil); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 30; i++ {
+		if _, err := c.AddMessage(ctx, chat.ID, "assistant", strings.Repeat("later progress ", 100), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	turn, err := c.ContinueChat(ctx, chat.ID, "/compact", t.TempDir(), "")
 	if err != nil {
 		t.Fatalf("ContinueChat /compact: %v", err)
 	}
-	if !strings.Contains(turn.Reply, "compacted") {
+	if !strings.Contains(turn.Reply, "Session reset") {
 		t.Fatalf("unexpected compact reply: %q", turn.Reply)
 	}
 	reloaded, _ := c.GetChat(ctx, chat.ID)
 	if reloaded.SessionID != "" {
 		t.Fatalf("expected empty session id after /compact, got %q", reloaded.SessionID)
+	}
+	if _, err := c.ContinueChat(ctx, chat.ID, "What is the codename?", t.TempDir(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(mock.shots) != 1 || !strings.Contains(mock.shots[0].Message, "Orion") || !strings.Contains(mock.shots[0].Message, "What is the codename?") {
+		t.Fatalf("first turn after compact lost context: %+v", mock.shots)
+	}
+	if strings.Contains(mock.shots[0].Message, "/compact") {
+		t.Fatal("control command leaked into the model context")
 	}
 }
 
@@ -337,7 +357,7 @@ type contextOverflowMockAdapter struct {
 	resumable bool
 }
 
-func (a *contextOverflowMockAdapter) Name() string           { return a.name }
+func (a *contextOverflowMockAdapter) Name() string          { return a.name }
 func (a *contextOverflowMockAdapter) SupportsResume() bool  { return a.resumable }
 func (a *contextOverflowMockAdapter) ManagedSafeMode() bool { return false }
 func (a *contextOverflowMockAdapter) Available(context.Context) error {
@@ -351,4 +371,3 @@ func (a *contextOverflowMockAdapter) SingleShot(_ context.Context, opts SingleSh
 func (a *contextOverflowMockAdapter) Resume(_ context.Context, sessionID string, opts ResumeOpts) (*Reply, error) {
 	return nil, errors.New("praimate-code stream: request (222011 tokens) exceeds the available context size (212992 tokens), try increasing it.")
 }
-

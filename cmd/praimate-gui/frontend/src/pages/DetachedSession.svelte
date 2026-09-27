@@ -85,15 +85,18 @@
     } catch (e) { error = String(e) }
   }
 
-  async function send() {
-    const text = draft.trim()
+  async function send(override = null) {
+    const compact = override === '/compact'
+    const text = compact ? override : draft.trim()
     if (sending || (!text && attachments.length === 0)) return
-    const staged = attachments
+    const staged = compact ? [] : attachments
     sending = true
     stream = null
     error = ''
-    draft = ''
-    attachments = []
+    if (!compact) {
+      draft = ''
+      attachments = []
+    }
     messages = [...messages, { Role: 'user', Content: text, _pending: true }]
     await scrollToBottom()
     try {
@@ -102,7 +105,7 @@
       await loadMessages()
     } catch (e) {
       error = String(e)
-      attachments = staged
+      if (!compact) attachments = staged
       await loadMessages()
     } finally {
       sending = false
@@ -328,8 +331,9 @@
       <div class="attachments">{#each attachments as item}<span class="pill">{item.name}<button on:click={() => (attachments = attachments.filter((x) => x.path !== item.path))}>×</button></span>{/each}</div>
     {/if}
     <div class="composer">
-      <button class="btn" on:click={pickAttachments} disabled={sending}>📎</button>
+      <button class="btn" on:click={pickAttachments} disabled={sending} title="Add files" aria-label="Add files">📎</button>
       <textarea class="field" rows="2" bind:value={draft} on:keydown={onComposerKey} disabled={sending} placeholder="Message the agent…"></textarea>
+      <button class="btn" on:click={() => send('/compact')} disabled={sending || approvals.length > 0} title="Compact saved conversation context">◫ Compact</button>
       <button class="btn primary" on:click={send} disabled={sending || (!draft.trim() && attachments.length === 0)}>Send</button>
     </div>
   {/if}

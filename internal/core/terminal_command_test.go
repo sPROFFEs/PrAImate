@@ -6,7 +6,7 @@ import (
 )
 
 func TestInteractiveCLICommand(t *testing.T) {
-	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code"} {
+	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code", "praimate-cli"} {
 		t.Run(cli, func(t *testing.T) {
 			name, args, err := InteractiveCLICommand(cli, "")
 			if err != nil || name != cli || len(args) != 0 {

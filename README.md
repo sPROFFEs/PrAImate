@@ -9,15 +9,19 @@
 
 PrAImate 1.2.9 is a GUI-only desktop harness for Claude Code,
 OpenClaude, Codex CLI, OpenCode, and the bundled **PrAImate Code** build.
+It also includes **PrAImate CLI**, a core-native runtime for self-configured
+OpenAI-compatible endpoints, with a shared terminal frontend.
 It gives those CLIs one place for coding terminals, chats, Document Studio,
 PrAImate Studio (integrated Code-OSS / VSCodium development environment),
 reusable agents, workflows, internal on-demand Skills via embedded MCP,
 user-configured MCP servers, multi-host Local LLM routing, privacy controls,
 and optional Git backup.
 
-PrAImate does not replace the underlying CLI or model provider. The selected
-CLI still performs the model request, owns its native authentication, and may
-keep its own session/configuration files.
+External CLI adapters retain their own model requests, authentication and
+session/configuration files. PrAImate CLI instead uses core-owned tools,
+permissions, skills, MCP, context and encrypted sessions. See the
+[native CLI guide](docs/native-cli.md) for local models, routers, terminal
+commands and permission boundaries.
 
 ## Supported systems
 

@@ -17,7 +17,7 @@ func terminalExecutables(t *testing.T) string {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code"} {
+	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code", "praimate-cli"} {
 		if runtime.GOOS == "windows" {
 			cli += ".exe"
 		}
@@ -35,7 +35,7 @@ func TestTerminalPlanUsesSelectedCLIAndModelWithoutMutatingSession(t *testing.T)
 	dir := terminalExecutables(t)
 	s.session.Model = "selected-model"
 	t.Setenv("PRAIMATE_STUDIO_TOKEN", "test-secret-not-for-terminal")
-	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code"} {
+	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code", "praimate-cli"} {
 		before := s.sessionSnapshot()
 		plan := rpcOK(t, s, "terminals.prepare", map[string]string{"cli": cli}).(*terminalPlan)
 		if filepath.Dir(plan.Command) != dir || plan.Cwd != before.Workspace || plan.CLI != cli {
@@ -44,6 +44,14 @@ func TestTerminalPlanUsesSelectedCLIAndModelWithoutMutatingSession(t *testing.T)
 		if cli == "claude" {
 			if !reflect.DeepEqual(plan.Args, []string{"--model", "selected-model"}) {
 				t.Fatal("selected model lost")
+			}
+		} else if cli == "praimate-cli" {
+			if len(plan.Args) != 2 || plan.Args[0] != "--chat" {
+				t.Fatalf("native terminal lost core session: %v", plan.Args)
+			}
+			chat, err := s.core.GetChat(context.Background(), plan.Args[1])
+			if err != nil || chat.CLIAgent != cli || chat.WorkspacePath != before.Workspace {
+				t.Fatalf("native chat: %+v %v", chat, err)
 			}
 		} else if len(plan.Args) != 0 {
 			t.Fatal("model leaked into another CLI")
@@ -61,8 +69,8 @@ func TestTerminalPlanUsesSelectedCLIAndModelWithoutMutatingSession(t *testing.T)
 		}
 	}
 	chats, err := s.core.ListChats(context.Background(), 0)
-	if err != nil || len(chats) != 0 {
-		t.Fatal("native terminal should not create a managed chat")
+	if err != nil || len(chats) != 1 || chats[0].CLIAgent != "praimate-cli" {
+		t.Fatal("only the core-native terminal should create a shared core chat")
 	}
 }
 
@@ -81,6 +89,32 @@ func TestTerminalPlanRejectsMissingUnknownAndUnauthenticatedLaunches(t *testing.
 	s.token = "test-only"
 	if response := s.dispatch(RPCRequest{JSONRPC: "2.0", ID: 1, Method: "terminals.prepare"}); response.Error == nil {
 		t.Fatal("unauthenticated launch plan")
+	}
+}
+
+func TestNativeTerminalSnapshotPreservesCoreConfiguration(t *testing.T) {
+	s, _ := fixture(t)
+	terminalExecutables(t)
+	s.session.CLI = "praimate-cli"
+	s.session.AgentID = "dev-team"
+	s.session.Tools = "edits"
+	s.session.Model = "model-pin"
+	s.session.LocalEndpoint = "http://127.0.0.1:11434/v1"
+	s.session.LocalModel = "local-model"
+	s.session.MCPServers = []string{}
+	plan, err := s.prepareTerminal([]byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := s.core.GetChat(context.Background(), plan.Args[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chat.AgentID != "dev-team" || chat.Settings.Tools != "edits" || chat.Settings.Model != "model-pin" || !chat.Settings.MCPConfigured || chat.Settings.Local == nil || chat.Settings.Local.Model != "local-model" {
+		t.Fatalf("terminal snapshot lost core configuration: %+v", chat)
+	}
+	if len(plan.Env) != 1 || len(plan.Args) != 2 {
+		t.Fatalf("native terminal exposed configuration in launch plan: %+v", plan)
 	}
 }
 

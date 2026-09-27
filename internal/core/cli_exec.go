@@ -281,4 +281,5 @@ func RegisterAllCLIAdapters() {
 	RegisterCLIAdapter(NewCodexAdapter())
 	RegisterCLIAdapter(NewOpenCodeAdapter())
 	RegisterCLIAdapter(NewPraimateCodeAdapter())
+	RegisterCLIAdapter(NewPraimateCLIAdapter())
 }
