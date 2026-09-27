@@ -7,6 +7,7 @@
   import { renderMarkdown } from '../lib/markdown.js'
   import { findTerminalForChat } from '../lib/terminal.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
+  import { localChoice, localChoiceKey } from '../lib/localModelChoice.js'
 
 
   let chats = []
@@ -78,6 +79,7 @@
   let localOptPromise = null
   let newUseLocal = false
   let newLocalModel = ''
+  let newLocalEndpoint = ''
   let mcpServers = []
   let newMCPs = []
   let newSkillChoices = null
@@ -183,6 +185,7 @@
     return localOptPromise
   }
 
+
   function openConfig(chat) {
     error = ''
     // Open INSTANTLY with what we already know; the CLI availability
@@ -274,6 +277,7 @@
     newTools = ''
     newUseLocal = false
     newLocalModel = ''
+    newLocalEndpoint = ''
     newMCPs = []
     newSkillChoices = null
     newFolder = ''
@@ -321,7 +325,7 @@
       if (useLocalNow) {
         // Route the chat at the configured local endpoint — the launcher
         // applies the per-CLI env/config when the chat runs.
-        await api.updateChatConfig(chat.ID, newCli, '', tools, localOpt.endpoint, '', newLocalModel.trim())
+        await api.updateChatConfig(chat.ID, newCli, '', tools, newLocalEndpoint || localOpt.endpoint, '', newLocalModel.trim())
       } else if (tools) {
         await api.setChatTools(chat.ID, tools)
       }
@@ -702,12 +706,15 @@
       {#if cfg.localEndpoint}
         <label class="lbl" style="margin-top:8px">Local model</label>
         {#if localOpt.allModels?.length}
-          <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={cfg.localModel}>
+          <select class="field mono" style="max-width:420px; margin-bottom:6px" value={localChoiceKey(localOpt, cfg.localEndpoint, cfg.localModel)} on:change={(e) => {
+            const choice = localChoice(localOpt, e.currentTarget.value)
+            if (choice) { cfg.localEndpoint = choice.endpoint; cfg.localModel = choice.model; cfg = cfg }
+          }}>
             <option value="">Select a detected model…</option>
             {#each localOpt.hosts || [] as host}
               <optgroup label={`${host.name} (${host.endpoint})`}>
                 {#each host.models as m}
-                  <option value={m}>{m}</option>
+                  <option value={`${host.id}::${m}`}>{m}</option>
                 {/each}
               </optgroup>
             {/each}
@@ -988,12 +995,15 @@
         {#if newUseLocal && localOpt?.configured && newLocalRoutable}
           <label class="lbl">Local model</label>
           {#if localOpt.allModels?.length}
-            <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={newLocalModel}>
+            <select class="field mono" style="max-width:420px; margin-bottom:6px" value={localChoiceKey(localOpt, newLocalEndpoint || localOpt.endpoint, newLocalModel)} on:change={(e) => {
+              const choice = localChoice(localOpt, e.currentTarget.value)
+              if (choice) { newLocalEndpoint = choice.endpoint; newLocalModel = choice.model }
+            }}>
               <option value="">Select a detected model…</option>
               {#each localOpt.hosts || [] as host}
                 <optgroup label={`${host.name} (${host.endpoint})`}>
                   {#each host.models as m}
-                    <option value={m}>{m}</option>
+                    <option value={`${host.id}::${m}`}>{m}</option>
                   {/each}
                 </optgroup>
               {/each}

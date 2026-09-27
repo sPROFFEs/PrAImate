@@ -7,7 +7,9 @@
   import SkillBindingsEditor from '../lib/SkillBindingsEditor.svelte'
   import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
   import { term, onTermData, onTermExit, decodeBase64Bytes, findTerminalForChat } from '../lib/terminal.js'
+  import { codeReopenPayload } from '../lib/codeReopen.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
+  import { localChoice, localChoiceKey } from '../lib/localModelChoice.js'
   import { pendingTerm, showSkillPreparationToast, showConfirm } from '../lib/stores.js'
   import { get } from 'svelte/store'
 
@@ -49,10 +51,10 @@
         return
       }
       try { await api.bindChatToTerminal(live.id, chat.ID) } catch {}
-      attachPending({ termId: live.id, chat })
+      attachPending(codeReopenPayload(chat, live.id))
       return
     }
-    attachPending({ termId: '', chat, cli: chat.CLIAgent, cwd: chat.WorkspacePath })
+    attachPending(codeReopenPayload(chat))
   }
 
   async function openWorkspace(wc) {
@@ -155,6 +157,7 @@
   let localOpt = null // { configured, endpoint, hasApiKey, models[], error }
   let useLocal = false
   let localModel = ''
+  let localEndpoint = ''
   $: localRoutable = supportsLocalRouting(cli)
   $: if (!localRoutable && useLocal) useLocal = false
 
@@ -319,7 +322,7 @@
         cli,
         local ? '' : (modelSupported ? model.trim() : ''),
         cwd,
-        local ? localOpt.endpoint : '',
+        local ? localEndpoint || localOpt.endpoint : '',
         local ? localModel.trim() : '',
         initialSkillChoices
       )
@@ -632,12 +635,15 @@
         {#if useLocal && localOpt?.configured && localRoutable}
           <label class="lbl">Local model</label>
           {#if localOpt.allModels?.length}
-            <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={localModel}>
+            <select class="field mono" style="max-width:420px; margin-bottom:6px" value={localChoiceKey(localOpt, localEndpoint || localOpt.endpoint, localModel)} on:change={(e) => {
+              const choice = localChoice(localOpt, e.currentTarget.value)
+              if (choice) { localEndpoint = choice.endpoint; localModel = choice.model }
+            }}>
               <option value="">Select a detected model…</option>
               {#each localOpt.hosts || [] as host}
                 <optgroup label={`${host.name} (${host.endpoint})`}>
                   {#each host.models as m}
-                    <option value={m}>{m}</option>
+                    <option value={`${host.id}::${m}`}>{m}</option>
                   {/each}
                 </optgroup>
               {/each}
@@ -812,12 +818,15 @@
           {#if cfg.localEndpoint}
             <label class="lbl" style="margin-top:8px">Local model</label>
             {#if localOpt.allModels?.length}
-              <select class="field mono" style="max-width:420px; margin-bottom:6px" bind:value={cfg.localModel}>
+              <select class="field mono" style="max-width:420px; margin-bottom:6px" value={localChoiceKey(localOpt, cfg.localEndpoint, cfg.localModel)} on:change={(e) => {
+                const choice = localChoice(localOpt, e.currentTarget.value)
+                if (choice) { cfg.localEndpoint = choice.endpoint; cfg.localModel = choice.model; cfg = cfg }
+              }}>
                 <option value="">Select a detected model…</option>
                 {#each localOpt.hosts || [] as host}
                   <optgroup label={`${host.name} (${host.endpoint})`}>
                     {#each host.models as m}
-                      <option value={m}>{m}</option>
+                      <option value={`${host.id}::${m}`}>{m}</option>
                     {/each}
                   </optgroup>
                 {/each}

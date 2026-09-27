@@ -103,6 +103,35 @@ func TestListModels_DoesNotDuplicateSavedV1(t *testing.T) {
 	}
 }
 
+func TestListCanonicalModelsPrefersRoutableIDsAndFallsBack(t *testing.T) {
+	canonical := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("prefix") == "canonical" {
+			if !canonical {
+				http.Error(w, "unsupported", http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "openai/qwen"}}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "qwen"}}})
+	}))
+	defer srv.Close()
+	models, err := ListCanonicalModels(context.Background(), srv.URL+"/v1", "")
+	if err != nil || len(models) != 1 || models[0] != "openai/qwen" {
+		t.Fatalf("canonical models: %v, %v", models, err)
+	}
+	canonical = false
+	models, err = ListCanonicalModels(context.Background(), srv.URL, "")
+	if err != nil || len(models) != 1 || models[0] != "qwen" {
+		t.Fatalf("fallback models: %v, %v", models, err)
+	}
+}
+
 func TestOpenClaudeEnvUsesOpenAICompatibleRoute(t *testing.T) {
 	env := OpenClaudeEnv(Settings{
 		Endpoint: "https://llm.example/v1/", Model: "qwen3", APIKey: "secret",

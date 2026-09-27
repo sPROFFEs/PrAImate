@@ -30,6 +30,34 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 	if err != nil {
 		return nil, err
 	}
+	if route.Model == "" {
+		route.Model = strings.TrimSpace(model)
+	}
+	if route.Model == "" {
+		route.Model = strings.TrimSpace(os.Getenv("PRAIMATE_MODEL"))
+	}
+	if route.Model == "" {
+		route.Model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
+	}
+	if c.store != nil {
+		assignments, err := c.NativeModelAssignments(ctx)
+		if err != nil {
+			return nil, err
+		}
+		selected, err := selectNativeAssignment(assignments, route.Endpoint, route.Model)
+		if err != nil {
+			return nil, err
+		}
+		if selected != nil {
+			// A model qualified with another host must not carry credentials
+			// supplied for the originally requested endpoint.
+			if route.Endpoint != "" && ollama.NormalizeEndpoint(route.Endpoint) != ollama.NormalizeEndpoint(selected.Endpoint) {
+				route.APIKey = ""
+			}
+			route.Endpoint = selected.Endpoint
+			route.Model = selected.Model
+		}
+	}
 	if route.Endpoint == "" {
 		if global != nil && global.DefaultLocalEndpoint != "" {
 			route.Endpoint = global.DefaultLocalEndpoint
@@ -100,15 +128,6 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 		}
 	}
 	if route.Model == "" {
-		route.Model = strings.TrimSpace(model)
-	}
-	if route.Model == "" {
-		route.Model = os.Getenv("PRAIMATE_MODEL")
-	}
-	if route.Model == "" {
-		route.Model = os.Getenv("OPENAI_MODEL")
-	}
-	if route.Model == "" {
 		return nil, errors.New("PrAImate CLI requires a model: select one in Local LLM settings or pass --model")
 	}
 	if route.ContextTokens == 0 {
@@ -121,6 +140,40 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 		return nil, errors.New("invalid native context/output token limits")
 	}
 	return &route, nil
+}
+
+func selectNativeAssignment(assignments []NativeModelAssignment, endpoint, model string) (*NativeModelAssignment, error) {
+	qualified := strings.Contains(model, "::")
+	var selected *NativeModelAssignment
+	for i := range assignments {
+		candidate := &assignments[i]
+		if qualified {
+			if model == candidate.HostID+"::"+candidate.Model {
+				return candidate, nil
+			}
+			continue
+		}
+		if endpoint != "" && ollama.NormalizeEndpoint(endpoint) != ollama.NormalizeEndpoint(candidate.Endpoint) {
+			continue
+		}
+		if model != "" {
+			if model != candidate.Model {
+				continue
+			}
+			if selected != nil {
+				return nil, fmt.Errorf("model %q belongs to multiple local hosts; select HOST_ID::MODEL", model)
+			}
+			selected = candidate
+			continue
+		}
+		if selected == nil || (candidate.IsDefault && !selected.IsDefault) {
+			selected = candidate
+		}
+	}
+	if qualified {
+		return nil, fmt.Errorf("assigned model %q not found", model)
+	}
+	return selected, nil
 }
 
 // NativeModels uses the same stored endpoint and credentials as native runs.

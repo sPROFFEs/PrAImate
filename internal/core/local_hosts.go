@@ -37,6 +37,7 @@ type NativeModelAssignment struct {
 	HostName      string
 	Endpoint      string
 	Model         string
+	IsDefault     bool
 	ContextTokens int
 	OutputTokens  int
 }
@@ -52,7 +53,8 @@ func (c *Core) NativeModelAssignments(ctx context.Context) ([]NativeModelAssignm
 			if model = strings.TrimSpace(model); model != "" {
 				out = append(out, NativeModelAssignment{
 					HostID: host.ID, HostName: host.Name, Endpoint: host.Endpoint,
-					Model: model, ContextTokens: host.ContextTokens, OutputTokens: host.OutputTokens,
+					Model: model, IsDefault: host.IsDefault,
+					ContextTokens: host.ContextTokens, OutputTokens: host.OutputTokens,
 				})
 			}
 		}
@@ -223,5 +225,5 @@ func (c *Core) TestLocalHost(ctx context.Context, id, endpoint, apiKey string) (
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	return ollama.ListModels(ctx, ollama.NormalizeEndpoint(endpoint), apiKey)
+	return ollama.ListCanonicalModels(ctx, ollama.NormalizeEndpoint(endpoint), apiKey)
 }

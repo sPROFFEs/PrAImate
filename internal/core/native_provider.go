@@ -128,7 +128,15 @@ func (p nativeProvider) request(ctx context.Context, method, path string, body [
 }
 
 func (p nativeProvider) models(ctx context.Context) ([]string, error) {
-	res, err := p.request(ctx, "GET", "/models", nil)
+	models, err := p.modelsAt(ctx, "/models?prefix=canonical")
+	if err == nil && len(models) > 0 {
+		return models, nil
+	}
+	return p.modelsAt(ctx, "/models")
+}
+
+func (p nativeProvider) modelsAt(ctx context.Context, path string) ([]string, error) {
+	res, err := p.request(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -199,6 +207,22 @@ func (p *nativeProvider) turn(ctx context.Context, messages []nativeMessage, too
 		request.StreamOptions = nil
 		raw, _ = json.Marshal(request)
 		res, err = p.request(ctx, "POST", "/chat/completions", raw)
+	}
+	// A gateway may advertise a bare alias but require provider/model on POST.
+	// Retry only its explicit provider-resolution error and only when the
+	// canonical catalogue has exactly one matching ID; never guess a provider.
+	if errors.As(err, &rejected) && rejected.status == 400 && !strings.Contains(p.route.Model, "/") &&
+		strings.Contains(strings.ToLower(rejected.message), "unable to determine provider for model") {
+		if catalogue, catalogueErr := p.modelsAt(ctx, "/models?prefix=canonical"); catalogueErr == nil {
+			if canonical := uniqueCanonicalModel(catalogue, p.route.Model); canonical != "" {
+				request.Model = canonical
+				raw, _ = json.Marshal(request)
+				res, err = p.request(ctx, "POST", "/chat/completions", raw)
+				if err == nil {
+					p.route.Model = canonical
+				}
+			}
+		}
 	}
 	if err != nil {
 		return nativeMessage{}, err
@@ -340,4 +364,17 @@ func (p *nativeProvider) turn(ctx context.Context, messages []nativeMessage, too
 		return result, errors.New("tool_calls completion without calls")
 	}
 	return result, nil
+}
+
+func uniqueCanonicalModel(catalogue []string, bare string) string {
+	var selected string
+	for _, id := range catalogue {
+		if strings.HasSuffix(id, "/"+bare) {
+			if selected != "" && selected != id {
+				return ""
+			}
+			selected = id
+		}
+	}
+	return selected
 }

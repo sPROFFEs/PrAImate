@@ -409,6 +409,19 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 			}
 			return reply, err
 		}
+		if run.chatID != "" && provider.route.Model != run.local.Model {
+			canonical := provider.route.Model
+			if err := run.core.UpdateChatSettings(ctx, run.chatID, func(settings *ChatSettings) {
+				settings.Model = canonical
+				if settings.Local == nil {
+					settings.Local = &ChatLocalEndpoint{Endpoint: run.local.Endpoint}
+				}
+				settings.Local.Model = canonical
+			}); err != nil {
+				return reply, err
+			}
+			run.local.Model = canonical
+		}
 		s.Context.observe(message.Usage, baseTokens)
 		retryBudget = 0
 		if message.Usage != nil {

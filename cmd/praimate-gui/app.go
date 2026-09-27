@@ -681,6 +681,13 @@ func (a *App) ListCLIs() []CLIInfo {
 func (a *App) ListCLIModels(cli string) []string {
 	if cli == "praimate-cli" {
 		if c, err := a.requireCore(); err == nil {
+			if assigned, err := c.NativeModelAssignments(a.ctx); err == nil && len(assigned) > 0 {
+				models := make([]string, 0, len(assigned))
+				for _, item := range assigned {
+					models = append(models, item.HostID+"::"+item.Model)
+				}
+				return models
+			}
 			if models, err := c.NativeModels(a.ctx, ""); err == nil {
 				return models
 			}

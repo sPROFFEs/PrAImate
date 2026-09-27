@@ -259,7 +259,7 @@ func (a *App) LocalLLMHostsModels() ([]LocalHostOption, error) {
 				apiKey, _ = loadHostAPIKey(a.core, h.ID)
 			}
 			ctx, cancel := context.WithTimeout(baseCtx, localLLMProbeTimeout)
-			models, probeErr := ollama.ListModels(ctx, ollama.NormalizeEndpoint(h.Endpoint), apiKey)
+			models, probeErr := ollama.ListCanonicalModels(ctx, ollama.NormalizeEndpoint(h.Endpoint), apiKey)
 			cancel()
 			if probeErr != nil {
 				// Unreachable hosts are intentionally omitted. The saved host
@@ -450,7 +450,7 @@ func (a *App) TestLocalLLM(endpoint, apiKey string) ([]string, error) {
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
-	return ollama.ListModels(ctx, ollama.NormalizeEndpoint(endpoint), apiKey)
+	return ollama.ListCanonicalModels(ctx, ollama.NormalizeEndpoint(endpoint), apiKey)
 }
 
 // TestLocalHost probes a specific host using its stored or supplied credentials.
@@ -470,7 +470,7 @@ func (a *App) TestLocalHost(hostID, endpoint, apiKey string) ([]string, error) {
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
-	return ollama.ListModels(ctx, ollama.NormalizeEndpoint(endpoint), apiKey)
+	return ollama.ListCanonicalModels(ctx, ollama.NormalizeEndpoint(endpoint), apiKey)
 }
 
 // LocalLLMOption bundles the saved default endpoint with its live model list

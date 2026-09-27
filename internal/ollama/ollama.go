@@ -89,6 +89,21 @@ func ListModels(ctx context.Context, endpoint, apiKey string) ([]string, error) 
 	return tryOpenAIModels(ctx, cli, endpoint, apiKey)
 }
 
+// ListCanonicalModels prefers routable provider/model IDs when a gateway
+// supports OmniRoute's prefix=canonical catalogue option. Ordinary OpenAI
+// endpoints may ignore or reject it; fall back to their normal discovery.
+func ListCanonicalModels(ctx context.Context, endpoint, apiKey string) ([]string, error) {
+	base := strings.TrimSuffix(NormalizeEndpoint(endpoint), "/v1")
+	if base == "" {
+		return nil, errors.New("empty endpoint")
+	}
+	models, err := tryOpenAIModelsPath(ctx, &http.Client{Timeout: 8 * time.Second}, base, apiKey, "/v1/models?prefix=canonical")
+	if err == nil && len(models) > 0 {
+		return models, nil
+	}
+	return ListModels(ctx, endpoint, apiKey)
+}
+
 // addBearer attaches Authorization: Bearer <key> when key is non-empty.
 // Centralised so every probe path stays consistent.
 func addBearer(req *http.Request, apiKey string) {
@@ -130,7 +145,11 @@ func tryOllamaTags(ctx context.Context, cli *http.Client, endpoint, apiKey strin
 }
 
 func tryOpenAIModels(ctx context.Context, cli *http.Client, endpoint, apiKey string) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", endpoint+"/v1/models", nil)
+	return tryOpenAIModelsPath(ctx, cli, endpoint, apiKey, "/v1/models")
+}
+
+func tryOpenAIModelsPath(ctx context.Context, cli *http.Client, endpoint, apiKey, path string) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint+path, nil)
 	if err != nil {
 		return nil, err
 	}

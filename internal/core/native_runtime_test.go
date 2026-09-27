@@ -314,6 +314,63 @@ func TestNativeRouteCredentialIsolationAndLimits(t *testing.T) {
 	}
 }
 
+func TestNativeRouteSelectsAssignedModelAndHostByDefault(t *testing.T) {
+	c := nativeTestCore(t)
+	ctx := context.Background()
+	for _, host := range []LocalHost{
+		{ID: "default", Endpoint: "http://first.test:8000", IsDefault: true},
+		{ID: "gpu", Endpoint: "http://gpu.test:8000", NativeModels: []string{"qwen"}, ContextTokens: 16384},
+	} {
+		if _, err := c.SaveLocalHost(ctx, host); err != nil {
+			t.Fatal(err)
+		}
+	}
+	route, err := c.resolveNativeRoute(ctx, nil, "")
+	if err != nil || route.Endpoint != "http://gpu.test:8000/v1" || route.Model != "qwen" || route.ContextTokens != 16384 {
+		t.Fatalf("did not select sole assignment: %+v, %v", route, err)
+	}
+	route, err = c.resolveNativeRoute(ctx, nil, "gpu::qwen")
+	if err != nil || route.Model != "qwen" || route.Endpoint != "http://gpu.test:8000/v1" {
+		t.Fatalf("qualified model did not select host: %+v, %v", route, err)
+	}
+	route, err = c.resolveNativeRoute(ctx, &ChatLocalEndpoint{
+		Endpoint: "http://first.test:8000/v1", Model: "gpu::qwen", APIKey: "first-host-only",
+	}, "")
+	if err != nil || route.Endpoint != "http://gpu.test:8000/v1" || route.APIKey != "" {
+		t.Fatalf("qualified model carried credentials across hosts: %+v, %v", route, err)
+	}
+}
+
+func TestNativeProviderRetriesUniqueCanonicalModel(t *testing.T) {
+	posts := 0
+	p := nativeProvider{route: ChatLocalEndpoint{Endpoint: "http://local.test/v1", Model: "qwen", OutputTokens: 128}, http: &http.Client{Transport: nativeTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method == "GET" {
+			if r.URL.Path != "/v1/models" || r.URL.Query().Get("prefix") != "canonical" {
+				t.Fatalf("unexpected catalogue request: %s", r.URL)
+			}
+			return nativeHTTP(`{"data":[{"id":"openai/qwen"}]}`), nil
+		}
+		posts++
+		var body struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if posts == 1 && body.Model == "qwen" {
+			return &http.Response{StatusCode: 400, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"Unable to determine provider for model 'qwen'"}}`))}, nil
+		}
+		if posts != 2 || body.Model != "openai/qwen" {
+			t.Fatalf("unexpected retry: %d, %q", posts, body.Model)
+		}
+		return nativeHTTP(nativeSSE("ok", "stop")), nil
+	})}}
+	message, err := p.turn(context.Background(), []nativeMessage{{Role: "user", Content: "hi"}}, nil, nil)
+	if err != nil || message.Content != "ok" || p.route.Model != "openai/qwen" || posts != 2 {
+		t.Fatalf("canonical retry failed: %+v, %v, posts=%d", message, err, posts)
+	}
+}
+
 func TestNativeCancellation(t *testing.T) {
 	p := nativeProvider{route: ChatLocalEndpoint{Endpoint: "http://local.test/v1"}, http: &http.Client{Transport: nativeTransport(func(r *http.Request) (*http.Response, error) { <-r.Context().Done(); return nil, r.Context().Err() })}}
 	ctx, cancel := context.WithCancel(context.Background())
