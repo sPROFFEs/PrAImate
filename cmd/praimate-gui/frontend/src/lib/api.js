@@ -19,6 +19,16 @@ function call(method, ...args) {
 }
 
 export const api = {
+  workerConfig: () => call('WorkerConfig'),
+  saveWorkerConfig: (config) => call('SaveWorkerConfig', JSON.stringify(config)),
+  startWorkerRun: (task) => call('StartWorkerRun', task),
+  startWorkerRunWithConfig: (task, config) => call('StartWorkerRunWithConfig', task, JSON.stringify(config)),
+  workerRuns: () => call('WorkerRuns'),
+  workerRunSnapshot: (id) => call('WorkerRunSnapshot', id),
+  renameWorkerRun: (id, title) => call('RenameWorkerRun', id, title),
+  deleteWorkerRun: (id) => call('DeleteWorkerRun', id),
+  cancelWorkerRun: (id) => call('CancelWorkerRun', id),
+  continueWorkerRun: (id, task) => call('ContinueWorkerRun', id, task),
   skillLibraryV2: (request) => call('SkillLibraryV2', JSON.stringify(request)),
   pickSkillSourceV2: (kind) => call('PickSkillSourceV2', kind),
   exportSkillPackageV2: (ref, digest) => call('ExportSkillPackageV2', ref, digest),
@@ -119,6 +129,8 @@ export const api = {
 
   updateChatConfig: (chatID, cli, model, tools, localEndpoint, localApiKey, localModel) =>
     call('UpdateChatConfig', chatID, cli, model, tools, localEndpoint || '', localApiKey || '', localModel || ''),
+  setNativeChatLimits: (chatID, contextTokens, outputTokens) => call('SetNativeChatLimits', chatID, Number(contextTokens) || 0, Number(outputTokens) || 0),
+  nativeChatContext: (chatID) => call('NativeChatContext', chatID),
   updateChatWorkspace: (chatID, workspacePath) => call('UpdateChatWorkspace', chatID, workspacePath || ''),
   renameChat: (chatID, newTitle) => call('RenameChat', chatID, newTitle),
   searchChats: (q) => call('SearchChats', q),

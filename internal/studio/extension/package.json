@@ -48,6 +48,11 @@
         "category": "PrAImate"
       },
       {
+        "command": "praimate.focusWorkers",
+        "title": "PrAImate: Open Workers",
+        "category": "PrAImate"
+      },
+      {
         "command": "praimate.ask",
         "title": "PrAImate: Ask about selection / file",
         "category": "PrAImate"

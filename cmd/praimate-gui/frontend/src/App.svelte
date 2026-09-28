@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { api } from './lib/api.js'
+  import { api, onApproval } from './lib/api.js'
   import { activePage, pageRevision, prefetchCLIs, agentStudio } from './lib/stores.js'
   import { initTheme, themeMode, setThemeMode } from './lib/theme.js'
   import logo from './assets/monke-icon.png'
@@ -19,6 +19,7 @@
     studio: 'M3 3h18v18H3zM3 9h18M9 21V9',
     documents: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8',
     run: 'M12 8V4m0 0h4m-4 0H8m-4 9a8 8 0 0 1 16 0v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zM9 14h.01M15 14h.01',
+    workers: 'M12 5v4M12 9l-7 5M12 9l7 5M3 14h4v4H3zM17 14h4v4h-4zM10 1h4v4h-4z',
     skills: 'M12 2l2.4 7.4 7.6 2.6-7.6 2.6L12 22l-2.4-7.4L2 12l7.6-2.6z',
     clis: 'M4 17l6-6-6-6M12 19h8M2 4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z',
     mcp: 'M12 22v-5M9 8V2M15 8V2M6 8h12v5a6 6 0 0 1-12 0z',
@@ -35,6 +36,15 @@
   // Sidebar collapse — icons-only rail. Persisted to localStorage so it
   // survives reloads; default expanded on first run.
   let collapsed = false
+  let workerApprovals = []
+  let workerApprovalError = ''
+  async function answerWorkerApproval(request, allow, always = false) {
+    try {
+      await api.resolveApproval(request.id, allow, always)
+      workerApprovals = workerApprovals.filter((item) => item.id !== request.id)
+      workerApprovalError = ''
+    } catch (e) { workerApprovalError = String(e) }
+  }
   try {
     collapsed = localStorage.getItem('praimate:sidebar-collapsed') === '1'
   } catch {}
@@ -53,6 +63,7 @@
     { id: 'studio', label: 'Studio', icon: icons.studio, load: () => import('./pages/Studio.svelte') },
     { id: 'documents', label: 'Documents', icon: icons.documents, load: () => import('./pages/Documents.svelte') },
     { id: 'agents', label: 'Agents', icon: icons.run, load: () => import('./pages/Agents.svelte') },
+    { id: 'workers', label: 'Workers', icon: icons.workers, load: () => import('./pages/Workers.svelte') },
     { id: 'skills', label: 'Skills', icon: icons.skills, load: () => import('./pages/Skills.svelte') },
     { id: 'clis', label: 'CLI & Tools', icon: icons.clis, load: () => import('./pages/CLIs.svelte') },
     { id: 'localllm', label: 'Local LLM', icon: icons.localllm, load: () => import('./pages/LocalLLM.svelte') },
@@ -204,6 +215,9 @@
       try { await api.detachedRendererReady() } catch {}
       return
     }
+    onApproval((request) => {
+      if (request.chatId?.startsWith('worker-')) workerApprovals = [...workerApprovals, request]
+    })
     if (window.runtime?.EventsOn) {
       window.runtime.EventsOn('praimate:close-blocked', (event) => { closeBlocked = event })
     }
@@ -365,6 +379,21 @@
 <Toast />
 <ConfirmModal />
 
+{#each workerApprovals as request (request.id)}
+  <div class="picker-backdrop">
+    <div class="picker" role="dialog" aria-modal="true" aria-label="Worker approval" style="max-width:560px">
+      <div class="picker-head"><strong class="grow">Worker requests {request.tool}</strong></div>
+      <div class="picker-body" style="padding:16px;white-space:pre-wrap;overflow-wrap:anywhere">{request.detail}</div>
+      {#if workerApprovalError}<p role="alert" style="padding:0 16px;color:var(--err)">{workerApprovalError}</p>{/if}
+      <div class="picker-actions">
+        <button on:click={() => answerWorkerApproval(request, false)}>Deny</button>
+        <button on:click={() => answerWorkerApproval(request, true)}>Allow once</button>
+        <button on:click={() => answerWorkerApproval(request, true, true)}>Allow for this chat</button>
+      </div>
+    </div>
+  </div>
+{/each}
+
 {#if closeBlocked}
   <div class="picker-backdrop">
     <div class="picker" role="dialog" aria-modal="true" aria-label="Detached windows are still open" style="max-width:520px">
@@ -420,5 +449,11 @@
   .update-err {
     color: var(--err);
     font-size: 12px;
+  }
+  .picker-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
   }
 </style>

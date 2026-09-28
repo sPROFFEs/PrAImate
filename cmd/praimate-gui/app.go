@@ -29,6 +29,7 @@ import (
 	"git.jtsec.local/lab/PrAImate/internal/installer"
 	"git.jtsec.local/lab/PrAImate/internal/launcher"
 	"git.jtsec.local/lab/PrAImate/internal/ollama"
+	"git.jtsec.local/lab/PrAImate/internal/orchestrator"
 	"git.jtsec.local/lab/PrAImate/internal/store"
 	"git.jtsec.local/lab/PrAImate/internal/studio"
 	"git.jtsec.local/lab/PrAImate/internal/version"
@@ -63,6 +64,7 @@ type App struct {
 	chatCancelSeq   uint64
 	managedCancelMu sync.Mutex
 	managedCancels  map[string]context.CancelFunc
+	workers         *orchestrator.Manager
 
 	// ragCancels maps agent IDs to active graphify extractions so the RAG
 	// controls can stop only their own child process. Guarded by ragCancelMu.
@@ -237,6 +239,8 @@ func (a *App) initializeUnlockedStore(ctx context.Context, st *store.Store) erro
 
 	a.st = st
 	a.core = c
+	a.workers = orchestrator.NewManager(c, ctx)
+	studio.SetDesktopWorkerManager(c, a.workers)
 	studio.SetDesktopWindowHooks(c, &studio.DesktopWindowHooks{
 		Hide: func() {
 			a.studioWindowMu.Lock()

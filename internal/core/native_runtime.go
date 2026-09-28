@@ -343,7 +343,7 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 			budget = min(budget, retryBudget)
 		}
 		if budget < 256 {
-			return reply, errors.New("context window is too small for output, safety, skills and tool schemas; raise --context-tokens or reduce tools/skills")
+			return reply, errors.New("context window is too small for output, safety, skills and tool schemas; increase it in Chat settings or with --context-tokens, or reduce tools/skills")
 		}
 		messages, changed, err := compactNativeContext(s.Messages, budget, func(messages []nativeMessage) int {
 			// Token windows do not bound transport/storage bytes for images.
@@ -360,7 +360,7 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 			return nativeMessageTokens(messages)
 		})
 		if err != nil {
-			return reply, err
+			return reply, fmt.Errorf("%w (configured window: %d tokens; usable input: %d tokens; adjust this chat's context window in Chat settings)", err, s.Context.Window, s.Context.InputLimit)
 		}
 		s.Messages = messages
 		if changed {
@@ -372,7 +372,7 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 		baseTokens := nativeMessageTokens(wire) + schemaTokens
 		s.Context.EstimatedInput = int(math.Ceil(float64(baseTokens) * s.Context.Calibration))
 		if s.Context.EstimatedInput > s.Context.InputLimit {
-			return reply, errors.New("context budget exceeded after preparing skills; shorten the request or increase the context window")
+			return reply, fmt.Errorf("context budget exceeded after preparing skills (%d/%d input tokens; configured window: %d); shorten the request or increase this chat's context window in Chat settings", s.Context.EstimatedInput, s.Context.InputLimit, s.Context.Window)
 		}
 		if err := run.core.saveNativeSession(ctx, s); err != nil {
 			return reply, err

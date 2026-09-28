@@ -738,6 +738,7 @@
     stream = stream; scrollChat()
   }
   function handleApproval(req) {
+    if (req.chatId?.startsWith('worker-')) return // App owns worker approvals across pages.
     const isManagedResume = managedRunBusy && req.chatId === selectedRun?.id
     if (req.chatId !== helperChatId && !isManagedResume) { api.resolveApproval(req.id, false, false).catch(() => {}); return }
     approvals = [...approvals, req]

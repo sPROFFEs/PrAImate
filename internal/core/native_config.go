@@ -142,6 +142,45 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 	return &route, nil
 }
 
+// ResolveNativeWorkerRoute selects a saved local model route for a stateless
+// worker. Credentials stay in the Core and are never stored in worker profiles.
+func (c *Core) ResolveNativeWorkerRoute(ctx context.Context, endpoint, model string) (*ChatLocalEndpoint, error) {
+	return c.resolveNativeRoute(ctx, &ChatLocalEndpoint{Endpoint: endpoint, Model: model}, model)
+}
+
+// SetNativeChatLimits overrides the context and output windows for one native
+// chat. Zero inherits the selected host's values (or the core defaults).
+func (c *Core) SetNativeChatLimits(ctx context.Context, chatID string, contextTokens, outputTokens int) error {
+	if contextTokens < 0 || contextTokens > 2_000_000 || (contextTokens > 0 && contextTokens < 2048) {
+		return errors.New("native context window must be 0 or 2048 to 2000000 tokens")
+	}
+	if outputTokens < 0 || outputTokens > 2_000_000 || (contextTokens > 0 && outputTokens >= contextTokens) {
+		return errors.New("native output reserve must be less than the context window")
+	}
+	chat, err := c.GetChat(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	if chat.CLIAgent != "praimate-cli" {
+		return errors.New("context window override is only available for praimate-cli chats")
+	}
+	route := ChatLocalEndpoint{}
+	if chat.Settings.Local != nil {
+		route = *chat.Settings.Local
+	}
+	route.ContextTokens, route.OutputTokens = contextTokens, outputTokens
+	if _, err := c.resolveNativeRoute(ctx, &route, chat.Settings.Model); err != nil {
+		return err
+	}
+	return c.UpdateChatSettings(ctx, chatID, func(settings *ChatSettings) {
+		if settings.Local == nil {
+			settings.Local = &ChatLocalEndpoint{}
+		}
+		settings.Local.ContextTokens = contextTokens
+		settings.Local.OutputTokens = outputTokens
+	})
+}
+
 func selectNativeAssignment(assignments []NativeModelAssignment, endpoint, model string) (*NativeModelAssignment, error) {
 	qualified := strings.Contains(model, "::")
 	var selected *NativeModelAssignment

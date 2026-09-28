@@ -24,6 +24,10 @@ type studioAdapter struct {
 	probe func(context.Context) error
 }
 
+type studioNativeAdapter struct{ studioAdapter }
+
+func (*studioNativeAdapter) Name() string { return "praimate-cli" }
+
 func (a *studioAdapter) Name() string { return "claude" }
 func (a *studioAdapter) Available(ctx context.Context) error {
 	if a.probe != nil {
@@ -93,6 +97,30 @@ func TestSessionClearAndPersist(t *testing.T) {
 	}
 	if chat.WorkspacePath != s.session.Workspace || chat.Settings.Surface != "studio-ide" {
 		t.Fatal("chat not bound to workspace")
+	}
+}
+
+func TestNativeStudioContextLimitsPersistInChat(t *testing.T) {
+	s, _ := fixture(t)
+	adapter := &studioNativeAdapter{}
+	old, _ := core.GetCLIAdapter(adapter.Name())
+	core.RegisterCLIAdapter(adapter)
+	t.Cleanup(func() {
+		if old != nil {
+			core.RegisterCLIAdapter(old)
+		} else {
+			core.UnregisterCLIAdapter(adapter.Name())
+		}
+	})
+	s.session.CLI = "praimate-cli"
+	rpcOK(t, s, "session.update", map[string]any{"model": "local-model", "localContextTokens": 32768, "localOutputTokens": 2048})
+	chat := rpcOK(t, s, "chats.create", map[string]string{"title": "native"}).(*core.Chat)
+	if chat.Settings.Local == nil || chat.Settings.Local.ContextTokens != 32768 || chat.Settings.Local.OutputTokens != 2048 {
+		t.Fatalf("native chat limits=%+v", chat.Settings.Local)
+	}
+	status := rpcOK(t, s, "session.get", nil).(map[string]any)
+	if status["localContextTokens"] != 32768 || status["localOutputTokens"] != 2048 {
+		t.Fatalf("session context limits=%+v", status)
 	}
 }
 

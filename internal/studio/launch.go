@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"git.jtsec.local/lab/PrAImate/internal/core"
+	"git.jtsec.local/lab/PrAImate/internal/orchestrator"
 )
 
 var desktopServers struct {
@@ -20,6 +21,18 @@ var desktopServers struct {
 	server          *Server
 	endpoint, token string
 	window          *DesktopWindowHooks
+	workers         *orchestrator.Manager
+}
+
+// SetDesktopWorkerManager shares live worker chats between Wails and Studio.
+func SetDesktopWorkerManager(c *core.Core, manager *orchestrator.Manager) {
+	desktopServers.Lock()
+	defer desktopServers.Unlock()
+	desktopServers.core = c
+	desktopServers.workers = manager
+	if desktopServers.server != nil && desktopServers.server.core == c {
+		desktopServers.server.workers = manager
+	}
 }
 
 // SetDesktopWindowHooks attaches the Wails window controller to the shared
@@ -40,6 +53,9 @@ func desktopEndpoint(c *core.Core) (string, string, error) {
 		return desktopServers.endpoint, desktopServers.token, nil
 	}
 	srv := NewServer(c)
+	if desktopServers.workers != nil && desktopServers.core == c {
+		srv.workers = desktopServers.workers
+	}
 	srv.setDesktopWindowHooks(desktopServers.window)
 	endpoint, token, err := srv.StartLocal()
 	if err != nil {

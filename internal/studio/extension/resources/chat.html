@@ -15,6 +15,8 @@ main{flex:1;min-height:0;display:flex}.page{flex:1;min-width:0;overflow:auto;pad
 .code-box{margin:10px 0;border:1px solid var(--vscode-widget-border,#8884);border-radius:6px;overflow:hidden}.code-header{padding:5px 8px;background:var(--vscode-editorGroupHeader-tabsBackground);display:flex;align-items:center;gap:5px;font-size:11px}.code-header span{flex:1}.code-header button{padding:3px 7px}pre{margin:0;padding:10px;overflow:auto;font:12px/1.5 var(--vscode-editor-font-family,monospace);background:var(--vscode-editor-background)}.tool-pill{display:block;font-size:11px;color:var(--vscode-descriptionForeground)}.markdown h1,.markdown h2,.markdown h3{margin:10px 0 5px}.markdown h1{font-size:18px}.markdown h2{font-size:16px}.markdown h3{font-size:14px}.markdown code{font-family:var(--vscode-editor-font-family,monospace);background:var(--vscode-textCodeBlock-background);padding:1px 4px;border-radius:3px}.markdown ul,.markdown ol{margin:5px 0;padding-left:22px}.markdown blockquote{margin:7px 0;padding-left:10px;border-left:3px solid var(--vscode-textBlockQuote-border);color:var(--vscode-descriptionForeground)}.markdown a{color:var(--vscode-textLink-foreground)}
 #prompt-input{min-height:84px;max-height:220px;resize:vertical}.composer{border-top:1px solid var(--vscode-widget-border,#8884);padding-top:10px}.composer .toolbar{margin:8px 0 0}#active-file{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;margin:6px 0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:10px}.card{border:1px solid var(--vscode-widget-border,#8884);border-radius:7px;padding:13px;min-width:0;overflow-wrap:anywhere}.card.selected{border-color:var(--vscode-focusBorder)}.card .toolbar{margin-bottom:0}.meta{font-size:11px;color:var(--vscode-descriptionForeground);margin:6px 0}.empty{padding:24px 0;color:var(--vscode-descriptionForeground);line-height:1.6}
 .form-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));margin:18px 0}.field{display:flex;flex-direction:column;gap:6px}.section{border-top:1px solid var(--vscode-widget-border,#8884);padding-top:16px;margin-top:20px}#settings-page{max-width:980px;width:100%;margin:0 auto}@media(min-width:720px){#chat-page{max-width:1000px;margin:auto;height:100%;padding:0 28px 18px}.page{padding:22px}}
+.worker-profiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:8px}.worker-profiles fieldset{min-width:0;border:1px solid var(--vscode-widget-border,#8884);border-radius:6px;margin:0;padding:10px}.worker-profiles .field{margin:8px 0}.worker-lanes{display:flex;gap:8px;overflow:auto;min-height:240px}.worker-lanes section{flex:1 0 220px;min-width:0;border:1px solid var(--vscode-widget-border,#8884);border-radius:6px}.worker-lanes section.closed{flex:0 0 70px}.worker-lanes section.closed .lane-title{writing-mode:vertical-rl;min-height:180px}.worker-lanes pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}.worker-tabs{display:flex;gap:5px;overflow:auto;padding:8px 0}.worker-tabs button{white-space:nowrap;flex:none}.worker-tabs .selected{border-color:var(--vscode-focusBorder)}.worker-event{border-top:1px solid var(--vscode-widget-border,#8884);padding:7px}.worker-event small{color:var(--vscode-descriptionForeground)}
+.worker-layout{display:grid;grid-template-columns:190px minmax(0,1fr);gap:12px;margin-top:12px}.worker-tabs{display:flex;flex-direction:column;max-height:calc(100vh - 180px);border-right:1px solid var(--vscode-widget-border,#8884);padding-right:8px}.worker-tabs button{text-align:left;white-space:normal;overflow-wrap:anywhere}.worker-main{min-width:0}.worker-overlay{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:12px;background:#0009}.worker-create-card{width:min(960px,100%);max-height:calc(100vh - 24px);overflow:auto;padding:16px;border:1px solid var(--vscode-widget-border,#8884);border-radius:8px;background:var(--vscode-editor-background);color:var(--vscode-editor-foreground)}.worker-create-head{display:flex;align-items:center;gap:8px}.worker-create-head h2{flex:1}.worker-chat-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.worker-chat-head strong{flex:1;min-width:160px;overflow-wrap:anywhere}@media(max-width:620px){.worker-layout{grid-template-columns:1fr}.worker-tabs{flex-direction:row;max-height:none;border-right:0;border-bottom:1px solid var(--vscode-widget-border,#8884);padding:0 0 8px}.worker-tabs button{min-width:150px}}
 </style>
 </head>
 <body>
@@ -32,6 +34,11 @@ main{flex:1;min-height:0;display:flex}.page{flex:1;min-width:0;overflow:auto;pad
     <div id="attachment-list" class="hint"></div><div class="toolbar"><button id="attach-btn" title="Attach images or documents">Attach…</button><label class="hint grow"><input id="use-context" type="checkbox" checked> Include selection / active file</label><button id="stop-btn" disabled>Stop</button><button id="send-btn" class="primary" disabled>Send</button></div>
   </div>
 </section>
+<section id="workers-page" class="page" hidden>
+  <div class="toolbar"><h1 class="grow">Workers</h1><button id="worker-new" class="primary">New worker chat</button></div><p class="hint">Saved worker chats keep their task history, results and activity for later follow-up.</p>
+  <div class="worker-layout"><div id="worker-tabs" class="worker-tabs" aria-label="Saved worker chats"></div><div class="worker-main"><div id="worker-result"></div><div id="worker-lanes" class="worker-lanes"></div><div class="section"><label class="field">Follow-up for Reasoner<textarea id="worker-followup" rows="3" placeholder="Continue the selected worker chat"></textarea></label><div class="toolbar"><button id="worker-continue" class="primary" hidden>Continue this chat</button><span id="worker-status" class="hint"></span></div></div></div></div>
+  <div id="worker-create" class="worker-overlay" hidden><div class="worker-create-card" role="dialog" aria-modal="true" aria-label="New worker chat"><div class="worker-create-head"><h2>New worker chat</h2><button id="worker-create-close" aria-label="Close">×</button></div><p class="hint">Choose a task and configure the three workers. Profiles remain attached to this chat.</p><label class="field">Task for Reasoner<textarea id="worker-task" rows="3" placeholder="Describe the task for the reasoning worker"></textarea></label><details id="worker-settings" open><summary>Worker profiles</summary><p id="worker-workspace" class="hint"></p><div id="worker-profiles" class="worker-profiles"></div></details><div class="toolbar"><button id="worker-create-cancel">Cancel</button><button id="worker-start" class="primary">Create chat</button></div></div></div>
+</section>
 <section id="catalog-page" class="page" hidden>
   <h1 id="catalog-title"></h1><p id="catalog-description" class="hint"></p>
   <div class="toolbar"><input id="search" class="grow" type="search" placeholder="Filter…" aria-label="Filter items"><button id="reload-btn">Refresh</button></div>
@@ -46,14 +53,14 @@ main{flex:1;min-height:0;display:flex}.page{flex:1;min-width:0;overflow:auto;pad
   </div><p class="hint">Ask requests approval for managed tools. Native CLIs without an approval bridge fall back to safe mode. Full permits autonomous tool use.</p>
   <div class="section"><h2>Local model routing</h2><p id="local-hint" class="hint">Leave endpoint empty to use the CLI provider.</p><div class="form-grid">
     <label class="field">Endpoint<input id="local-endpoint" placeholder="http://localhost:11434/v1"></label><label class="field">Local model<input id="local-model" placeholder="Model name"></label>
-  </div><div class="toolbar"><button id="local-hosts-btn" type="button">Manage profiles…</button></div></div><div class="toolbar"><button id="save-session" class="primary" type="submit">Save session</button><span id="saved-label" class="hint" aria-live="polite"></span></div></form>
+  </div><div id="native-budget" hidden><p class="hint">PrAImate CLI context for this chat. Enter 0 to inherit the host; without a host hint, defaults are 8192 context and 1024 output tokens.</p><div class="form-grid"><label class="field">Context window tokens<input id="local-context-tokens" type="number" min="0" max="2000000" step="1"></label><label class="field">Output reserve tokens<input id="local-output-tokens" type="number" min="0" max="2000000" step="1"></label></div></div><div class="toolbar"><button id="local-hosts-btn" type="button">Manage profiles…</button></div></div><div class="toolbar"><button id="save-session" class="primary" type="submit">Save session</button><span id="saved-label" class="hint" aria-live="polite"></span></div></form>
   <div class="section"><h2>Workspace, privacy & integrations</h2><p class="hint">Switching workspace starts a new conversation. Credentials are collected by the extension host and never enter this page.</p><div class="toolbar"><button id="workspace-btn">Workspace folder…</button><button id="privacy-btn">Privacy patterns…</button><button id="settings-skills">Skills</button><button id="settings-mcp">MCP servers</button></div></div>
   <div class="section"><h2>CLI availability & native terminals</h2><p class="hint">Detection can take up to 20 seconds. A failed probe is separate from the Core connection.</p><div id="cli-health" class="cards"></div><div class="toolbar"><button id="rescan-btn">Rescan CLIs</button><button id="terminal-btn">Open selected CLI terminal</button><button id="choose-terminal-btn">Choose CLI…</button></div><p class="hint">Terminals run Claude Code, OpenClaude, Codex, OpenCode or PrAImate Code interactively in this workspace. The selected CLI uses the saved model; choosing another CLI uses its default model. Native CLI permissions and configuration apply: Studio's persona, skills, MCP, local routing and tool permissions are not copied. Save model changes before opening a terminal.</p></div>
 </section>
 </main>
 <script>
 const vscode = acquireVsCodeApi(), $ = id => document.getElementById(id);
-const pages = {chat:'Chat',history:'History',agents:'Agents',workflows:'Workflows',skills:'Skills',mcp:'MCP',runs:'Runs',settings:'Settings'};
+const pages = {chat:'Chat',workers:'Workers',history:'History',agents:'Agents',workflows:'Workflows',skills:'Skills',mcp:'MCP',runs:'Runs',settings:'Settings'};
 const descriptions = {
   history:'Conversations in this workspace. Resume, rename or delete a conversation.',
   agents:'Create, edit, import, export and choose personas. Agent YAML also owns workflow definitions.',
@@ -71,9 +78,10 @@ function button(label,fn,disabled = false) { const b = document.createElement('b
 function element(tag,text,className = '') { const e = document.createElement(tag); e.textContent = text; e.className = className; return e; }
 function notice(text) { $('notice').textContent = text; $('notice').hidden = !text; }
 function navigate(next) {
-  page = next; persist(); notice(''); $('chat-page').hidden = page !== 'chat'; $('settings-page').hidden = page !== 'settings'; $('catalog-page').hidden = page === 'chat' || page === 'settings';
+  page = next; persist(); notice(''); $('chat-page').hidden = page !== 'chat'; $('workers-page').hidden = page !== 'workers'; $('settings-page').hidden = page !== 'settings'; $('catalog-page').hidden = page === 'chat' || page === 'workers' || page === 'settings';
   for(const b of $('navigation').children) b.setAttribute('aria-current',b.dataset.page === page ? 'page' : 'false');
   if(descriptions[page]) { $('search').value = ''; loadCollection(); }
+  if(page === 'workers' && status.connected) post('workerLoad');
 }
 for(const [id,label] of Object.entries(pages)) { const b = button(label,() => navigate(id)); b.dataset.page = id; $('navigation').appendChild(b); }
 function loadCollection() {
@@ -143,6 +151,83 @@ function renderCollection() {
   }
 }
 function options(id,entries,value) { $(id).replaceChildren(...entries.map(([key,label,disabled]) => {const o = document.createElement('option'); o.value = key; o.textContent = label; o.disabled = !!disabled; return o;})); $(id).value = value; }
+const workerTiers = [['primary','Reasoner'],['middle','Middle'],['fast','Fast']];
+const workerDefault = (tier,cli,runtime='cli') => ({tier,runtime,cli:runtime === 'cli' ? cli : '',model:'',endpoint:runtime === 'native' ? 'http://localhost:11434/v1' : '',instructions:'',allowEdits:false,allowCommands:false,timeoutSeconds:120,maxInputBytes:65536,maxOutputTokens:runtime === 'native' ? 2048 : 0});
+let workerConfig = {workspace:'',profiles:[workerDefault('primary','codex'),workerDefault('middle','claude'),workerDefault('fast','praimate-cli')]};
+let workerRuns = [], workerSnapshot = null, workerSelected = '', workerModels = {}, workerModelPending = new Set(), workerCollapsed = {}, workerPollPending = false, workerRenaming = false, workerRenameDraft = '';
+function workerInput(label,value,change,type='text') {
+  const wrap = element('label',label,'field'), input = document.createElement('input'); input.type = type;
+  if(type === 'checkbox') input.checked = !!value; else input.value = value ?? '';
+  input.addEventListener(type === 'checkbox' ? 'change' : 'input',() => change(type === 'checkbox' ? input.checked : type === 'number' ? Number(input.value) : input.value));
+  wrap.appendChild(input); return {wrap,input};
+}
+function workerModelChoices(cli) { if(cli && !workerModels[cli] && !workerModelPending.has(cli)) {workerModelPending.add(cli);post('workerModels',{cli},ok => {if(!ok) workerModelPending.delete(cli);});} }
+function renderWorkerProfiles() {
+  $('worker-workspace').textContent = 'Workspace: '+(status.activeWorkspace || workerConfig.workspace || 'Select a workspace first');
+  const host = $('worker-profiles'); host.replaceChildren();
+  for(const [tier,label] of workerTiers) {
+    const p = workerConfig.profiles.find(profile => profile.tier === tier) || workerDefault(tier,'praimate-cli');
+    const box = document.createElement('fieldset'), legend = element('legend',label); box.appendChild(legend);
+    const runtime = element('label','Runtime','field'), runtimeSelect = document.createElement('select');
+    for(const [id,name] of [['cli','CLI'],['native','Local / compatible API']]) {const option = document.createElement('option'); option.value=id; option.textContent=name; runtimeSelect.appendChild(option);}
+    runtimeSelect.value=p.runtime; runtimeSelect.addEventListener('change',() => {p.runtime=runtimeSelect.value;p.cli=p.runtime === 'cli' ? 'praimate-cli' : '';p.endpoint=p.runtime === 'native' ? 'http://localhost:11434/v1' : '';p.maxOutputTokens=p.runtime === 'native' ? 2048 : 0;p.allowEdits=false;p.allowCommands=false;renderWorkerProfiles();}); runtime.appendChild(runtimeSelect); box.appendChild(runtime);
+    if(p.runtime === 'cli') {
+      const cliField=element('label','CLI','field'), cliSelect=document.createElement('select');
+      for(const cli of status.availableCLIs || []) {const option=document.createElement('option');option.value=cli.id;option.textContent=cli.label+(cli.available?'':' (unavailable)');option.disabled=!cli.available;cliSelect.appendChild(option);}
+      if(![...cliSelect.options].some(option => option.value === p.cli)) {const option=document.createElement('option');option.value=p.cli;option.textContent=p.cli || 'Choose CLI';cliSelect.appendChild(option);}
+      cliSelect.value=p.cli;cliSelect.addEventListener('change',() => {p.cli=cliSelect.value;p.model='';p.allowEdits=false;p.allowCommands=false;workerModelChoices(p.cli);renderWorkerProfiles();});cliField.appendChild(cliSelect);box.appendChild(cliField);workerModelChoices(p.cli);
+    } else {
+      box.appendChild(workerInput('Endpoint',p.endpoint,value => p.endpoint=value).wrap);
+      box.appendChild(workerInput('Output token limit',p.maxOutputTokens,value => p.maxOutputTokens=value,'number').wrap);
+    }
+    const model=workerInput('Model',p.model,value => p.model=value), list=document.createElement('datalist');list.id='worker-models-'+tier;
+    for(const name of workerModels[p.cli] || []) {const option=document.createElement('option');option.value=name;list.appendChild(option);}
+    model.input.setAttribute('list',list.id);model.wrap.appendChild(list);box.appendChild(model.wrap);
+    box.appendChild(workerInput('Allow workspace edits',p.allowEdits,value => p.allowEdits=value,'checkbox').wrap);
+    box.appendChild(workerInput('Allow commands with user approval',p.allowCommands,value => p.allowCommands=value,'checkbox').wrap);
+    box.appendChild(workerInput('Additional instructions',p.instructions,value => p.instructions=value).wrap);
+    box.appendChild(workerInput('Timeout (seconds)',p.timeoutSeconds,value => p.timeoutSeconds=value,'number').wrap);
+    box.appendChild(workerInput('Maximum input bytes',p.maxInputBytes,value => p.maxInputBytes=value,'number').wrap);
+    host.appendChild(box);
+  }
+}
+function renderWorkerRuns() {
+  const tabs=$('worker-tabs');tabs.replaceChildren();
+  if(!workerRuns.length) tabs.appendChild(element('p','No worker chats yet.','empty'));
+  for(const run of workerRuns) {const tab=button((run.title || run.task || '').slice(0,48)+' · '+run.status,() => {workerSelected=run.id;workerRenaming=false;post('workerRefresh',{id:workerSelected});});if(run.id===workerSelected)tab.classList.add('selected');tabs.appendChild(tab);}
+  const result=$('worker-result');result.replaceChildren();const lanes=$('worker-lanes');lanes.replaceChildren();
+  $('worker-continue').hidden=!workerSnapshot || workerSnapshot.status==='running';
+  $('worker-status').textContent=workerSnapshot?.status || '';
+  if(!workerSnapshot) {result.appendChild(element('p','Select a saved worker chat or create a new one.','empty'));return;}
+  const head=element('div','','worker-chat-head');
+  if(workerRenaming) {
+    const input=document.createElement('input');input.value=workerRenameDraft;input.setAttribute('aria-label','Worker chat title');input.addEventListener('input',() => {workerRenameDraft=input.value;});head.appendChild(input);
+    head.appendChild(button('Save name',() => {if(workerRenameDraft.trim())post('workerRename',{id:workerSelected,title:workerRenameDraft.trim()},ok => {if(ok) {workerRenaming=false;post('workerRefresh',{id:workerSelected});}});}));
+    head.appendChild(button('Cancel',() => {workerRenaming=false;renderWorkerRuns();}));
+  } else {
+    head.appendChild(element('strong',workerSnapshot.title || workerSnapshot.task));
+    head.appendChild(button('Rename',() => {workerRenameDraft=workerSnapshot.title || workerSnapshot.task;workerRenaming=true;renderWorkerRuns();}));
+    head.appendChild(button('Delete',() => post('workerDelete',{id:workerSelected}),workerSnapshot.status==='running'));
+  }
+  result.appendChild(head);
+  result.appendChild(element('p',(workerSnapshot.workspace || '')+' · '+new Date(workerSnapshot.startedAt).toLocaleString(),'hint'));
+  const bar=element('div',workerSnapshot.status+' · '+(workerSnapshot.currentTask || workerSnapshot.task),'toolbar');
+  if(workerSnapshot.status==='running') bar.appendChild(button('Stop',() => post('workerCancel',{id:workerSelected})));result.appendChild(bar);
+  for(const turn of workerSnapshot.turns || []) result.appendChild(element('p','You: '+turn.task+'\nReasoner: '+(turn.result || turn.error || ''),'card'));
+  if(workerSnapshot.result) result.appendChild(element('pre',workerSnapshot.result));
+  if(workerSnapshot.error) result.appendChild(element('p',workerSnapshot.error,'error'));
+  for(const [tier,label] of workerTiers) {
+    const lane=element('section','',workerCollapsed[tier]?'closed':''), profile=(workerSnapshot.profiles || []).find(p => p.tier===tier) || {};
+    lane.appendChild(button(label+' · '+(profile.cli || 'Local')+' / '+(profile.model || '—')+(workerCollapsed[tier]?' ▸':' ▾'),() => {workerCollapsed[tier]=!workerCollapsed[tier];renderWorkerRuns();}));
+    if(!workerCollapsed[tier]) for(const ev of (workerSnapshot.events || []).filter(event => event.tier===tier)) {const item=element('article','','worker-event');item.appendChild(element('small',ev.kind+' · '+new Date(ev.timestamp).toLocaleTimeString()));item.appendChild(element('pre',ev.text || ''));lane.appendChild(item);}
+    lanes.appendChild(lane);
+  }
+}
+$('worker-new').addEventListener('click',() => {$('worker-create').hidden=false;renderWorkerProfiles();});
+for(const id of ['worker-create-close','worker-create-cancel']) $(id).addEventListener('click',() => {$('worker-create').hidden=true;});
+$('worker-start').addEventListener('click',() => {const task=$('worker-task').value.trim();if(!task)return;post('workerStart',{config:workerConfig,task},ok => {if(ok) {$('worker-task').value='';$('worker-create').hidden=true;}});});
+$('worker-continue').addEventListener('click',() => {const task=$('worker-followup').value.trim();if(!task || !workerSelected)return;post('workerContinue',{id:workerSelected,task},ok => {if(ok) {$('worker-followup').value='';post('workerRefresh',{id:workerSelected});}});});
+setInterval(() => {if(page==='workers' && status.connected && !workerPollPending) {workerPollPending=true;post('workerRefresh',{id:workerSelected},() => {workerPollPending=false;});}},900);
 const toolLabels = {safe:'Safe / read-only',ask:'Ask for approval',edits:'Apply edits',plan:'Plan',full:'Full / autonomous'};
 function localSupported(cli) { return (status.availableCLIs || []).find(c => c.id === cli)?.capabilities?.localRouting || false; }
 function cliChanged() {
@@ -152,17 +237,20 @@ function cliChanged() {
   const levels = cap ? (cap.toolLevels || ['']).map(level => level || 'safe') : [previous];
   options('tools-select',levels.map(level => [level,toolLabels[level] || level]),levels.includes(previous) ? previous : 'safe');
   $('local-endpoint').disabled = !canChange() || !localSupported(cli); $('local-model').disabled = $('local-endpoint').disabled;
+  $('native-budget').hidden = cli !== 'praimate-cli';
   $('local-hint').textContent = localSupported(cli) ? 'Leave endpoint empty to use the CLI provider.' : 'Local routing is not supported by this CLI (or detection is pending).';
 }
 function fillSettings() {
   const clis = status.availableCLIs || [];
   options('cli-select',clis.length ? clis.map(c => [c.id,c.label+(c.available ? '' : ' — probe failed'),!c.available]) : [[status.activeCLI || 'praimate-code','Detecting CLIs…']],status.activeCLI);
   options('agent-select',[['','No persona'],...(status.agents || []).map(a => [a.id,a.name])],status.activeAgent || ''); options('tools-select',Object.entries(toolLabels),status.activeTools || 'safe');
-  $('model-input').value = status.activeModel || ''; $('local-endpoint').value = status.localEndpoint || ''; $('local-model').value = status.localModel || ''; cliChanged();
+  $('model-input').value = status.activeModel || ''; $('local-endpoint').value = status.localEndpoint || ''; $('local-model').value = status.localModel || '';
+  $('local-context-tokens').value = status.localContextTokens || 0; $('local-output-tokens').value = status.localOutputTokens || 0; cliChanged();
   $('model-list').replaceChildren(...(status.models || []).map(m => {const o = document.createElement('option'); o.value = m; return o;}));
 }
 function updateStatus(next,context) {
   const previous = status; status = next;
+  if(page === 'workers' && status.connected && !previous.connected) post('workerLoad');
   $('conn-badge').textContent = status.connected ? '● Core connected' : status.connecting ? 'Connecting…' : '○ Offline'; $('conn-badge').className = 'badge '+(status.connected ? 'online' : 'error');
   $('core-window-btn').hidden = !status.connected || !status.desktopWindow?.available; $('core-window-btn').textContent = status.desktopWindow?.hidden ? 'Show PrAImate' : 'Hide PrAImate';
   $('connection').hidden = status.connected; $('connection-message').textContent = status.error || 'Connecting to PrAImate Core…';
@@ -178,6 +266,7 @@ function updateStatus(next,context) {
   if(JSON.stringify(previous.availableCLIs) !== JSON.stringify(status.availableCLIs)) {
     $('cli-health').replaceChildren();
     for(const cli of status.availableCLIs || []) {const card = element('div','','card'); card.appendChild(element('h2',cli.label)); card.appendChild(element('p',cli.available ? 'Ready' : (cli.unavailableReason || 'Probe failed. Install the CLI or fix its PATH, then rescan.'),cli.available ? 'hint online' : 'hint error')); card.appendChild(button(cli.available ? 'Update / reinstall…' : 'Install…',() => post('installCLI',{cli:cli.id}),!canChange())); $('cli-health').appendChild(card);}
+    if(page === 'workers') renderWorkerProfiles();
   }
   if(context) $('active-file').textContent = (context.activeFileRel || context.activeFile || 'No active file')+(context.selection?.text ? ' · lines '+context.selection.startLine+'–'+context.selection.endLine : '');
   if(descriptions[page]) renderCollection();
@@ -219,7 +308,7 @@ function send() {
 $('session-form').addEventListener('input',() => {dirty = true; $('saved-label').textContent = 'Unsaved changes';});
 $('cli-select').addEventListener('change',() => {$('model-input').value = ''; if(!localSupported($('cli-select').value)) {$('local-endpoint').value = ''; $('local-model').value = '';} cliChanged();});
 $('session-form').addEventListener('submit',event => {
-  event.preventDefault(); post('updateConfig',{config:{cli:$('cli-select').value,agentId:$('agent-select').value,model:$('model-input').value.trim(),tools:$('tools-select').value,localEndpoint:$('local-endpoint').value.trim(),localModel:$('local-model').value.trim()}},ok => {if(ok) {dirty = false; fillSettings(); $('saved-label').textContent = 'Saved';}});
+  event.preventDefault(); const native=$('cli-select').value === 'praimate-cli'; post('updateConfig',{config:{cli:$('cli-select').value,agentId:$('agent-select').value,model:$('model-input').value.trim(),tools:$('tools-select').value,localEndpoint:$('local-endpoint').value.trim(),localModel:$('local-model').value.trim(),localContextTokens:native ? Number($('local-context-tokens').value) || 0 : 0,localOutputTokens:native ? Number($('local-output-tokens').value) || 0 : 0}},ok => {if(ok) {dirty = false; fillSettings(); $('saved-label').textContent = 'Saved';}});
 });
 $('send-btn').addEventListener('click',send); promptInput.addEventListener('input',persist);
 $('attach-btn').addEventListener('click',() => post('attach'));
@@ -233,6 +322,12 @@ $('reload-btn').addEventListener('click',loadCollection); $('search').addEventLi
 for(const [action,label] of Object.entries({explain:'Explain',fix:'Fix',refactor:'Refactor',test:'Tests',reviewFile:'Review file',reviewDiff:'Review changes'})) $('quick-actions').appendChild(button(label,() => post('quickAction',{action})));
 window.addEventListener('message',({data:m}) => {
   if(m.type === 'status') updateStatus(m.status,m.context);
+  else if(m.type === 'workerState') {if(m.config?.profiles?.length) workerConfig=m.config;workerRuns=m.runs || [];if(!workerSelected && workerRuns.length)workerSelected=workerRuns[0].id;renderWorkerProfiles();renderWorkerRuns();if(workerSelected)post('workerRefresh',{id:workerSelected});}
+  else if(m.type === 'workerModels') {workerModels[m.cli]=m.models || [];workerModelPending.delete(m.cli);renderWorkerProfiles();}
+  else if(m.type === 'workerStarted') {workerSelected=m.id;$('worker-status').textContent='Running';$('worker-create').hidden=true;post('workerRefresh',{id:workerSelected});}
+  else if(m.type === 'workerDeleted') {workerSelected='';workerSnapshot=null;post('workerRefresh',{id:''});}
+  else if(m.type === 'workerSnapshot') {workerRuns=m.runs || [];workerSelected=m.selectedId || m.snapshot?.id || '';workerSnapshot=m.snapshot || null;renderWorkerRuns();}
+  else if(m.type === 'navigate' && pages[m.page]) navigate(m.page);
   else if(m.type === 'messages') renderMessages(m.messages);
   else if(m.type === 'collection') {collections[m.name] = m; if(page === m.name) renderCollection();}
   else if(m.type === 'refresh') loadCollection();

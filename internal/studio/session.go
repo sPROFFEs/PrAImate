@@ -15,15 +15,17 @@ import (
 // JSON unmarshalling into a copy preserves omitted values and allows explicitly
 // clearing model, persona and selections.
 type sessionConfig struct {
-	CLI           string                      `json:"cli"`
-	Model         string                      `json:"model"`
-	AgentID       string                      `json:"agentId"`
-	Tools         string                      `json:"tools"`
-	Workspace     string                      `json:"workspace"`
-	MCPServers    []string                    `json:"mcpServers"`
-	Skills        []core.InstalledSkillChoice `json:"skills"`
-	LocalEndpoint string                      `json:"localEndpoint"`
-	LocalModel    string                      `json:"localModel"`
+	CLI                string                      `json:"cli"`
+	Model              string                      `json:"model"`
+	AgentID            string                      `json:"agentId"`
+	Tools              string                      `json:"tools"`
+	Workspace          string                      `json:"workspace"`
+	MCPServers         []string                    `json:"mcpServers"`
+	Skills             []core.InstalledSkillChoice `json:"skills"`
+	LocalEndpoint      string                      `json:"localEndpoint"`
+	LocalModel         string                      `json:"localModel"`
+	LocalContextTokens int                         `json:"localContextTokens"`
+	LocalOutputTokens  int                         `json:"localOutputTokens"`
 }
 
 func (s *Server) sessionSnapshot() sessionConfig { s.mu.Lock(); defer s.mu.Unlock(); return s.session }
@@ -111,7 +113,15 @@ func (s *Server) settings(ctx context.Context, p sessionConfig) (core.ChatSettin
 		if err := core.ValidateLocalRoutingCLI(p.CLI); err != nil {
 			return st, err
 		}
-		st.Local = &core.ChatLocalEndpoint{Endpoint: p.LocalEndpoint, Model: p.LocalModel}
+	}
+	if p.LocalContextTokens < 0 || p.LocalContextTokens > 2_000_000 || (p.LocalContextTokens > 0 && p.LocalContextTokens < 2048) || p.LocalOutputTokens < 0 || p.LocalOutputTokens > 2_000_000 || (p.LocalContextTokens > 0 && p.LocalOutputTokens >= p.LocalContextTokens) {
+		return st, errors.New("invalid native context/output token limits")
+	}
+	if (p.LocalContextTokens != 0 || p.LocalOutputTokens != 0) && p.CLI != "praimate-cli" {
+		return st, errors.New("context window override is only available for praimate-cli")
+	}
+	if p.LocalEndpoint != "" || p.LocalContextTokens != 0 || p.LocalOutputTokens != 0 {
+		st.Local = &core.ChatLocalEndpoint{Endpoint: p.LocalEndpoint, Model: p.LocalModel, ContextTokens: p.LocalContextTokens, OutputTokens: p.LocalOutputTokens}
 	}
 	return st, nil
 }

@@ -120,6 +120,22 @@ func (a *App) UpdateChatConfig(chatID, cli, model, tools, localEndpoint, _ strin
 	})
 }
 
+func (a *App) SetNativeChatLimits(chatID string, contextTokens, outputTokens int) error {
+	c, err := a.requireCore()
+	if err != nil {
+		return err
+	}
+	return c.SetNativeChatLimits(a.ctx, chatID, contextTokens, outputTokens)
+}
+
+func (a *App) NativeChatContext(chatID string) (*core.NativeContextStatus, error) {
+	c, err := a.requireCore()
+	if err != nil {
+		return nil, err
+	}
+	return c.NativeContext(a.ctx, chatID)
+}
+
 // SearchChats finds chats by title or message content.
 func (a *App) SearchChats(query string) ([]core.Chat, error) {
 	c, err := a.requireCore()

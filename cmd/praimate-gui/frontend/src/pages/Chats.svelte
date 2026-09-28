@@ -80,6 +80,8 @@
   let newUseLocal = false
   let newLocalModel = ''
   let newLocalEndpoint = ''
+  let newContextTokens = 0
+  let newOutputTokens = 0
   let mcpServers = []
   let newMCPs = []
   let newSkillChoices = null
@@ -109,7 +111,7 @@
   $: shownChats = searchResults ?? chats
   // Studio and Code sessions have dedicated tabs. A Studio transcript can
   // still be opened here explicitly, but these rows never pollute Chats.
-  $: regularChats = shownChats.filter((c) => c.Settings?.surface !== 'studio' && c.Settings?.surface !== 'code' && c.Settings?.surface !== 'agent-helper' && c.Settings?.surface !== 'workflow')
+  $: regularChats = shownChats.filter((c) => c.Settings?.surface !== 'studio' && c.Settings?.surface !== 'code' && c.Settings?.surface !== 'agent-helper' && c.Settings?.surface !== 'workflow' && c.Settings?.surface !== 'workers')
 
   function agentName(chat) {
     if (!chat?.AgentID) return ''
@@ -201,6 +203,9 @@
       localEndpoint: chat.Settings?.local?.endpoint || '',
       localApiKey: chat.Settings?.local?.api_key || '',
       localModel: chat.Settings?.local?.model || '',
+      contextTokens: chat.Settings?.local?.context_tokens || 0,
+      outputTokens: chat.Settings?.local?.output_tokens || 0,
+      contextStatus: null,
       suggestions: [],
       modelLoading: true,
       mcps: (chat.Settings?.mcp_servers || []).slice(),
@@ -212,6 +217,11 @@
     // Resolve the configured local hosts in the background; localOpt is
     // reactive, so the toggle appears as soon as the catalogue is available.
     ensureLocalOptions()
+    if (chat.CLIAgent === 'praimate-cli') {
+      api.nativeChatContext(chat.ID)
+        .then((status) => { if (cfg?.chat.ID === chat.ID) { cfg.contextStatus = status; cfg = cfg } })
+        .catch(() => {})
+    }
     api.listCLIModels(chat.CLIAgent)
       .then((r) => { if (cfg && cfg.chat.ID === chat.ID) { cfg.suggestions = r || []; cfg.modelLoading = false; cfg = cfg } })
       .catch(() => { if (cfg && cfg.chat.ID === chat.ID) { cfg.modelLoading = false; cfg = cfg } })
@@ -249,6 +259,9 @@
       await api.updateChatConfig(
         cfg.chat.ID, cfg.cli, cfg.model.trim(), normalizeToolsForCli(cfg.cli, cfg.tools),
         cfg.localEndpoint.trim(), cfg.localApiKey, cfg.localModel.trim())
+      if (cfg.cli === 'praimate-cli' && (cfg.contextTokens || cfg.outputTokens || cfg.chat.Settings?.local?.context_tokens || cfg.chat.Settings?.local?.output_tokens)) {
+        await api.setNativeChatLimits(cfg.chat.ID, cfg.contextTokens, cfg.outputTokens)
+      }
       if (cfg.name.trim() && cfg.name.trim() !== cfg.chat.Title) {
         await api.renameChat(cfg.chat.ID, cfg.name.trim())
       }
@@ -278,6 +291,8 @@
     newUseLocal = false
     newLocalModel = ''
     newLocalEndpoint = ''
+    newContextTokens = 0
+    newOutputTokens = 0
     newMCPs = []
     newSkillChoices = null
     newFolder = ''
@@ -328,6 +343,9 @@
         await api.updateChatConfig(chat.ID, newCli, '', tools, newLocalEndpoint || localOpt.endpoint, '', newLocalModel.trim())
       } else if (tools) {
         await api.setChatTools(chat.ID, tools)
+      }
+      if (newCli === 'praimate-cli' && (newContextTokens || newOutputTokens)) {
+        await api.setNativeChatLimits(chat.ID, newContextTokens, newOutputTokens)
       }
       if (newMCPs.length) await api.setChatMCPServers(chat.ID, newMCPs)
       if (newSkillChoices !== null) await api.saveChatSkillChoicesV2(chat.ID, newSkillChoices)
@@ -448,6 +466,7 @@
   }
 
   function handleApproval(req) {
+    if (req.chatId?.startsWith('worker-')) return // App owns worker approvals across pages.
     // The detached child is subscribed before DetachSession resolves. Do not
     // fail-close an approval that belongs to that active renderer.
     if (detachedChats.has(req.chatId)) return
@@ -730,6 +749,14 @@
           <button class="btn sm" on:click={() => { cfg.cli = 'openclaude'; cfgCliChanged() }}>Switch to OpenClaude</button>
         </div>
       {/if}
+    {/if}
+    {#if cfg.cli === 'praimate-cli'}
+      <div class="card-sub" style="margin-top:12px">Native context budget for this chat. Enter 0 to inherit the selected host; without a host hint, the defaults are 8192 context and 1024 output tokens.</div>
+      {#if cfg.contextStatus}<div class="card-sub">Effective: {cfg.contextStatus.window_tokens} context · {cfg.contextStatus.input_limit_tokens} available input · {cfg.contextStatus.output_reserve_tokens} reserved output</div>{/if}
+      <div class="row" style="gap:10px; flex-wrap:wrap">
+        <label class="lbl">Context window tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={cfg.contextTokens} /></label>
+        <label class="lbl">Output reserve tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={cfg.outputTokens} /></label>
+      </div>
     {/if}
 
     {#key cfg.chat.ID}
@@ -1032,6 +1059,13 @@
             {#each modelSuggestions as m}<option value={m}></option>{/each}
           </datalist>
           {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
+        {/if}
+        {#if newCli === 'praimate-cli'}
+          <div class="card-sub" style="margin-top:12px">Native context budget. Enter 0 to inherit the selected host; without a host hint, the defaults are 8192 context and 1024 output tokens.</div>
+          <div class="row" style="gap:10px; flex-wrap:wrap">
+            <label class="lbl">Context window tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={newContextTokens} /></label>
+            <label class="lbl">Output reserve tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={newOutputTokens} /></label>
+          </div>
         {/if}
         <label class="lbl" for="new-chat-folder">Working folder <span class="card-sub">(optional — defaults to your home directory)</span></label>
         <div class="row">

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -132,6 +133,49 @@ func TestNativeContextBudgetPreventsOversizedRequest(t *testing.T) {
 	_, err := a.SingleShot(withNativeExecution(context.Background(), run), SingleShotOpts{Cwd: t.TempDir(), Message: strings.Repeat("text ", 4000)})
 	if err == nil || !strings.Contains(err.Error(), "context") || called {
 		t.Fatalf("sent oversized request: called=%v err=%v", called, err)
+	}
+}
+
+func TestNativeChatLimitsCanBeRaisedWithoutChangingOtherChats(t *testing.T) {
+	c := nativeTestCore(t)
+	ctx := context.Background()
+	nextID := 0
+	newChat := func(cli string) string {
+		nextID++
+		chat, err := c.CreateChat(ctx, CreateChatRequest{ID: fmt.Sprintf("native-limits-%d", nextID), CLIAgent: cli, WorkspacePath: t.TempDir(), Settings: ChatSettings{Local: &ChatLocalEndpoint{Endpoint: "http://local.test/v1", Model: "model"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return chat.ID
+	}
+	first, second := newChat("praimate-cli"), newChat("praimate-cli")
+	if err := c.SetNativeChatLimits(ctx, first, 32768, 2048); err != nil {
+		t.Fatal(err)
+	}
+	status, err := c.NativeContext(ctx, first)
+	if err != nil || status.Window != 32768 || status.OutputReserve != 2048 {
+		t.Fatalf("first chat context=%+v error=%v", status, err)
+	}
+	other, err := c.NativeContext(ctx, second)
+	if err != nil || other.Window != 8192 || other.OutputReserve != 1024 {
+		t.Fatalf("second chat context=%+v error=%v", other, err)
+	}
+	defaultRoute, err := c.CreateChat(ctx, CreateChatRequest{ID: "native-limits-default", CLIAgent: "praimate-cli", WorkspacePath: t.TempDir(), Settings: ChatSettings{Model: "model"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetNativeChatLimits(ctx, defaultRoute.ID, 32768, 0); err != nil {
+		t.Fatalf("override without a per-chat endpoint: %v", err)
+	}
+	defaultStatus, err := c.NativeContext(ctx, defaultRoute.ID)
+	if err != nil || defaultStatus.Window != 32768 {
+		t.Fatalf("default route context=%+v error=%v", defaultStatus, err)
+	}
+	if err := c.SetNativeChatLimits(ctx, first, 1024, 0); err == nil {
+		t.Fatal("accepted an undersized context window")
+	}
+	if err := c.SetNativeChatLimits(ctx, newChat("codex"), 32768, 2048); err == nil {
+		t.Fatal("accepted a native context override for another CLI")
 	}
 }
 

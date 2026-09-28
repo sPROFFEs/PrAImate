@@ -37,6 +37,7 @@ function sessionStatus(st) {
     activeCLI: st.cli, activeModel: st.model || '', activeAgent: st.agentId || '',
     activeTools: st.tools || 'safe', skills: st.skills, mcpServers: st.mcpServers,
     localEndpoint: st.localEndpoint || '', localModel: st.localModel || '',
+    localContextTokens: st.localContextTokens || 0, localOutputTokens: st.localOutputTokens || 0,
     activeWorkspace: st.workspace || currentStatus.activeWorkspace || workspace()
   });
 }
@@ -209,14 +210,14 @@ function editorContext() {
 }
 
 class ChatView {
-  constructor() { this.messages = []; this.chatId = ''; this.busy = false; this.current = null; this.attachments = []; this.views = new Set(); this.readyViews = new Set(); }
+  constructor() { this.messages = []; this.chatId = ''; this.busy = false; this.current = null; this.attachments = []; this.views = new Set(); this.readyViews = new Set(); this.requestedPage = ''; }
   resolveWebviewView(view) {
     this.views.add(view);
     view.webview.options = { enableScripts:true, localResourceRoots:[context.extensionUri] };
     view.webview.html = fs.readFileSync(path.join(context.extensionPath,'resources','chat.html'),'utf8');
     view.webview.onDidReceiveMessage(data => {
       const handlers = {
-        ready:() => { this.readyViews.add(view); this.notifyStatus(); this.render(); },
+        ready:() => { this.readyViews.add(view); this.notifyStatus(); this.render(); if(this.requestedPage) view.webview.postMessage({type:'navigate',page:this.requestedPage}); },
         send:() => this.send(data.text, data.useContext),
         updateConfig:() => configure(data.config),
         quickAction:() => this.quickAction(data.action),
@@ -257,7 +258,34 @@ class ChatView {
         renameChat:() => this.renameChat(data.id, data.title),
         deleteChat:() => this.deleteChat(data.id),
         inspectRun:async () => inspectRun(data.id),
-        resumeRun:() => resumeManagedRun(data.id)
+        resumeRun:() => resumeManagedRun(data.id),
+        workerLoad:async () => {
+          const [config,runs] = await Promise.all([call('workers.config.get'),call('workers.list')]);
+          view.webview.postMessage({type:'workerState',config:{...config,workspace:workspace()},runs:runs || []});
+        },
+        workerModels:async () => {
+          const models = await call('models.list',{cli:data.cli});
+          view.webview.postMessage({type:'workerModels',cli:data.cli,models:models || []});
+        },
+        workerStart:async () => {
+          const id = await call('workers.start',{task:data.task,config:data.config});
+          view.webview.postMessage({type:'workerStarted',id});
+        },
+        workerRefresh:async () => {
+          const runs = await call('workers.list');
+          const id = (runs || []).some(row => row.id === data.id) ? data.id : runs?.[0]?.id;
+          const selected = id ? await call('workers.get',{id}) : null;
+          view.webview.postMessage({type:'workerSnapshot',runs:runs || [],selectedId:id || '',snapshot:selected});
+        },
+        workerCancel:async () => { await call('workers.cancel',{id:data.id}); },
+        workerContinue:async () => { await call('workers.continue',{id:data.id,task:data.task}); },
+        workerRename:async () => { await call('workers.rename',{id:data.id,title:data.title}); },
+        workerDelete:async () => {
+          const choice = await vscode.window.showWarningMessage('Delete this worker chat and its saved history?',{modal:true},'Delete chat');
+          if(choice !== 'Delete chat') return;
+          await call('workers.delete',{id:data.id});
+          view.webview.postMessage({type:'workerDeleted',id:data.id});
+        }
       };
       if (handlers[data.type]) Promise.resolve().then(handlers[data.type]).then(() => {
         view.webview.postMessage({type:'actionResult',id:data.requestId,ok:true});
@@ -269,6 +297,7 @@ class ChatView {
     view.onDidDispose(() => { this.views.delete(view); this.readyViews.delete(view); });
   }
   post(message) { for (const view of this.views) view.webview.postMessage(message); }
+  navigate(page) { this.requestedPage = page; this.post({type:'navigate',page}); }
   notifyStatus() { this.post({type:'status',status:{...currentStatus,busy:this.busy,chatId:this.chatId,attachments:this.attachments.map(a => path.basename(a))},context:editorContext()}); }
   render() { this.post({type:'messages',messages:this.messages}); this.notifyStatus(); }
   async loadCollection(name, view) {
@@ -306,7 +335,8 @@ class ChatView {
       mcpServers:settings.mcp_configured ? (settings.mcp_servers || []) : null,
       skills:settings.skills_v2?.configured ? (settings.skills_v2.bindings || []).map(b => ({ref:b.ref,activation:b.activation,
         digest:settings.skills_lock?.entries?.find(e => e.ref === b.ref)?.digest || ''})) : null,
-      localEndpoint:settings.local?.endpoint || '',localModel:settings.local?.model || ''});
+      localEndpoint:settings.local?.endpoint || '',localModel:settings.local?.model || '',
+      localContextTokens:settings.local?.context_tokens || 0,localOutputTokens:settings.local?.output_tokens || 0});
     this.chatId = chat.ID;
     await context.workspaceState.update('chatId',this.chatId);
     await this.loadMessages();
@@ -747,6 +777,7 @@ function activate(ctx) {
       context.subscriptions.push(panel);
     },
     focusChat:() => vscode.commands.executeCommand('praimate.chatView.focus'),
+    focusWorkers:async () => { await vscode.commands.executeCommand('praimate.chatView.focus'); provider.navigate('workers'); },
     reconnect:connect,refresh:() => { refresh(); refreshModels().catch(report); },
     newChat:() => provider.newChat(),stop:() => call('runs.cancel'),
     configure:configurePicker,selectSkills,selectMCP,localRoute,

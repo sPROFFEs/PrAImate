@@ -125,6 +125,15 @@ test('untrusted workspaces never spawn the backend', () => {
   const h = extensionHarness('win32',false);
   try{assert.equal(h.spawns.length,0);}finally{h.close();}
 });
+test('Workers command is registered and opens the Workers page', async () => {
+  const h = extensionHarness('linux');
+  try {
+    await h.commands.get('praimate.focusWorkers')();
+    assert.equal(h.provider().requestedPage,'workers');
+    const manifest=JSON.parse(fs.readFileSync(path.join(__dirname,'package.json'),'utf8'));
+    assert.ok(manifest.contributes.commands.some(command => command.command === 'praimate.focusWorkers'));
+  } finally { h.close(); }
+});
 for (const platform of ['linux','win32']) {
   test(platform+': selected CLI and picker launch native terminals without changing chat settings',async () => {
     const cwd = platform === 'win32' ? 'C:\\Users\\Test User\\Project' : '/tmp/project with spaces';
@@ -189,13 +198,14 @@ function webviewHarness() {
   const script = /<script>([\s\S]*?)<\/script>/.exec(html)[1];
   const elements = new Map();
   const element = tag => ({tag,dataset:{},listeners:{},value:'',checked:true,disabled:false,children:[],innerHTML:'',textContent:'',className:'',
+    classList:{add(){},remove(){}},get options(){return this.children;},
     scrollHeight:0,scrollTop:0,clientHeight:0,setAttribute(name,value){this[name]=value;},
     addEventListener(name,fn){this.listeners[name]=fn;},appendChild(v){this.children.push(v);},replaceChildren(...v){this.children=v;this.innerHTML='';},
     fire(name,event={}){this.listeners[name]?.(event);}});
   const document = {getElementById:id => {if(!elements.has(id)) elements.set(id,element());return elements.get(id);},createElement:element};
   const posted = [], listeners = {};
   const sandbox = {document,window:{addEventListener:(name,fn)=>listeners[name]=fn},Option:function(text,value){this.text=text;this.value=value;},
-    acquireVsCodeApi:()=>({postMessage:m=>posted.push(m)}),navigator:{clipboard:{writeText:async()=>{}}}};
+    acquireVsCodeApi:()=>({postMessage:m=>posted.push(m)}),navigator:{clipboard:{writeText:async()=>{}}},setInterval:()=>0};
   vm.createContext(sandbox);vm.runInContext(script,sandbox);
   return {elements,posted,send:data=>listeners.message({data}),eval:code=>vm.runInContext(code,sandbox)};
 }
@@ -236,6 +246,18 @@ test('pending CLI detection preserves the persisted permission level on save', (
   const request = h.posted.at(-1);
   assert.equal(request.type,'updateConfig'); assert.equal(request.config.tools,'full');
 });
+test('native chat settings expose and save the context window', () => {
+  const h = webviewHarness();
+  h.send({type:'status',status:{connected:true,activeCLI:'praimate-cli',activeTools:'safe',localContextTokens:32768,localOutputTokens:2048,availableCLIs:[{id:'praimate-cli',label:'PrAImate CLI',available:true}]}});
+  assert.equal(h.elements.get('native-budget').hidden,false);
+  assert.equal(h.elements.get('local-context-tokens').value,32768);
+  h.elements.get('local-context-tokens').value='65536';
+  h.elements.get('session-form').fire('submit',{preventDefault(){}});
+  const request=h.posted.at(-1);
+  assert.equal(request.type,'updateConfig');
+  assert.equal(request.config.localContextTokens,65536);
+  assert.equal(request.config.localOutputTokens,2048);
+});
 test('Desktop window button reflects Core state and requests a toggle', () => {
   const h = webviewHarness();
   h.send({type:'status',status:{connected:true,activeCLI:'claude',activeTools:'safe',desktopWindow:{available:true,hidden:false}}});
@@ -258,4 +280,27 @@ test('single navigation loads collections and exposes contextual actions', () =>
   assert.equal(h.elements.get('chat-page').hidden,false);
   const manifest=JSON.parse(fs.readFileSync(path.join(__dirname,'package.json'),'utf8'));
   assert.equal(manifest.contributes.views['praimate-sidebar'].length,1);
+});
+
+test('Workers view keeps separate models for the same CLI and renders live events as text', () => {
+  const h = webviewHarness();
+  h.send({type:'status',status:{connected:true,activeWorkspace:'/project',availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.eval("navigate('workers')");
+  assert.equal(h.posted.at(-1).type,'workerLoad');
+  const profiles=['primary','middle','fast'].map((tier,index) => ({tier,runtime:'cli',cli:'codex',model:['astra','medium','small'][index],timeoutSeconds:120,maxInputBytes:65536,maxOutputTokens:0}));
+  h.send({type:'workerState',config:{workspace:'/project',profiles},runs:[]});
+  assert.equal(h.elements.get('worker-profiles').children.length,3);
+  h.elements.get('worker-new').fire('click');
+  assert.equal(h.elements.get('worker-create').hidden,false);
+  h.eval("$('worker-task').value='Fix a bug'");
+  h.elements.get('worker-start').fire('click');
+  const request=h.posted.at(-1);
+  assert.equal(request.type,'workerStart');
+  assert.deepEqual(request.config.profiles.map(p=>p.model),['astra','medium','small']);
+  h.send({type:'workerStarted',id:'run-1'});
+  assert.equal(h.elements.get('worker-create').hidden,true);
+  h.send({type:'workerSnapshot',runs:[{id:'run-1',task:'Fix a bug',status:'running'}],snapshot:{id:'run-1',task:'Fix a bug',status:'running',profiles,events:[{tier:'fast',kind:'stream',text:'<script>unsafe</script>',timestamp:'2026-01-01T00:00:00Z'}]}});
+  const fast=h.elements.get('worker-lanes').children[2];
+  assert.equal(fast.children[1].children[1].textContent,'<script>unsafe</script>');
+  assert.equal(fast.children[1].children[1].innerHTML,'');
 });

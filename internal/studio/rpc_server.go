@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"git.jtsec.local/lab/PrAImate/internal/core"
 	"git.jtsec.local/lab/PrAImate/internal/installer"
+	"git.jtsec.local/lab/PrAImate/internal/orchestrator"
 	"git.jtsec.local/lab/PrAImate/internal/version"
 	"io"
 	"net"
@@ -32,7 +33,7 @@ type Server struct {
 	mu            sync.Mutex
 	writeMu       sync.Mutex
 	listener      net.Listener
-	clients       map[net.Conn]bool
+	clients       map[net.Conn]*Server
 	writer        io.Writer
 	socketPath    string
 	token         string
@@ -42,17 +43,41 @@ type Server struct {
 	approvals     map[string]pendingApproval
 	approvalRules map[string]map[string]bool
 	window        *DesktopWindowHooks
+	workers       *orchestrator.Manager
+	workerOwner   *Server
 }
 
 type pendingApproval struct {
-	reply chan bool
-	scope string
-	tool  string
+	reply       chan bool
+	scope       string
+	tool        string
+	description string
 }
 
 func NewServer(c *core.Core) *Server {
+	return newServer(c, true)
+}
+
+func newServer(c *core.Core, ownWorkers bool) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Server{core: c, ctx: ctx, cancel: cancel, clients: map[net.Conn]bool{}, approvals: map[string]pendingApproval{}, approvalRules: map[string]map[string]bool{}, session: sessionConfig{CLI: "praimate-code", Tools: "safe"}}
+	s := &Server{core: c, ctx: ctx, cancel: cancel, clients: map[net.Conn]*Server{}, approvals: map[string]pendingApproval{}, approvalRules: map[string]map[string]bool{}, session: sessionConfig{CLI: "praimate-code", Tools: "safe"}}
+	if ownWorkers {
+		s.workers = orchestrator.NewManager(c, ctx)
+	}
+	return s
+}
+
+func (s *Server) newConnectionServer() *Server {
+	child := newServer(s.core, false)
+	child.cancel()
+	child.ctx, child.cancel = context.WithCancel(s.ctx)
+	child.workers = s.workers
+	child.workerOwner = s
+	child.token = s.token
+	s.mu.Lock()
+	child.window = s.window
+	s.mu.Unlock()
+	return child
 }
 
 // DesktopWindowHooks lets an authenticated Studio connection control only the
@@ -123,17 +148,13 @@ func (s *Server) accept(l net.Listener) error {
 			return err
 		}
 		s.mu.Lock()
-		s.clients[conn] = true
-		token := s.token
+		s.clients[conn] = nil
 		s.mu.Unlock()
 		go func() {
 			defer conn.Close()
-			child := NewServer(s.core)
-			child.cancel()
-			child.ctx, child.cancel = context.WithCancel(s.ctx)
-			child.token = token
+			child := s.newConnectionServer()
 			s.mu.Lock()
-			child.window = s.window
+			s.clients[conn] = child
 			s.mu.Unlock()
 			defer child.Close()
 			_ = child.ServeStdio(conn, conn)
@@ -316,6 +337,9 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 		s.authenticated = true
 		s.session.Workspace = p.Workspace
 		s.mu.Unlock()
+		if s.workerOwner != nil {
+			s.workerOwner.rebroadcastWorkerApprovals(s)
+		}
 		return map[string]any{"serverVersion": version.Current, "protocolVersion": "1", "capabilities": capabilities()}, nil
 	case "system.version":
 		return map[string]string{"name": version.Name, "version": version.Current}, nil
@@ -344,7 +368,7 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"version": version.Current, "activeCLI": p.CLI, "activeModel": p.Model, "activeAgent": p.AgentID, "activeTools": p.Tools, "activeWorkspace": p.Workspace, "mcpServers": p.MCPServers, "skills": p.Skills, "localEndpoint": p.LocalEndpoint, "localModel": p.LocalModel, "agents": agents}, nil
+		return map[string]any{"version": version.Current, "activeCLI": p.CLI, "activeModel": p.Model, "activeAgent": p.AgentID, "activeTools": p.Tools, "activeWorkspace": p.Workspace, "mcpServers": p.MCPServers, "skills": p.Skills, "localEndpoint": p.LocalEndpoint, "localModel": p.LocalModel, "localContextTokens": p.LocalContextTokens, "localOutputTokens": p.LocalOutputTokens, "agents": agents}, nil
 	case "session.update":
 		return s.updateSession(ctx, body)
 	case "clis.list":
@@ -371,9 +395,76 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 			p.CLI = s.sessionSnapshot().CLI
 		}
 		if p.CLI == "praimate-cli" {
+			if assignments, err := s.core.NativeModelAssignments(ctx); err == nil && len(assignments) > 0 {
+				models := make([]string, 0, len(assignments))
+				for _, item := range assignments {
+					models = append(models, item.HostID+"::"+item.Model)
+				}
+				return models, nil
+			}
 			return s.core.NativeModels(ctx, s.sessionSnapshot().LocalEndpoint)
 		}
 		return core.ListCLIModels(ctx, p.CLI), nil
+	case "workers.config.get":
+		return orchestrator.LoadConfig(ctx, s.core)
+	case "workers.config.save":
+		var config orchestrator.Config
+		if err := json.Unmarshal(body, &config); err != nil {
+			return nil, err
+		}
+		if workspace := s.sessionSnapshot().Workspace; workspace != "" {
+			config.Workspace = workspace
+		}
+		return true, orchestrator.SaveConfig(ctx, s.core, config)
+	case "workers.start":
+		var p struct {
+			Task   string
+			Config *orchestrator.Config
+		}
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		workspace := s.sessionSnapshot().Workspace
+		if workspace == "" {
+			return nil, errors.New("select a workspace before starting workers")
+		}
+		if p.Config != nil {
+			p.Config.Workspace = workspace
+			return s.workers.StartWithConfigAndApproval(p.Task, *p.Config, s.workerApprovalProvider)
+		}
+		return s.workers.StartWithApproval(p.Task, workspace, s.workerApprovalProvider)
+	case "workers.list":
+		return s.workers.List()
+	case "workers.get":
+		var p struct{ ID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return s.workers.Snapshot(p.ID)
+	case "workers.cancel":
+		var p struct{ ID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.Cancel(p.ID)
+	case "workers.continue":
+		var p struct{ ID, Task string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.ContinueWithApproval(p.ID, p.Task, s.workerApprovalProvider)
+	case "workers.rename":
+		var p struct{ ID, Title string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.Rename(p.ID, p.Title)
+	case "workers.delete":
+		var p struct{ ID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.Delete(p.ID)
 	case "terminals.list":
 		return terminalCLIs(), nil
 	case "terminals.prepare":
@@ -708,18 +799,10 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 		if err := json.Unmarshal(body, &p); err != nil {
 			return nil, err
 		}
-		s.mu.Lock()
-		pending, ok := s.approvals[p.ApprovalID]
-		if ok {
-			delete(s.approvals, p.ApprovalID)
-			if p.Remember && method == "runs.approve" {
-				if s.approvalRules[pending.scope] == nil {
-					s.approvalRules[pending.scope] = map[string]bool{}
-				}
-				s.approvalRules[pending.scope][pending.tool] = true
-			}
+		pending, ok := s.takeApproval(p.ApprovalID, p.Remember && method == "runs.approve")
+		if !ok && s.workerOwner != nil {
+			pending, ok = s.workerOwner.takeApproval(p.ApprovalID, p.Remember && method == "runs.approve")
 		}
-		s.mu.Unlock()
 		if !ok {
 			return nil, errors.New("approval expired or belongs to another session")
 		}
@@ -730,6 +813,70 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 	}
 }
 func (s *Server) isRunning() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.running != nil }
+func (s *Server) takeApproval(id string, remember bool) (pendingApproval, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending, ok := s.approvals[id]
+	if ok {
+		delete(s.approvals, id)
+		if remember {
+			if s.approvalRules[pending.scope] == nil {
+				s.approvalRules[pending.scope] = map[string]bool{}
+			}
+			s.approvalRules[pending.scope][pending.tool] = true
+		}
+	}
+	return pending, ok
+}
+
+func (s *Server) workerApprovalProvider(scope string) *core.ApprovalConfig {
+	if s.workerOwner != nil {
+		return s.workerOwner.approvalProvider(scope)
+	}
+	return s.approvalProvider(scope)
+}
+
+func (s *Server) broadcastApproval(payload map[string]any) {
+	if s.workerOwner != nil {
+		s.Broadcast("run.approval.required", payload)
+		return
+	}
+	s.mu.Lock()
+	children := make([]*Server, 0, len(s.clients))
+	for _, child := range s.clients {
+		if child != nil {
+			child.mu.Lock()
+			authenticated := child.authenticated
+			child.mu.Unlock()
+			if authenticated {
+				children = append(children, child)
+			}
+		}
+	}
+	s.mu.Unlock()
+	if len(children) == 0 {
+		s.Broadcast("run.approval.required", payload)
+		return
+	}
+	for _, child := range children {
+		child.Broadcast("run.approval.required", payload)
+	}
+}
+
+func (s *Server) rebroadcastWorkerApprovals(child *Server) {
+	s.mu.Lock()
+	pending := make([]map[string]any, 0)
+	for id, approval := range s.approvals {
+		if strings.HasPrefix(approval.scope, "worker-") {
+			pending = append(pending, map[string]any{"runId": approval.scope, "approvalId": id, "description": approval.description})
+		}
+	}
+	s.mu.Unlock()
+	for _, payload := range pending {
+		child.Broadcast("run.approval.required", payload)
+	}
+}
+
 func (s *Server) approvalProvider(scope string) *core.ApprovalConfig {
 	return &core.ApprovalConfig{Request: func(ctx context.Context, tool string, input map[string]any) (bool, error) {
 		s.mu.Lock()
@@ -744,12 +891,13 @@ func (s *Server) approvalProvider(scope string) *core.ApprovalConfig {
 		}
 		id := hex.EncodeToString(b)
 		ch := make(chan bool, 1)
+		detail, _ := json.Marshal(input)
+		description := tool + ": " + string(detail)
 		s.mu.Lock()
-		s.approvals[id] = pendingApproval{reply: ch, scope: scope, tool: tool}
+		s.approvals[id] = pendingApproval{reply: ch, scope: scope, tool: tool, description: description}
 		s.mu.Unlock()
 		defer func() { s.mu.Lock(); delete(s.approvals, id); s.mu.Unlock() }()
-		detail, _ := json.Marshal(input)
-		s.Broadcast("run.approval.required", map[string]any{"runId": scope, "approvalId": id, "description": tool + ": " + string(detail)})
+		s.broadcastApproval(map[string]any{"runId": scope, "approvalId": id, "description": description})
 		select {
 		case allow := <-ch:
 			return allow, nil
