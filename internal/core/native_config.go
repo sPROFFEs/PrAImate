@@ -148,7 +148,7 @@ func autoContextWindow(model string, requested int) int {
 	}
 	m := strings.ToLower(model)
 	switch {
-	case strings.Contains(m, "128k") || strings.Contains(m, "llama-3.1") || strings.Contains(m, "llama-3.2") || strings.Contains(m, "llama-3.3") || strings.Contains(m, "llama3.1") || strings.Contains(m, "llama3.2") || strings.Contains(m, "llama3.3") || strings.Contains(m, "gpt-4") || strings.Contains(m, "claude"):
+	case strings.Contains(m, "128k") || strings.Contains(m, "llama-3.1") || strings.Contains(m, "llama-3.2") || strings.Contains(m, "llama-3.3") || strings.Contains(m, "llama3.1") || strings.Contains(m, "llama3.2") || strings.Contains(m, "llama3.3") || strings.Contains(m, "qwen2.5") || strings.Contains(m, "qwen-2.5") || strings.Contains(m, "qwen3") || strings.Contains(m, "gpt-4") || strings.Contains(m, "claude"):
 		return 131072
 	case strings.Contains(m, "64k") || strings.Contains(m, "deepseek"):
 		return 65536
