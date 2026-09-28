@@ -58,9 +58,17 @@ fi
 # Prefer the vendored source so the build is self-contained re: graphify
 # itself (its own deps still resolve from PyPI). Falls back to PyPI when
 # the vendored tree is absent or GRAPHIFY_PIN is overridden explicitly.
+GRAPHIFY_TARGET="$VENDORED_GRAPHIFY[openai]"
+if command -v cygpath >/dev/null 2>&1; then
+  GRAPHIFY_TARGET="$(cygpath -w "$VENDORED_GRAPHIFY")[openai]"
+fi
+
 if [ -z "${GRAPHIFY_PIN_OVERRIDE:-}" ] && [ -d "$VENDORED_GRAPHIFY" ]; then
-  echo "→ freezing vendored graphify ($VENDORED_GRAPHIFY) [openai] with PyInstaller"
-  uv pip install --index-url=https://pypi.org/simple/ "$VENDORED_GRAPHIFY[openai]" pyinstaller
+  echo "→ freezing vendored graphify ($GRAPHIFY_TARGET) with PyInstaller"
+  uv pip install --index-url=https://pypi.org/simple/ "$GRAPHIFY_TARGET" pyinstaller || {
+    echo "→ falling back to PyPI graphifyy[openai]==$GRAPHIFY_PIN"
+    uv pip install --index-url=https://pypi.org/simple/ "graphifyy[openai]==$GRAPHIFY_PIN" pyinstaller
+  }
 else
   echo "→ freezing graphifyy[openai]==$GRAPHIFY_PIN (PyPI) with PyInstaller"
   uv pip install --index-url=https://pypi.org/simple/ "graphifyy[openai]==$GRAPHIFY_PIN" pyinstaller
