@@ -71,6 +71,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           version: latest
+          enable-cache: false
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'

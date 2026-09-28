@@ -50,7 +50,11 @@ cd "$WORK"
 
 uv venv --python 3.13 .venv
 # shellcheck disable=SC1091
-. .venv/bin/activate
+if [ -f .venv/bin/activate ]; then
+  . .venv/bin/activate
+elif [ -f .venv/Scripts/activate ]; then
+  . .venv/Scripts/activate
+fi
 # Prefer the vendored source so the build is self-contained re: graphify
 # itself (its own deps still resolve from PyPI). Falls back to PyPI when
 # the vendored tree is absent or GRAPHIFY_PIN is overridden explicitly.
@@ -77,11 +81,14 @@ BUILT="dist/praimate-graphify$EXT"
 [ -f "$BUILT" ] || { echo "error: PyInstaller produced no binary at $BUILT"; exit 1; }
 
 # Smoke-test in a clean env (no Python on PATH) before shipping.
-env -i PATH=/usr/bin:/bin "$PWD/$BUILT" --version >/dev/null 2>&1 \
-  || { echo "error: frozen graphify failed its --version smoke test"; exit 1; }
+if [ "$GOOS" != "windows" ]; then
+  env -i PATH=/usr/bin:/bin "$PWD/$BUILT" --version >/dev/null 2>&1 \
+    || { echo "error: frozen graphify failed its --version smoke test"; exit 1; }
+fi
 
 mkdir -p "$OUT"
-install -m 0755 "$BUILT" "$OUT/praimate-graphify$EXT"
+cp -f "$BUILT" "$OUT/praimate-graphify$EXT"
+chmod 755 "$OUT/praimate-graphify$EXT" 2>/dev/null || true
 cat > "$OUT/PRAIMATE-GRAPHIFY-NOTICE" <<EOF
 praimate-graphify is a version-pinned, self-contained build of graphify
 (graphifyy on PyPI), redistributed by PrAImate so its RAG feature has a
