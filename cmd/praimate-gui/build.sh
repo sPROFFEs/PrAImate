@@ -17,8 +17,9 @@ cd "$(dirname "$0")"
 TAGS="desktop,production"
 case "$(uname -s)" in
   Linux) TAGS="$TAGS,webkit2_41" ;;
+  Darwin) ;;
   MINGW*|MSYS*|CYGWIN*) ;;
-  *) echo "PrAImate GUI supports Linux and Windows only." >&2; exit 2 ;;
+  *) echo "PrAImate GUI supports Linux, Windows and macOS only." >&2; exit 2 ;;
 esac
 
 # Windows icon: go build embeds the checked-in rsrc_windows_*.syso

@@ -202,7 +202,7 @@ func run(args []string) int {
 }
 
 func supportedOS(goos string) bool {
-	return goos == "linux" || goos == "windows"
+	return goos == "linux" || goos == "windows" || goos == "darwin"
 }
 
 // runMergeMemory is wired into workspace repositories as the

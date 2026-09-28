@@ -9,7 +9,7 @@ func TestSupportedOS_GUIOnlyMatrix(t *testing.T) {
 	}{
 		{"linux", true},
 		{"windows", true},
-		{"darwin", false},
+		{"darwin", true},
 		{"freebsd", false},
 	} {
 		if got := supportedOS(tc.goos); got != tc.want {

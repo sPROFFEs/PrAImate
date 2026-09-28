@@ -47,13 +47,27 @@ func TestAssetForHost(t *testing.T) {
 	}
 }
 
-func TestAssetForPlatform_RejectsMacOS(t *testing.T) {
+func TestAssetForPlatform_SupportsMacOSARM64(t *testing.T) {
 	rel := &Release{
 		TagName: "v0.2.0",
-		Assets:  []Asset{{Name: "praimate-0.2.0-darwin-arm64.tar.gz"}},
+		Assets:  []Asset{{Name: "praimate-darwin-arm64.tar.gz"}},
 	}
-	if _, err := assetForPlatform(rel, "darwin", "arm64"); err == nil {
-		t.Fatal("macOS must not resolve a release asset")
+	a, err := assetForPlatform(rel, "darwin", "arm64")
+	if err != nil {
+		t.Fatalf("expected darwin-arm64 asset to resolve, got %v", err)
+	}
+	if a.Name != "praimate-darwin-arm64.tar.gz" {
+		t.Errorf("unexpected asset: %s", a.Name)
+	}
+}
+
+func TestAssetForPlatform_RejectsUnsupportedOS(t *testing.T) {
+	rel := &Release{
+		TagName: "v0.2.0",
+		Assets:  []Asset{{Name: "praimate-0.2.0-plan9-mips.tar.gz"}},
+	}
+	if _, err := assetForPlatform(rel, "plan9", "mips"); err == nil {
+		t.Fatal("plan9 must not resolve a release asset")
 	}
 }
 

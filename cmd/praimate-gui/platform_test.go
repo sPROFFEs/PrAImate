@@ -9,7 +9,7 @@ func TestSupportedDesktopOS(t *testing.T) {
 	}{
 		{"linux", true},
 		{"windows", true},
-		{"darwin", false},
+		{"darwin", true},
 		{"freebsd", false},
 	} {
 		if got := supportedDesktopOS(tc.goos); got != tc.want {

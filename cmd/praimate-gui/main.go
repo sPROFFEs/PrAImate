@@ -145,7 +145,7 @@ func main() {
 }
 
 func supportedDesktopOS(goos string) bool {
-	return goos == "linux" || goos == "windows"
+	return goos == "linux" || goos == "windows" || goos == "darwin"
 }
 
 func ensureLinuxDesktopIcon() {

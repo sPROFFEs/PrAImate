@@ -179,8 +179,8 @@ func AssetForHost(rel *Release) (*Asset, error) {
 }
 
 func assetForPlatform(rel *Release, goos, goarch string) (*Asset, error) {
-	if goos != "linux" && goos != "windows" {
-		return nil, fmt.Errorf("unsupported operating system %s; PrAImate supports Linux and Windows only", goos)
+	if goos != "linux" && goos != "windows" && goos != "darwin" {
+		return nil, fmt.Errorf("unsupported operating system %s; PrAImate supports Linux, Windows, and macOS only", goos)
 	}
 	triplet := goos + "-" + goarch
 	wantExt := ".tar.gz"

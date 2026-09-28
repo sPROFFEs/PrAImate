@@ -173,12 +173,18 @@ detect_triplet() {
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   case "$os" in
     linux)  os=linux ;;
-    darwin) c_red "macOS is not supported. PrAImate supports Linux and Windows only."; exit 1 ;;
-    *) c_red "unsupported OS: $os (supported: Linux and Windows)"; exit 1 ;;
+    darwin) os=darwin ;;
+    *) c_red "unsupported OS: $os (supported: Linux, Windows, macOS)"; exit 1 ;;
   esac
   arch="$(uname -m)"
   case "$arch" in
-    x86_64|amd64) arch=amd64 ;;
+    x86_64|amd64)
+      if [[ "$os" == "darwin" ]]; then
+        c_red "PrAImate for macOS targets Apple Silicon (arm64: M1/M2/M3/M4)."
+        exit 1
+      fi
+      arch=amd64
+      ;;
     aarch64|arm64) arch=arm64 ;;
     *) c_red "unsupported arch: $arch"; exit 1 ;;
   esac
@@ -766,6 +772,17 @@ DESK
         done
       fi
       c_grn "  desktop shortcuts created (app menu + Desktop)"
+      ;;
+    Darwin)
+      # Clear quarantine attributes so macOS Gatekeeper allows execution
+      xattr -rd com.apple.quarantine "$DEST" 2>/dev/null || true
+      # Ad-hoc sign binaries if codesign is present
+      if command -v codesign >/dev/null 2>&1; then
+        for bin in "$DEST/praimate" "$DEST/praimate-gui" "$DEST/praimate-cli" "$DEST/wpc"; do
+          [[ -f "$bin" ]] && codesign --force --deep -s - "$bin" 2>/dev/null || true
+        done
+      fi
+      c_grn "  macOS quarantine cleared and binaries signed"
       ;;
   esac
 }

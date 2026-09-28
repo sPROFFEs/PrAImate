@@ -87,7 +87,19 @@ func DetectBinary() (string, string) {
 	// 1. Check managed downloaded app under ~/.config/praimate/tools/praimate-studio/app/
 	sDir, _ := StudioDir()
 	if sDir != "" {
-		if runtime.GOOS != "windows" {
+		if runtime.GOOS == "darwin" {
+			candidates := []string{
+				filepath.Join(sDir, "app", "VSCodium.app", "Contents", "Resources", "app", "bin", "codium"),
+				filepath.Join(sDir, "app", "VSCodium.app", "Contents", "MacOS", "Electron"),
+				filepath.Join(sDir, "app", "bin", "codium"),
+			}
+			candidates = append(candidates, managedCandidates(filepath.Join(sDir, "app"), "codium")...)
+			for _, c := range candidates {
+				if _, err := os.Stat(c); err == nil {
+					return c, "managed-codium"
+				}
+			}
+		} else if runtime.GOOS != "windows" {
 			candidates := []string{
 				filepath.Join(sDir, "app", "bin", "codium"),
 				filepath.Join(sDir, "app", "codium"),
@@ -298,6 +310,8 @@ func (m *Manager) downloadAndExtractCodeOSS(ctx context.Context, destDir string)
 		downloadURL = "https://github.com/VSCodium/vscodium/releases/download/1.96.4.25017/VSCodium-linux-x64-1.96.4.25017.tar.gz"
 	case "linux/arm64":
 		downloadURL = "https://github.com/VSCodium/vscodium/releases/download/1.96.4.25017/VSCodium-linux-arm64-1.96.4.25017.tar.gz"
+	case "darwin/arm64":
+		downloadURL = "https://github.com/VSCodium/vscodium/releases/download/1.96.4.25017/VSCodium-darwin-arm64-1.96.4.25017.zip"
 	case "windows/amd64":
 		downloadURL = "https://github.com/VSCodium/vscodium/releases/download/1.96.4.25017/VSCodium-win32-x64-1.96.4.25017.zip"
 	case "windows/arm64":

@@ -33,7 +33,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.2.10}"
+VERSION="${VERSION:-1.2.11}"
 EXTRA_LDFLAGS="${LDFLAGS:--s -w}"  # strip symbols by default — tiny binaries
 ARCHIVE=1
 WITH_CODE=0
@@ -65,8 +65,9 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
   case "$(go env GOOS)" in
     linux) TARGETS=(windows-amd64 windows-arm64 "linux-$(go env GOARCH)") ;;
     windows) TARGETS=(windows-amd64 windows-arm64) ;;
+    darwin) TARGETS=("darwin-$(go env GOARCH)") ;;
     *)
-      echo "PrAImate release builds support Linux and Windows hosts only." >&2
+      echo "PrAImate release builds support Linux, Windows and macOS hosts." >&2
       exit 2
       ;;
   esac
@@ -83,7 +84,7 @@ build_one() {
   local ext=""
   if [ "$goos" = "windows" ]; then ext=".exe"; fi
   case "$triplet" in
-    linux-amd64|linux-arm64|windows-amd64|windows-arm64) ;;
+    linux-amd64|linux-arm64|windows-amd64|windows-arm64|darwin-arm64) ;;
     *)
       echo "unsupported GUI release target: $triplet" >&2
       return 2
