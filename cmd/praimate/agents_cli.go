@@ -344,7 +344,7 @@ func runAgentPrompt(opts agentPromptOptions) int {
 		}
 		if res.Err != nil {
 			code, state := 1, "failed"
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(res.Err, context.DeadlineExceeded) || strings.Contains(res.Err.Error(), "context deadline exceeded") {
 				code, state = 124, "timed_out"
 			}
 			result.State, result.ExitCode, result.Error = state, code, res.Err.Error()
@@ -390,7 +390,7 @@ func runAgentPrompt(opts agentPromptOptions) int {
 	duration := time.Since(started).Milliseconds()
 	if err != nil {
 		code, state := 1, "failed"
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "context deadline exceeded") {
 			code, state = 124, "timed_out"
 		}
 		result := agentRunResult{

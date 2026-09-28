@@ -131,15 +131,53 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 		return nil, errors.New("PrAImate CLI requires a model: select one in Local LLM settings or pass --model")
 	}
 	if route.ContextTokens == 0 {
-		route.ContextTokens = 8192
+		route.ContextTokens = autoContextWindow(route.Model, 0)
 	}
 	if route.OutputTokens == 0 {
-		route.OutputTokens = 1024
+		route.OutputTokens = autoOutputTokens(route.ContextTokens, 0)
 	}
 	if route.OutputTokens < 1 || route.ContextTokens < 2048 || route.ContextTokens > 2_000_000 || route.OutputTokens >= route.ContextTokens {
 		return nil, errors.New("invalid native context/output token limits")
 	}
 	return &route, nil
+}
+
+func autoContextWindow(model string, requested int) int {
+	if requested >= 2048 {
+		return requested
+	}
+	m := strings.ToLower(model)
+	switch {
+	case strings.Contains(m, "128k") || strings.Contains(m, "llama-3.1") || strings.Contains(m, "llama-3.2") || strings.Contains(m, "llama-3.3") || strings.Contains(m, "llama3.1") || strings.Contains(m, "llama3.2") || strings.Contains(m, "llama3.3") || strings.Contains(m, "gpt-4") || strings.Contains(m, "claude"):
+		return 131072
+	case strings.Contains(m, "64k") || strings.Contains(m, "deepseek"):
+		return 65536
+	case strings.Contains(m, "32k") || strings.Contains(m, "qwen") || strings.Contains(m, "mistral") || strings.Contains(m, "codestral") || strings.Contains(m, "command-r"):
+		return 32768
+	case strings.Contains(m, "16k"):
+		return 16384
+	case strings.Contains(m, "8k") || strings.Contains(m, "gemma") || strings.Contains(m, "phi"):
+		return 8192
+	default:
+		return 8192
+	}
+}
+
+func autoOutputTokens(contextTokens, requested int) int {
+	if requested > 0 && requested < contextTokens {
+		return requested
+	}
+	out := contextTokens / 8
+	if out < 1024 {
+		out = 1024
+	}
+	if out > 4096 {
+		out = 4096
+	}
+	if out >= contextTokens {
+		out = contextTokens / 2
+	}
+	return out
 }
 
 // ResolveNativeWorkerRoute selects a saved local model route for a stateless

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -284,35 +283,56 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 
 func parseDecision(raw string) (*Decision, error) {
 	raw = strings.TrimSpace(raw)
-	if strings.HasPrefix(raw, "```") {
-		lines := strings.Split(raw, "\n")
-		if len(lines) >= 3 && strings.HasPrefix(lines[0], "```") && strings.TrimSpace(lines[len(lines)-1]) == "```" {
-			raw = strings.Join(lines[1:len(lines)-1], "\n")
+	if raw == "" {
+		return nil, errors.New("empty model response")
+	}
+
+	// 1. Try parsing directly or from markdown code fences
+	cleaned := raw
+	if strings.Contains(cleaned, "```") {
+		start := strings.Index(cleaned, "```")
+		if start != -1 {
+			fenceContent := cleaned[start+3:]
+			if strings.HasPrefix(strings.ToLower(fenceContent), "json") {
+				fenceContent = fenceContent[4:]
+			}
+			end := strings.Index(fenceContent, "```")
+			if end != -1 {
+				cleaned = strings.TrimSpace(fenceContent[:end])
+			}
 		}
 	}
-	dec := json.NewDecoder(strings.NewReader(raw))
-	dec.DisallowUnknownFields()
+
 	var decision Decision
-	if err := dec.Decode(&decision); err != nil {
-		return nil, fmt.Errorf("parse decision: %w", err)
-	}
-	var extra any
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("parse decision: multiple JSON values")
-		}
-		return nil, fmt.Errorf("parse decision: %w", err)
-	}
-	switch decision.Action {
-	case "tool":
-		if decision.Tool == "" {
+	if err := json.Unmarshal([]byte(cleaned), &decision); err == nil && decision.Action != "" {
+		if decision.Action == "tool" && decision.Tool == "" {
 			return nil, errors.New("tool action requires tool")
 		}
-	case "continue", "finish":
-	default:
-		return nil, fmt.Errorf("unsupported action %q", decision.Action)
+		if decision.Action == "tool" || decision.Action == "continue" || decision.Action == "finish" {
+			return &decision, nil
+		}
 	}
-	return &decision, nil
+
+	// 2. Search for the outermost JSON object { ... } in the text
+	firstBrace := strings.Index(raw, "{")
+	lastBrace := strings.LastIndex(raw, "}")
+	if firstBrace != -1 && lastBrace > firstBrace {
+		snippet := raw[firstBrace : lastBrace+1]
+		var dec Decision
+		if err := json.Unmarshal([]byte(snippet), &dec); err == nil {
+			if dec.Action == "" && dec.Tool != "" {
+				dec.Action = "tool"
+			}
+			if dec.Action == "tool" || dec.Action == "continue" || dec.Action == "finish" {
+				if dec.Action == "tool" && dec.Tool == "" {
+					return nil, errors.New("tool action requires tool")
+				}
+				return &dec, nil
+			}
+		}
+	}
+
+	return nil, errors.New("no JSON action found in model response (expected {\"action\": ...})")
 }
 
 func finishRun(runDir string, instance *Instance, memory Memory, contextWindow contextManager, state State, final string, runErr error, bus eventBus) (*Result, error) {
