@@ -30,7 +30,7 @@ $ErrorActionPreference = "Stop"
 
 # Combine strip flags + version injection into one -ldflags string. The
 # Go linker accepts multiple -X entries inside it.
-$FullLdFlags = "$LdFlags -X git.jtsec.local/lab/PrAImate/internal/version.Current=$Version"
+$FullLdFlags = "$LdFlags -X github.com/sPROFFEs/PrAImate/internal/version.Current=$Version"
 Write-Host "Building version $Version"
 
 # Repo root is the parent of the scripts dir.

@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/appdata"
-	"git.jtsec.local/lab/PrAImate/internal/backup"
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
-	"git.jtsec.local/lab/PrAImate/internal/ollama"
-	"git.jtsec.local/lab/PrAImate/internal/store"
+	"github.com/sPROFFEs/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/backup"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/ollama"
+	"github.com/sPROFFEs/PrAImate/internal/store"
 )
 
 const deleteAllDataPhrase = "DELETE ALL PRAIMATE DATA"

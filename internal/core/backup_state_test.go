@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/store"
+	"github.com/sPROFFEs/PrAImate/internal/store"
 )
 
 func TestExportBackupState_SnapshotsDBAndAgents(t *testing.T) {

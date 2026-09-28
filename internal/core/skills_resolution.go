@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 // PreviewSkillResolution is the shared Core facade for the P3 resolver. The

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"git.jtsec.local/lab/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/appdata"
 )
 
 // DefaultDBPath returns the canonical PrAImate database location for

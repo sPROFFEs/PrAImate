@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 // ErrChatNotFound is returned by GetChat / DeleteChat when no row

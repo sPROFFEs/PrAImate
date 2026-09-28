@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/updater"
-	"git.jtsec.local/lab/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/updater"
+	"github.com/sPROFFEs/PrAImate/internal/version"
 )
 
 // downloadClient is the HTTP client for asset downloads. No global

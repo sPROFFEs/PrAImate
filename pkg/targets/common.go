@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/pkg/workpath"
+	"github.com/sPROFFEs/PrAImate/pkg/workpath"
 )
 
 // copyFile copies src → dst, creating dst's parent dir. Preserves the source

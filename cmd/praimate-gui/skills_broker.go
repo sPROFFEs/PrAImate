@@ -19,8 +19,8 @@ import (
 	"strings"
 	"sync"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 type skillsBroker struct {

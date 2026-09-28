@@ -33,8 +33,8 @@ import (
 	"unicode/utf8"
 
 	"bytes"
-	"git.jtsec.local/lab/PrAImate/internal/appdata"
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 // AgentDir returns the agent's on-disk root: <config>/praimate/agents/<id>/.

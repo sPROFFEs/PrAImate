@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/backup"
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
-	"git.jtsec.local/lab/PrAImate/internal/store"
+	"github.com/sPROFFEs/PrAImate/internal/backup"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/store"
 )
 
 // FirstRunInfo tells the frontend whether to show setup and what to

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/ollama"
+	"github.com/sPROFFEs/PrAImate/internal/ollama"
 )
 
 const localHostsSetting = "local_llm.hosts"

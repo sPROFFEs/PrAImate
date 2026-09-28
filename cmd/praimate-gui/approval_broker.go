@@ -32,7 +32,7 @@ import (
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 const approvalTimeout = 10 * time.Minute

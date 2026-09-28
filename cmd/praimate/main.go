@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/installer"
-	"git.jtsec.local/lab/PrAImate/internal/updater"
-	"git.jtsec.local/lab/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/installer"
+	"github.com/sPROFFEs/PrAImate/internal/updater"
+	"github.com/sPROFFEs/PrAImate/internal/version"
 )
 
 func main() {

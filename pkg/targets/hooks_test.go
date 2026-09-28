@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/pkg/workpath"
+	"github.com/sPROFFEs/PrAImate/pkg/workpath"
 )
 
 // scaffoldWorkpathWithHooks builds a tiny workpath in t.TempDir with

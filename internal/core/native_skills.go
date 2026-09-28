@@ -18,8 +18,8 @@ import (
 	"strings"
 	"sync"
 
-	"git.jtsec.local/lab/PrAImate/internal/appdata"
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 // NativeSkillCapabilities records behavior demonstrated by a versioned adapter

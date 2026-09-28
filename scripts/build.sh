@@ -57,7 +57,7 @@ done
 
 # Combined linker flags: strip + version injection. The Go linker accepts
 # multiple -X entries inside one -ldflags string.
-LDFLAGS="$EXTRA_LDFLAGS -X git.jtsec.local/lab/PrAImate/internal/version.Current=$VERSION"
+LDFLAGS="$EXTRA_LDFLAGS -X github.com/sPROFFEs/PrAImate/internal/version.Current=$VERSION"
 
 echo "Building version $VERSION"
 

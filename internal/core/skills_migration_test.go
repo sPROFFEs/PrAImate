@@ -2,7 +2,7 @@ package core
 
 import (
 	"context"
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 	"testing"
 )
 

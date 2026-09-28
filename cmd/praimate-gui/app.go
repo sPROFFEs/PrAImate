@@ -24,15 +24,15 @@ import (
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"git.jtsec.local/lab/PrAImate/internal/backup"
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/installer"
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
-	"git.jtsec.local/lab/PrAImate/internal/ollama"
-	"git.jtsec.local/lab/PrAImate/internal/orchestrator"
-	"git.jtsec.local/lab/PrAImate/internal/store"
-	"git.jtsec.local/lab/PrAImate/internal/studio"
-	"git.jtsec.local/lab/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/backup"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/installer"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/ollama"
+	"github.com/sPROFFEs/PrAImate/internal/orchestrator"
+	"github.com/sPROFFEs/PrAImate/internal/store"
+	"github.com/sPROFFEs/PrAImate/internal/studio"
+	"github.com/sPROFFEs/PrAImate/internal/version"
 )
 
 // App carries the shared Core plus the Wails context used for dialogs

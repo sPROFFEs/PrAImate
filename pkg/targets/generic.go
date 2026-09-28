@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/pkg/workpath"
+	"github.com/sPROFFEs/PrAImate/pkg/workpath"
 )
 
 // genericTarget emits a single self-contained markdown file with every part

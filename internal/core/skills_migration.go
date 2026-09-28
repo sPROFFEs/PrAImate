@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 // PreviewLegacySkillMigration adapts the actual built-in and skills.json shapes

@@ -8,7 +8,7 @@ package main
 import (
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 // AgentYAML returns the canonical YAML for an agent, for the editor.

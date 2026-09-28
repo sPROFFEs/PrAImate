@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 func TestTerminalResumeCommand(t *testing.T) {

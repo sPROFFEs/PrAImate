@@ -9,9 +9,9 @@ import (
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"git.jtsec.local/lab/PrAImate/internal/appdata"
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 // OpenSkillInStudio extracts the skill files into an editable workspace folder and opens Studio.

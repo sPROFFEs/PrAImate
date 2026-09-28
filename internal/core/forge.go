@@ -18,7 +18,7 @@ import (
 	"sort"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 const forgeIndexFile = "skills/own/index.json"

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 type MCPToolInfo struct {

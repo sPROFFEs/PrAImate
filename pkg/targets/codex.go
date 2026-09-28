@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/pkg/workpath"
+	"github.com/sPROFFEs/PrAImate/pkg/workpath"
 )
 
 // codexTarget emits an AGENTS.md at the out-dir root, the file Codex CLI and

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"git.jtsec.local/lab/PrAImate/internal/store"
+	"github.com/sPROFFEs/PrAImate/internal/store"
 )
 
 // DatabaseLockInfo is the only backend state the frontend needs before Core

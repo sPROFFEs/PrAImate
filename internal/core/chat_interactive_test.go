@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/ollama"
+	"github.com/sPROFFEs/PrAImate/internal/ollama"
 )
 
 func TestStartAndContinueChat_ResumesSession(t *testing.T) {

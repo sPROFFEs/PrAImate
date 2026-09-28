@@ -18,7 +18,7 @@ import (
 	"sort"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 // PreviewGuidedAgent deterministically expands the guided form without

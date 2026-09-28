@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 func TestSkillLibraryDraftPublicationPreservesPinnedVersionAndTrust(t *testing.T) {

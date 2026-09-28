@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"sort"
 
-	"git.jtsec.local/lab/PrAImate/pkg/workpath"
+	"github.com/sPROFFEs/PrAImate/pkg/workpath"
 )
 
 // Target is the contract for a per-CLI compiler.

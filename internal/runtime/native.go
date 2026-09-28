@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 // Native executes a stateless, tool-free task through the existing

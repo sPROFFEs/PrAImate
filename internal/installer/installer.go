@@ -17,7 +17,7 @@ import (
 	"runtime"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/appdata"
 )
 
 // OS is the launcher's runtime classification. Distinct from runtime.GOOS

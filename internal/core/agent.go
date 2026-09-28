@@ -1,8 +1,8 @@
 package core
 
 import (
-	"git.jtsec.local/lab/PrAImate/internal/agentic"
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/agentic"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 // Agent is the canonical in-memory representation of a PrAImate agent.

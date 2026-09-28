@@ -1,9 +1,9 @@
-module git.jtsec.local/lab/PrAImate/gui
+module github.com/sPROFFEs/PrAImate/gui
 
 go 1.26.1
 
 require (
-	git.jtsec.local/lab/PrAImate v0.0.0
+	github.com/sPROFFEs/PrAImate v0.0.0
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/wailsapp/wails/v2 v2.10.2
@@ -48,4 +48,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace git.jtsec.local/lab/PrAImate => ../..
+replace github.com/sPROFFEs/PrAImate => ../..

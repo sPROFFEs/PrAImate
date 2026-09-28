@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/agentic"
+	"github.com/sPROFFEs/PrAImate/internal/agentic"
 )
 
 func nativeSkillDefinitions() []nativeTool {

@@ -3,7 +3,7 @@ package main
 import (
 	"runtime"
 
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
 )
 
 const privacyNoticeVersion = "5"

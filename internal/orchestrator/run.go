@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	workerruntime "git.jtsec.local/lab/PrAImate/internal/runtime"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	workerruntime "github.com/sPROFFEs/PrAImate/internal/runtime"
 )
 
 const (

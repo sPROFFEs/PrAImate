@@ -3,8 +3,8 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
-	"git.jtsec.local/lab/PrAImate/internal/ollama"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/ollama"
 	"os/exec"
 	"strings"
 	"sync"

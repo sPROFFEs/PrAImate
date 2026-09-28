@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/version"
 )
 
 func TestToolCatalog_GraphifyShape(t *testing.T) {

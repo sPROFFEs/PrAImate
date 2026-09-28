@@ -17,8 +17,8 @@ import (
 	"errors"
 	"sync"
 
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
-	"git.jtsec.local/lab/PrAImate/internal/store"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/store"
 )
 
 // Core is the facade. Constructed once at process start and passed to

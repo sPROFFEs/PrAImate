@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 // Run is a snapshot of one orchestrated task. The manager owns cancellation

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/agentic"
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/agentic"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 func TestStaticSkillTransportOmitsDynamicBindingsFromPrompt(t *testing.T) {

@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
 )
 
 func TestBackupAutoSyncEnabledRequiresCompleteConfig(t *testing.T) {

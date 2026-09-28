@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
-	"git.jtsec.local/lab/PrAImate/internal/store"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/store"
 )
 
 func TestDeleteAllStoredDataRequiresExactConfiguredProjectsRoot(t *testing.T) {

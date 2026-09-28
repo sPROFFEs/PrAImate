@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/orchestrator"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/orchestrator"
 )
 
 type waitingWorkerAdapter struct {

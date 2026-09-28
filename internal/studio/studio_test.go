@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/store"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/store"
 )
 
 func newTestCore(t *testing.T) (*core.Core, func()) {

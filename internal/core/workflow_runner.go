@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"git.jtsec.local/lab/PrAImate/internal/agentic"
+	"github.com/sPROFFEs/PrAImate/internal/agentic"
 	"strings"
 	"time"
 )

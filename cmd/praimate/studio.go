@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"git.jtsec.local/lab/PrAImate/internal/studio"
-	"git.jtsec.local/lab/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/studio"
+	"github.com/sPROFFEs/PrAImate/internal/version"
 )
 
 func runStudio(args []string) int {

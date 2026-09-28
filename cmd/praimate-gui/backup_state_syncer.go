@@ -12,8 +12,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
 )
 
 type coreStateSyncer struct {

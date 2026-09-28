@@ -14,8 +14,8 @@ import (
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"git.jtsec.local/lab/PrAImate/internal/installer"
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/installer"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
 )
 
 // CLIBackend is one wrapped CLI with its detection status.

@@ -28,7 +28,7 @@ import (
 	"sync"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/appdata"
 )
 
 // userSkillsFile is the on-disk location of the JSON catalogue.

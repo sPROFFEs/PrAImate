@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/version"
 )
 
 // Release is the slice of the GitHub /releases/latest payload we need.

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 // ExecutionCapabilities exposes the conservative backend capability matrix to

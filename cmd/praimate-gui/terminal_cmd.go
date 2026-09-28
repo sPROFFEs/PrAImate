@@ -15,7 +15,7 @@ import (
 	"strings"
 	"sync"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 // terminalCommand maps a PrAImate CLI id to the binary + interactive

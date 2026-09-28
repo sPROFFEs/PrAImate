@@ -3,7 +3,7 @@ package main
 import (
 	"runtime"
 
-	"git.jtsec.local/lab/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/version"
 )
 
 // AboutInfo contains runtime facts; the privacy and security explanations

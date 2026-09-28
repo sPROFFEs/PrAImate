@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 type StartedCodeSession struct {

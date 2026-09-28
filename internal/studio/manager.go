@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/appdata"
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/version"
 )
 
 // Manager manages PrAImate Studio lifecycle, extensions, and process launches.

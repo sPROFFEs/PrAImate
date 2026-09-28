@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 // PraimateCLI runs the in-process PrAImate model transport with the selected

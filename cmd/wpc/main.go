@@ -18,8 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/pkg/targets"
-	"git.jtsec.local/lab/PrAImate/pkg/workpath"
+	"github.com/sPROFFEs/PrAImate/pkg/targets"
+	"github.com/sPROFFEs/PrAImate/pkg/workpath"
 )
 
 func main() {

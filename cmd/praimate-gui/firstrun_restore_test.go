@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/store"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/store"
 )
 
 func TestFirstRunRunsBeforePasswordOnlyForEmptyInstall(t *testing.T) {

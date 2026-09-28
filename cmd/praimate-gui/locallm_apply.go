@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
-	"git.jtsec.local/lab/PrAImate/internal/ollama"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/ollama"
 )
 
 // AppliedModelItem represents a model configured in a CLI.

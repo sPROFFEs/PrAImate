@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 type SkillSelectionInput struct {

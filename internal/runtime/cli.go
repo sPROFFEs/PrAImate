@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 // CLI runs one independent task through an existing headless adapter.

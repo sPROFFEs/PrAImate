@@ -35,6 +35,7 @@ EXT=""
 LDFLAGS='-s -w'
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) EXT=".exe"; LDFLAGS='-s -w -H windowsgui' ;;
+  Darwin) LDFLAGS='-s -w -extldflags "-framework UniformTypeIdentifiers"' ;;
 esac
 
 go build -trimpath -buildvcs=false -tags "$TAGS" -ldflags "$LDFLAGS" -o "praimate-gui$EXT" .

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 var forgeSkillNames = []string{"forge-context", "forge-simplicity", "forge-tdd", "forge-debugging", "forge-verification", "forge-review", "forge-security", "forge-release", "forge-handoff"}

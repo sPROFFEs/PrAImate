@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 func TestStoredSkillMigrationIsAdditiveIdempotentAndReversible(t *testing.T) {

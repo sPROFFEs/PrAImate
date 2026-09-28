@@ -30,7 +30,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 // editorFolder / editorChatID are set by main() when the process was

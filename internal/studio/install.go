@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/installer"
+	"github.com/sPROFFEs/PrAImate/internal/installer"
 )
 
 type installMethod struct {

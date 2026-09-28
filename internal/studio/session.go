@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 // JSON unmarshalling into a copy preserves omitted values and allows explicitly

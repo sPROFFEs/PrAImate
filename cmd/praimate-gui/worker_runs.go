@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"git.jtsec.local/lab/PrAImate/internal/orchestrator"
+	"github.com/sPROFFEs/PrAImate/internal/orchestrator"
 )
 
 func (a *App) WorkerConfig() (orchestrator.Config, error) {

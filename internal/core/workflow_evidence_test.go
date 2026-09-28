@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/agentic"
+	"github.com/sPROFFEs/PrAImate/internal/agentic"
 )
 
 func TestWorkflowEvidenceRoundTripAndNativeRefusal(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/installer"
+	"github.com/sPROFFEs/PrAImate/internal/installer"
 )
 
 // ErrProbeTimeout is returned by probeVersion when the binary exists

@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/agentic"
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/agentic"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 	"gopkg.in/yaml.v3"
 )
 

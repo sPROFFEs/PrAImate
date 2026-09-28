@@ -4,7 +4,7 @@ import (
 	"runtime"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/version"
 )
 
 func TestAboutReportsBuildAndEncryptionDetails(t *testing.T) {

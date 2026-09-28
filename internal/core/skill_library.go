@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 // SkillLibraryRequest is host UI input, never model-tool or package metadata.

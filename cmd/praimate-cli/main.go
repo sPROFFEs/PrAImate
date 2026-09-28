@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/store"
-	"git.jtsec.local/lab/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/store"
+	"github.com/sPROFFEs/PrAImate/internal/version"
 	"golang.org/x/term"
 )
 

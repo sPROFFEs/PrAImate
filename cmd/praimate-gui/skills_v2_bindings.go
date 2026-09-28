@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/skills"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
 // SkillBindingPreview describes resolution, never runtime delivery.

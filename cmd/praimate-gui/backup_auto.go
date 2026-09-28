@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/backup"
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/backup"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
 )
 
 func backupAutoSyncEnabled(cfg *launcher.Config) bool {

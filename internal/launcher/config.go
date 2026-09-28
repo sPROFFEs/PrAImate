@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/appdata"
 )
 
 // Config is the persisted, per-user launcher state.

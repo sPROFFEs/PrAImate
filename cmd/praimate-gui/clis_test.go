@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 func TestListCLIBackendsRefreshesUserPATHBeforeDetection(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/updater"
-	"git.jtsec.local/lab/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/updater"
+	"github.com/sPROFFEs/PrAImate/internal/version"
 )
 
 func TestReleaseAssetURL_WebFallbackFindsStandaloneCLI(t *testing.T) {

@@ -23,7 +23,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/gitutil"
+	"github.com/sPROFFEs/PrAImate/internal/gitutil"
 )
 
 // Result captures a single git invocation's outcome. ExitCode is the

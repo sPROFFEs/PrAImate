@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 func terminalExecutables(t *testing.T) string {

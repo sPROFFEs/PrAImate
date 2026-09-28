@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"git.jtsec.local/lab/PrAImate/internal/core"
-	"git.jtsec.local/lab/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
 )
 
 type terminalCLI struct {

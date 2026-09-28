@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"git.jtsec.local/lab/PrAImate/internal/studio"
+	"github.com/sPROFFEs/PrAImate/internal/studio"
 )
 
 // StudioGetStatus returns the installation and daemon status for PrAImate Studio.

@@ -27,9 +27,9 @@ import (
 	"strings"
 	"time"
 
-	"git.jtsec.local/lab/PrAImate/internal/appdata"
-	"git.jtsec.local/lab/PrAImate/internal/gitutil"
-	"git.jtsec.local/lab/PrAImate/internal/installer"
+	"github.com/sPROFFEs/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/gitutil"
+	"github.com/sPROFFEs/PrAImate/internal/installer"
 )
 
 const praimateRepoURL = "https://github.com/sPROFFEs/praimate.git"

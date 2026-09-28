@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"git.jtsec.local/lab/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/appdata"
 )
 
 type stagedAttachment struct {
