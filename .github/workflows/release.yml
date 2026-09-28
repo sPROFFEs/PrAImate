@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 1.2.10)'
+        description: 'Release version (e.g. 1.2.11)'
         required: false
         type: string
       draft:
@@ -50,11 +50,27 @@ jobs:
         with:
           go-version: '1.22'
           check-latest: true
+          cache: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: latest
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -76,14 +92,14 @@ jobs:
             echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           else
             # Extract from version.go
-            V=$(grep 'Current = ' internal/version/version.go | cut -d'"' -f2 || echo "1.2.10")
+            V=$(grep 'Current = ' internal/version/version.go | cut -d'"' -f2 || echo "1.2.11")
             echo "VERSION=$V" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build Target (${{ matrix.target }})
         shell: bash
         run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}" bash scripts/build.sh "${{ matrix.target }}"
+          VERSION="${{ steps.get_version.outputs.VERSION }}" bash scripts/build.sh --with-code --with-graphify "${{ matrix.target }}"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -93,6 +109,8 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/praimate-cli-*
+            dist/praimate-code-*
+            dist/praimate-graphify-*
           if-no-files-found: error
 
   release:
@@ -118,7 +136,7 @@ jobs:
           elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
           else
-            V=$(grep 'Current = ' internal/version/version.go | cut -d'"' -f2 || echo "1.2.10")
+            V=$(grep 'Current = ' internal/version/version.go | cut -d'"' -f2 || echo "1.2.11")
             TAG="v$V"
           fi
           echo "TAG=$TAG" >> "$GITHUB_OUTPUT"

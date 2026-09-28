@@ -132,6 +132,13 @@ build_one() {
       OUT="$out" bash scripts/build-praimate-code.sh
       # Copy for standalone release asset (names expected by tools.go)
       cp "$out/praimate-code$ext" "dist/praimate-code-$triplet$ext"
+      if [ "$goarch" = "amd64" ]; then
+        echo "  + praimate-code-baseline (native, via build-praimate-code.sh)"
+        BASELINE=1 OUT="$out" bash scripts/build-praimate-code.sh || true
+        if [ -f "$out/praimate-code-baseline$ext" ]; then
+          cp "$out/praimate-code-baseline$ext" "dist/praimate-code-$triplet-baseline$ext"
+        fi
+      fi
     else
       echo "  (skipping praimate-code: bun not on PATH)" >&2
     fi
