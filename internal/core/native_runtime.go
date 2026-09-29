@@ -578,6 +578,28 @@ func compactNativeContext(input []nativeMessage, budget int, measure func([]nati
 				continue
 			}
 		}
+
+		// When only system and current user message remain and still exceed budget,
+		// gracefully trim oversized system or user prompt instead of crashing the turn.
+		if len(messages) >= 2 && messages[1].Role == "user" && len(messages[1].Content) > 2000 {
+			userContent := messages[1].Content
+			targetChars := max(1000, (budget-reserve)*2)
+			half := targetChars / 2
+			if len(userContent) > targetChars && half > 200 {
+				head := strings.ToValidUTF8(userContent[:half], "")
+				tail := strings.ToValidUTF8(userContent[len(userContent)-half:], "")
+				messages[1].Content = head + "\n\n[... content truncated to fit model context window ...]\n\n" + tail
+				changed = true
+				continue
+			}
+		}
+		if len(messages) >= 1 && messages[0].Role == "system" && len(messages[0].Content) > 8000 {
+			sysContent := messages[0].Content
+			messages[0].Content = strings.ToValidUTF8(sysContent[:4000], "") + "\n\n[... system context truncated ...]\n\n" + strings.ToValidUTF8(sysContent[len(sysContent)-2000:], "")
+			changed = true
+			continue
+		}
+
 		return nil, changed, errors.New("context budget exceeded by system instructions or current request; shorten input or raise the configured context window")
 	}
 	if changed && excerpts != "" {
@@ -589,7 +611,18 @@ func compactNativeContext(input []nativeMessage, budget int, measure func([]nati
 		}
 	}
 	if size() > budget {
-		return nil, changed, errors.New("context budget too small for the current request and compaction receipt")
+		// If still slightly over budget, gracefully trim trailing excerpt to fit
+		if len(messages) > 1 && messages[1].Role == "user" && len(messages[1].Content) > 1000 {
+			userContent := messages[1].Content
+			target := max(500, len(userContent)-(size()-budget)*3)
+			if target < len(userContent) {
+				messages[1].Content = strings.ToValidUTF8(userContent[:target/2], "") + "\n\n[... content truncated to fit context ...]\n\n" + strings.ToValidUTF8(userContent[len(userContent)-target/2:], "")
+				changed = true
+			}
+		}
+		if size() > budget {
+			return nil, changed, errors.New("context budget too small for the current request and compaction receipt")
+		}
 	}
 	return messages, changed, nil
 }

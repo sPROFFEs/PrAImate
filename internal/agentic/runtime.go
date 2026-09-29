@@ -281,10 +281,60 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	return finishRun(runDir, instance, memory, contextWindow, StateStalled, "", errors.New("managed run reached its per-attempt turn limit without agent_finish"), bus)
 }
 
+func extractJSONObjects(text string) []string {
+	var objects []string
+	depth := 0
+	start := -1
+	inString := false
+	escaped := false
+
+	for i, r := range text {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' && inString {
+			escaped = true
+			continue
+		}
+		if r == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		if r == '{' {
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		} else if r == '}' {
+			if depth > 0 {
+				depth--
+				if depth == 0 && start != -1 {
+					objects = append(objects, text[start:i+1])
+					start = -1
+				}
+			}
+		}
+	}
+	return objects
+}
+
 func parseDecision(raw string) (*Decision, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, errors.New("empty model response")
+	}
+
+	// 0. Strip reasoning / think tags if present (<think>...</think>)
+	if strings.Contains(raw, "<think>") && strings.Contains(raw, "</think>") {
+		start := strings.Index(raw, "<think>")
+		end := strings.Index(raw, "</think>")
+		if end > start {
+			raw = strings.TrimSpace(raw[:start] + "\n" + raw[end+8:])
+		}
 	}
 
 	// 1. Try parsing directly or from markdown code fences
@@ -304,7 +354,10 @@ func parseDecision(raw string) (*Decision, error) {
 	}
 
 	var decision Decision
-	if err := json.Unmarshal([]byte(cleaned), &decision); err == nil && decision.Action != "" {
+	if err := json.Unmarshal([]byte(cleaned), &decision); err == nil {
+		if decision.Action == "" && decision.Tool != "" {
+			decision.Action = "tool"
+		}
 		if decision.Action == "tool" && decision.Tool == "" {
 			return nil, errors.New("tool action requires tool")
 		}
@@ -313,21 +366,38 @@ func parseDecision(raw string) (*Decision, error) {
 		}
 	}
 
-	// 2. Search for the outermost JSON object { ... } in the text
-	firstBrace := strings.Index(raw, "{")
-	lastBrace := strings.LastIndex(raw, "}")
-	if firstBrace != -1 && lastBrace > firstBrace {
-		snippet := raw[firstBrace : lastBrace+1]
+	// 2. Search for any balanced JSON object { ... } in the text
+	for _, candidate := range extractJSONObjects(raw) {
 		var dec Decision
-		if err := json.Unmarshal([]byte(snippet), &dec); err == nil {
+		if err := json.Unmarshal([]byte(candidate), &dec); err == nil {
 			if dec.Action == "" && dec.Tool != "" {
 				dec.Action = "tool"
+			}
+			if dec.Action == "" && dec.Message != "" {
+				dec.Action = "finish"
 			}
 			if dec.Action == "tool" || dec.Action == "continue" || dec.Action == "finish" {
 				if dec.Action == "tool" && dec.Tool == "" {
 					return nil, errors.New("tool action requires tool")
 				}
 				return &dec, nil
+			}
+		}
+		var generic map[string]any
+		if err := json.Unmarshal([]byte(candidate), &generic); err == nil {
+			if act, ok := generic["action"].(string); ok && (act == "tool" || act == "continue" || act == "finish") {
+				msg, _ := generic["message"].(string)
+				tool, _ := generic["tool"].(string)
+				var args json.RawMessage
+				if rawArgs, ok := generic["arguments"]; ok {
+					args, _ = json.Marshal(rawArgs)
+				}
+				return &Decision{Action: act, Tool: tool, Message: msg, Arguments: args}, nil
+			}
+			for _, key := range []string{"final_answer", "answer", "response", "output", "summary", "result"} {
+				if val, ok := generic[key].(string); ok && strings.TrimSpace(val) != "" {
+					return &Decision{Action: "finish", Message: strings.TrimSpace(val)}, nil
+				}
 			}
 		}
 	}

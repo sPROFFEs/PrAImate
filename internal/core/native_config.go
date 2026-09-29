@@ -101,8 +101,12 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 					return nil, err
 				}
 			}
-			if route.ContextTokens == 0 {
-				route.ContextTokens = host.ContextTokens
+			if route.ContextTokens == 0 || route.ContextTokens == 8192 {
+				if host.ContextTokens > 8192 {
+					route.ContextTokens = host.ContextTokens
+				} else {
+					route.ContextTokens = autoContextWindow(route.Model, host.ContextTokens)
+				}
 			}
 			if route.OutputTokens == 0 {
 				route.OutputTokens = host.OutputTokens
@@ -118,8 +122,12 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 						return nil, err
 					}
 				}
-				if route.ContextTokens == 0 {
-					route.ContextTokens = global.DefaultLocalContextTokens
+				if route.ContextTokens == 0 || route.ContextTokens == 8192 {
+					if global.DefaultLocalContextTokens > 8192 {
+						route.ContextTokens = global.DefaultLocalContextTokens
+					} else {
+						route.ContextTokens = autoContextWindow(route.Model, global.DefaultLocalContextTokens)
+					}
 				}
 				if route.OutputTokens == 0 {
 					route.OutputTokens = global.DefaultLocalOutputTokens
@@ -148,11 +156,11 @@ func autoContextWindow(model string, requested int) int {
 	}
 	m := strings.ToLower(model)
 	switch {
-	case strings.Contains(m, "128k") || strings.Contains(m, "llama-3.1") || strings.Contains(m, "llama-3.2") || strings.Contains(m, "llama-3.3") || strings.Contains(m, "llama3.1") || strings.Contains(m, "llama3.2") || strings.Contains(m, "llama3.3") || strings.Contains(m, "qwen2.5") || strings.Contains(m, "qwen-2.5") || strings.Contains(m, "qwen3") || strings.Contains(m, "gpt-4") || strings.Contains(m, "claude"):
+	case strings.Contains(m, "128k") || strings.Contains(m, "llama-3") || strings.Contains(m, "llama3") || strings.Contains(m, "qwen2.5") || strings.Contains(m, "qwen-2.5") || strings.Contains(m, "qwen3") || strings.Contains(m, "gpt-4") || strings.Contains(m, "claude") || strings.Contains(m, "gemini") || strings.Contains(m, "deepseek-v3") || strings.Contains(m, "deepseek-r1"):
 		return 131072
 	case strings.Contains(m, "64k") || strings.Contains(m, "deepseek"):
 		return 65536
-	case strings.Contains(m, "32k") || strings.Contains(m, "qwen") || strings.Contains(m, "mistral") || strings.Contains(m, "codestral") || strings.Contains(m, "command-r"):
+	case strings.Contains(m, "32k") || strings.Contains(m, "qwen") || strings.Contains(m, "mistral") || strings.Contains(m, "codestral") || strings.Contains(m, "command-r") || strings.Contains(m, "devstral"):
 		return 32768
 	case strings.Contains(m, "16k"):
 		return 16384

@@ -209,3 +209,42 @@ func TestInterruptedToolIsMarkedUnknownBeforeResume(t *testing.T) {
 		t.Fatalf("resumed=%#v prompt=%#v err=%v", resumed, model.inputs, err)
 	}
 }
+
+func TestParseDecisionRobustPreambleThinkingAndMultipleJSON(t *testing.T) {
+	cases := []struct {
+		input  string
+		action string
+		tool   string
+	}{
+		{
+			input:  `<think>Let me see what needs to be done</think>{"action":"tool","tool":"memory.task","arguments":{"content":"check"}}`,
+			action: "tool",
+			tool:   "memory.task",
+		},
+		{
+			input:  "I have thought about it.\n```json\n{\"action\":\"finish\",\"message\":\"Done!\"}\n```",
+			action: "finish",
+		},
+		{
+			input:  "Some thought {in braces} and then:\n{\"action\":\"continue\",\"message\":\"thinking more\"}",
+			action: "continue",
+		},
+		{
+			input:  "Here is my result: {\"final_answer\": \"Everything passed.\"}",
+			action: "finish",
+		},
+	}
+
+	for _, c := range cases {
+		dec, err := parseDecision(c.input)
+		if err != nil {
+			t.Fatalf("parseDecision(%q) failed: %v", c.input, err)
+		}
+		if dec.Action != c.action {
+			t.Fatalf("parseDecision(%q).Action = %q, want %q", c.input, dec.Action, c.action)
+		}
+		if c.tool != "" && dec.Tool != c.tool {
+			t.Fatalf("parseDecision(%q).Tool = %q, want %q", c.input, dec.Tool, c.tool)
+		}
+	}
+}
