@@ -7,7 +7,7 @@
 > Official source and releases:
 > [sPROFFEs/PrAImate](https://github.com/sPROFFEs/PrAImate)
 
-PrAImate 1.2.10 is a GUI-only desktop harness for Claude Code,
+PrAImate is a GUI-only desktop harness for Claude Code,
 OpenClaude, Codex CLI, OpenCode, and the bundled **PrAImate Code** build.
 It also includes **PrAImate CLI**, a core-native runtime for self-configured
 OpenAI-compatible endpoints, with a shared terminal frontend.
