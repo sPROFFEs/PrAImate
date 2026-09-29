@@ -140,7 +140,7 @@
     }
     if (ev.workflow_name) workflowStream.current = ev.workflow_name
     if (ev.type === 'text') workflowStream.text += ev.text || ''
-    else if (ev.type === 'reasoning' && ev.text) workflowStream.reasoning = [...workflowStream.reasoning, ev.text]
+    else if (ev.type === 'reasoning') workflowStream.reasoning = (workflowStream.reasoning || '') + (ev.text || ev.detail || '')
     else if (ev.type === 'tool_start') workflowStream.tools = [...workflowStream.tools, { id: ev.id, tool: ev.tool, detail: ev.detail, done: false, ok: true }]
     else if (ev.type === 'tool_end') {
       const idx = ev.id ? workflowStream.tools.findIndex((t) => t.id === ev.id && !t.done) : workflowStream.tools.findIndex((t) => !t.done)
@@ -164,7 +164,7 @@
     if (!result?.chat_id || ev.chatId !== result.chat_id) return
     if (!runChatStream) runChatStream = { text: '', reasoning: [], tools: [], steps: [] }
     if (ev.type === 'text') runChatStream.text += ev.text || ''
-    else if (ev.type === 'reasoning' && ev.text) runChatStream.reasoning = [...runChatStream.reasoning, ev.text]
+    else if (ev.type === 'reasoning') runChatStream.reasoning = (runChatStream.reasoning || '') + (ev.text || ev.detail || '')
     else if (ev.type === 'tool_start') runChatStream.tools = [...runChatStream.tools, { id: ev.id, tool: ev.tool, detail: ev.detail, done: false, ok: true }]
     else if (ev.type === 'tool_end') {
       const idx = ev.id ? runChatStream.tools.findIndex((t) => t.id === ev.id && !t.done) : runChatStream.tools.findIndex((t) => !t.done)
@@ -305,11 +305,9 @@
       </div>
     </div>
     {#if workflowStream}
-      {#if workflowStream.reasoning.length}
+      {#if workflowStream.reasoning}
         <div class="tool-feed">
-          {#each workflowStream.reasoning as r}
-            <div class="tool-row reasoning-row"><span class="tool-status">?</span><span class="tool-name">reasoning</span><span class="tool-detail reasoning-detail">{r}</span></div>
-          {/each}
+          <div class="tool-row reasoning-row"><span class="tool-status">💭</span><span class="tool-name">thought</span><span class="tool-detail reasoning-detail">{workflowStream.reasoning}</span></div>
         </div>
       {/if}
       {#if workflowStream.steps.length}
@@ -364,11 +362,9 @@
       {/each}
     {/if}
     {#if runChatStream}
-      {#if runChatStream.reasoning.length}
+      {#if runChatStream.reasoning}
         <div class="tool-feed">
-          {#each runChatStream.reasoning as r}
-            <div class="tool-row reasoning-row"><span class="tool-status">?</span><span class="tool-name">reasoning</span><span class="tool-detail reasoning-detail">{r}</span></div>
-          {/each}
+          <div class="tool-row reasoning-row"><span class="tool-status">💭</span><span class="tool-name">thought</span><span class="tool-detail reasoning-detail">{runChatStream.reasoning}</span></div>
         </div>
       {/if}
       {#if runChatStream.steps.length}

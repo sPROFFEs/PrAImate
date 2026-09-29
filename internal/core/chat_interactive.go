@@ -338,8 +338,21 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 		if len(activity) < 100 {
 			switch ev.Type {
 			case "reasoning":
-				if text := compactActivityText(ev.Text, 1200); text != "" {
-					activity = append(activity, map[string]any{"type": "reasoning", "text": text})
+				text := ev.Text
+				if text == "" {
+					text = ev.Detail
+				}
+				if text != "" {
+					if len(activity) > 0 && activity[len(activity)-1]["type"] == "reasoning" {
+						prev, _ := activity[len(activity)-1]["text"].(string)
+						if len(prev) < 1200 {
+							activity[len(activity)-1]["text"] = compactActivityText(prev+text, 1200)
+						}
+					} else if len(activity) < 100 {
+						if compacted := compactActivityText(text, 1200); compacted != "" {
+							activity = append(activity, map[string]any{"type": "reasoning", "text": compacted, "ok": true})
+						}
+					}
 				}
 			case "step_start":
 				activity = append(activity, map[string]any{"type": "step_start", "detail": compactActivityText(ev.Detail, 300), "ok": true})

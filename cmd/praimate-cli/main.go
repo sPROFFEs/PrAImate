@@ -317,12 +317,19 @@ func run(ctx context.Context, args []string) error {
 				fmt.Fprint(output, event.Text)
 			}
 		case "reasoning":
+			text := event.Text
+			if text == "" {
+				text = event.Detail
+			}
+			if text == "" {
+				return
+			}
 			if o.showReasoning {
 				if !reasoningOpen {
 					fmt.Fprint(statusOutput, "\n  THINKING  ")
 					reasoningOpen = true
 				}
-				fmt.Fprint(statusOutput, event.Text)
+				fmt.Fprint(statusOutput, text)
 			} else if interactive && !thinking {
 				fmt.Fprintln(statusOutput, "  … thinking")
 				thinking = true

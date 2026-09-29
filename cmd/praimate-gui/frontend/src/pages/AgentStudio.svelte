@@ -724,8 +724,8 @@
   function handleStreamEvent(ev) {
     if (!sending || ev.chatId !== helperChatId) return
     if (!stream) stream = { text: '', tools: [], reasoning: [], steps: [] }
-    if (ev.type === 'text') stream.text += ev.text
-    else if (ev.type === 'reasoning') stream.reasoning = [...(stream.reasoning || []), ev.text]
+    if (ev.type === 'text') stream.text += (ev.text || '')
+    else if (ev.type === 'reasoning') stream.reasoning = (stream.reasoning || '') + (ev.text || ev.detail || '')
     else if (ev.type === 'step_start' || ev.type === 'step_finish' || ev.type === 'error') stream.steps = [...(stream.steps || []), { type: ev.type, detail: ev.detail, ok: ev.type !== 'error' && ev.ok !== false }]
     else if (ev.type === 'tool_start') stream.tools = [...stream.tools, { id: ev.id || '', tool: ev.tool, detail: ev.detail, done: false, ok: true }]
     else if (ev.type === 'tool_end') {
@@ -855,9 +855,9 @@
   function fmtDate(ts) { try { return new Date(ts).toLocaleTimeString() } catch { return '' } }
   function cleanMsg(s) { return (s || '').replace(/\n{3,}/g, '\n\n').trim() }
   function activityTitle(activity) { const n = activity?.length || 0; return `Activity · ${n} event${n === 1 ? '' : 's'}` }
-  function activityStatus(t) { if (t.type === 'reasoning') return '?'; if (t.type === 'step_start') return '◌'; if (t.type === 'step_finish') return '✓'; if (t.type === 'error' || t.ok === false) return '✗'; return '✓' }
-  function activityName(t) { if (t.type === 'reasoning') return 'reasoning'; if (t.type === 'step_start') return 'step'; if (t.type === 'step_finish') return 'step done'; if (t.type === 'error') return 'error'; return t.tool || t.type || 'tool' }
-  function activityDetail(t) { return t.type === 'reasoning' ? t.text : t.detail }
+  function activityStatus(t) { if (t.type === 'reasoning') return '💭'; if (t.type === 'step_start') return '◌'; if (t.type === 'step_finish') return '✓'; if (t.type === 'error' || t.ok === false) return '✗'; return '✓' }
+  function activityName(t) { if (t.type === 'reasoning') return 'thought'; if (t.type === 'step_start') return 'step'; if (t.type === 'step_finish') return 'step done'; if (t.type === 'error') return 'error'; return t.tool || t.type || 'tool' }
+  function activityDetail(t) { return (t.type === 'reasoning' ? (t.text || t.detail) : (t.detail || t.text)) || '' }
 
   async function close() {
     if (helperChatId) { try { await api.deleteChat(helperChatId) } catch {} }
@@ -1362,7 +1362,7 @@
       {/each}
       {#if sending}
         <div class="msg assistant"><div class="who">assistant</div>
-          {#if stream?.reasoning?.length}<div class="tool-feed">{#each stream.reasoning as r}<div class="tool-line reasoning-line">? reasoning {r}</div>{/each}</div>{/if}
+          {#if stream?.reasoning}<div class="tool-feed"><div class="tool-line reasoning-line">💭 thought {stream.reasoning}</div></div>{/if}
           {#if stream?.steps?.length}<div class="tool-feed">{#each stream.steps as s}<div class="tool-line" class:err={!s.ok}>{s.ok ? (s.type === 'step_finish' ? '✓' : '◌') : '✗'} {s.type === 'error' ? 'error' : s.type === 'step_finish' ? 'step done' : 'step'} {s.detail || ''}</div>{/each}</div>{/if}
           {#if stream?.tools?.length}<div class="tool-feed">{#each stream.tools as t}<div>{t.done ? (t.ok ? '✓' : '✗') : '◌'} {t.tool}</div>{/each}</div>{/if}
           {#if stream?.text}<div class="markdown">{@html renderMarkdown(stream.text)}</div><span class="cursor">▍</span>{:else}<span class="typing">…thinking</span>{/if}

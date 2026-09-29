@@ -437,9 +437,9 @@
     if (!sending || !selected || ev.chatId !== selected.ID) return
     if (!stream) stream = { text: '', tools: [], reasoning: [], steps: [] }
     if (ev.type === 'text') {
-      stream.text += ev.text
+      stream.text += (ev.text || '')
     } else if (ev.type === 'reasoning') {
-      stream.reasoning = [...(stream.reasoning || []), ev.text]
+      stream.reasoning = (stream.reasoning || '') + (ev.text || ev.detail || '')
     } else if (ev.type === 'step_start' || ev.type === 'step_finish' || ev.type === 'error') {
       stream.steps = [...(stream.steps || []), { type: ev.type, detail: ev.detail, ok: ev.type !== 'error' && ev.ok !== false }]
     } else if (ev.type === 'tool_start') {
@@ -624,7 +624,7 @@
   }
 
   function activityStatus(t) {
-    if (t.type === 'reasoning') return '?'
+    if (t.type === 'reasoning') return '💭'
     if (t.type === 'step_start') return '◌'
     if (t.type === 'step_finish') return '✓'
     if (t.type === 'error' || t.ok === false) return '✗'
@@ -632,7 +632,7 @@
   }
 
   function activityName(t) {
-    if (t.type === 'reasoning') return 'reasoning'
+    if (t.type === 'reasoning') return 'thought'
     if (t.type === 'step_start') return 'step'
     if (t.type === 'step_finish') return 'step done'
     if (t.type === 'error') return 'error'
@@ -640,7 +640,7 @@
   }
 
   function activityDetail(t) {
-    return t.type === 'reasoning' ? t.text : t.detail
+    return (t.type === 'reasoning' ? (t.text || t.detail) : (t.detail || t.text)) || ''
   }
 
   function isImg(p) {
@@ -889,11 +889,13 @@
     {#if sending}
       <div class="msg assistant">
         <div class="who">assistant</div>
-        {#if stream?.reasoning?.length}
+        {#if stream?.reasoning}
           <div class="tool-feed reasoning-live">
-            {#each stream.reasoning as r}
-              <div class="tool-row reasoning-row"><span class="tool-status">?</span><span class="tool-name">reasoning</span><span class="tool-detail reasoning-detail">{r}</span></div>
-            {/each}
+            <div class="tool-row reasoning-row">
+              <span class="tool-status">💭</span>
+              <span class="tool-name">thought</span>
+              <span class="tool-detail reasoning-detail">{stream.reasoning}</span>
+            </div>
           </div>
         {/if}
         {#if stream?.steps?.length}
