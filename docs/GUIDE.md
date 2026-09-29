@@ -2,11 +2,12 @@
   <img src="assets/monke-icon.png" alt="PrAImate" width="120" />
 </p>
 
-# PrAImate 1.2.6 user guide
+# PrAImate user guide
 
-PrAImate is a Linux and Windows desktop harness around supported agent CLIs.
-It provides a shared GUI, but the chosen CLI still performs model requests,
-owns provider authentication, and controls its native model/session behavior.
+PrAImate is a desktop harness for Linux, Windows and macOS Apple Silicon.
+External CLI adapters retain their provider authentication and native sessions.
+PrAImate CLI uses core-owned model routing, tools and encrypted sessions shared
+by Desktop, Studio and its terminal frontend.
 
 This guide describes the current GUI. Workpath compiler details are kept in
 [QUICKSTART.md](QUICKSTART.md), [SCHEMA.md](SCHEMA.md),
@@ -19,6 +20,8 @@ This guide describes the current GUI. Workpath compiler details are kept in
 - [Storage and encryption](#storage-and-encryption)
 - [Code](#code)
 - [Chats](#chats)
+- [Studio and Documents](#studio-and-documents)
+- [Workers](#workers)
 - [Agents](#agents)
 - [Skills](#skills)
 - [CLI & Tools](#cli--tools)
@@ -71,16 +74,18 @@ If the database password is not remembered, an interactive terminal asks for
 it with input echo disabled. See the dedicated [CLI agent API](CLI_AGENT_API.md)
 and [Python example](../examples/praimate_agent_capture.py).
 
-Supported published archives:
+Release target archives:
 
 | System | Archive |
 |---|---|
 | Linux amd64 | `praimate-linux-amd64.tar.gz` |
 | Windows amd64 | `praimate-windows-amd64.zip` |
 | Windows arm64 | `praimate-windows-arm64.zip` |
+| macOS Apple Silicon | `praimate-darwin-arm64.tar.gz` |
 
 Linux arm64 can be built on a native arm64 host with the GUI dependencies.
-macOS is not supported and receives no release archive.
+The macOS build requires an Apple Silicon host and the native Apple toolchain.
+Intel Mac archives are not provided. The Unix installer also supports macOS.
 
 ## First launch
 
@@ -89,7 +94,8 @@ Startup is intentionally locked until the database is available.
 1. **Create a database password.** It must contain at least 12 characters.
    PrAImate asks for confirmation before creating the database.
 2. **Choose whether to remember it.** This is optional. Windows uses
-   Credential Manager; Linux uses the desktop Secret Service. If the
+   Credential Manager; Linux uses the desktop Secret Service; macOS uses
+   Keychain. If the
    credential service is unavailable, the database can still open, but the
    password is not remembered.
 3. **Read and accept the privacy notice.** It explains local storage,
@@ -110,6 +116,7 @@ PrAImate centralizes app-owned data:
 |---|---|
 | Linux | `$XDG_CONFIG_HOME/praimate`, normally `~/.config/praimate` |
 | Windows | `%APPDATA%\praimate` |
+| macOS | `~/Library/Application Support/praimate` |
 
 The root contains:
 
@@ -147,7 +154,7 @@ You can:
 - start a clean session;
 - launch an agent in the selected folder so its instructions and knowledge
   are available;
-- reopen recorded Code sessions from Chats.
+- reopen recorded Code sessions from the Code page.
 
 Terminal scrollback exists only in GUI memory and disappears when the process
 closes. PrAImate does not write terminal-output logs. The child CLI can still
@@ -159,12 +166,9 @@ configuration are used.
 
 ## Chats
 
-Chats provides four saved-session groups:
-
-- normal clean chats;
-- Agent Studio sessions;
-- Code sessions;
-- legacy workspace chats.
+Chats lists regular conversations. Code, Studio, Documents and Workers provide
+their own session views; opening their transcript explicitly does not add them
+to the regular Chats list.
 
 For a clean chat, choose the CLI, optional model, tool level, per-chat skills,
 and MCP servers. If a compatible Local LLM default exists, the new-chat form
@@ -177,8 +181,38 @@ content.
 Chat settings remain per-chat truth. Changing the CLI starts a new native CLI
 session while preserving the PrAImate conversation record.
 
-The selected CLI performs the actual provider communication. PrAImate cannot
-force HTTPS when a configured model endpoint only exposes HTTP.
+External adapters delegate provider communication to the selected CLI;
+PrAImate CLI connects through the core. Native chat configuration includes
+context-window and output-reserve fields; enter 0 to use host settings or loaded
+server metadata. See [PrAImate CLI](native-cli.md#context-and-output-budgets).
+
+PrAImate cannot add HTTPS to a model server that only exposes HTTP.
+
+## Studio and Documents
+
+**Studio** opens project sessions in the integrated Code-OSS / VSCodium editor.
+The PrAImate sidebar provides its own saved assistant chat, model and permissions
+settings, skills, and Workers view. Native CLI terminals opened in the editor
+are separate from that sidebar chat.
+
+**Documents** combines a document editor and assistant chat. These sessions have
+their own page and saved conversation context.
+
+## Workers
+
+Choose **Workers → New worker chat**, select a workspace and configure the
+Reasoner, Middle and Fast profiles. Each profile has its own CLI/runtime, model,
+permissions and limits. The same CLI can be selected with different models.
+
+The creation dialog stores those profiles with the new chat. Follow live
+requests, responses and delegated results in three collapsible horizontal
+panes. Saved chats support follow-up, Stop, Rename and Delete. Interrupted
+chats retain recorded activity for review before continuing. Workers is also
+available in the Studio extension through **PrAImate: Workers**.
+
+See the [Workers guide](WORKERS.md) for delegation, real host tools, context
+isolation, limits and the distinction between controlled tests and live model
+quality.
 
 ## Agents
 
@@ -288,11 +322,11 @@ an import invisibly.
 Import validates a staged copy before replacing live agent data. Graphify
 output may travel with the pack, so an indexed agent can arrive pre-indexed.
 
-Legacy v1 skills remain separate CLI-specific prompt fragments. The opt-in v2
-agent format can embed exact locked versioned bundles and resources in agent
-packs, without exporting host trust or approvals. See
-[skills test/rollback guide](SKILLS_TEST_GUIDE.md) before testing
-this unreleased feature.
+Reviewed agent packs can embed exact locked skill versions and resources.
+Import installs and approves the bundled digests; new sessions from that agent
+inherit those skills. The shared PrAImate library is separate from each CLI's
+native skill catalogue. See [Skills](#skills) and the
+[agent pack reference](AGENT_GUIDE.md#agent-pack).
 
 ## Skills
 
@@ -314,7 +348,7 @@ controlled request payload without that skill appearing in the CLI's own
 `/skills` listing. Skills loaded only by a CLI are not automatically registered
 or approved by PrAImate. Delivery receipts describe controlled payloads, not
 native private context or proof the model followed a procedure. See the
-[acceptance audit](skills-evaluation.md) for the current support boundary.
+[native CLI guide](native-cli.md) for embedded skill discovery and execution.
 
 ## CLI & Tools
 
@@ -368,10 +402,11 @@ obtain HTTPS.
 | OpenClaude | Per-launch OpenAI-compatible environment variables, model, and token limits. |
 | OpenCode/PrAImate Code | Provider configuration references `OPENAI_API_KEY`; PrAImate supplies the secret at launch. |
 | Codex | Not routed by PrAImate; Codex retains its own provider and authentication configuration. |
+| PrAImate CLI | Core-owned endpoint/credentials, assigned host/model and automatic or configured context limits. |
 
 The Local LLM key is migrated out of older plaintext configuration into the
-encrypted database and is resolved in Go only when a supported child process
-is launched. It is not returned to the GUI renderer.
+encrypted database and is resolved in Go for the selected native request or
+supported child process. It is not returned to the GUI renderer.
 
 ### Execution preflight
 
@@ -620,8 +655,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.2
-scripts/build.sh --version=1.2.2 --with-code --with-graphify
+scripts/build.sh --version=1.2.13
+scripts/build.sh --version=1.2.13 --with-code --with-graphify
 ```
 
 Build only the GUI:

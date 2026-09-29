@@ -50,8 +50,12 @@ func TestNativeCLIImageOnlyJSONUsesSharedCore(t *testing.T) {
 	oldIn, oldOut, oldTransport := os.Stdin, os.Stdout, http.DefaultTransport
 	os.Stdin, os.Stdout = input, output
 	defer func() { os.Stdin, os.Stdout, http.DefaultTransport = oldIn, oldOut, oldTransport }()
-	requests := 0
+	requests, metadataRequests := 0, 0
 	http.DefaultTransport = cliTestTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodGet && r.URL.Host == "cli.fixture" && r.URL.Path == "/api/ps" {
+			metadataRequests++
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"models":[{"name":"vision","context_length":32768}]}`))}, nil
+		}
 		requests++
 		if r.URL.Host != "cli.fixture" || r.URL.Path != "/v1/chat/completions" {
 			t.Fatalf("unexpected route: %s", r.URL)
@@ -74,8 +78,8 @@ func TestNativeCLIImageOnlyJSONUsesSharedCore(t *testing.T) {
 	if err := run(context.Background(), []string{"--db-password-stdin", "--format", "json", "--endpoint", "http://cli.fixture/v1", "--model", "vision", "--cwd", root, "--attach", path}); err != nil {
 		t.Fatal(err)
 	}
-	if requests != 1 {
-		t.Fatalf("requests=%d", requests)
+	if requests != 1 || metadataRequests != 1 {
+		t.Fatalf("requests=%d metadataRequests=%d", requests, metadataRequests)
 	}
 	if _, err := output.Seek(0, 0); err != nil {
 		t.Fatal(err)

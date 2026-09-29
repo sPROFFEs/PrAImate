@@ -26,6 +26,9 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 	if requested != nil {
 		route = *requested
 	}
+	if route.ContextTokens != 0 {
+		route.ContextSource = "chat override"
+	}
 	global, err := launcher.LoadConfig()
 	if err != nil {
 		return nil, err
@@ -101,12 +104,9 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 					return nil, err
 				}
 			}
-			if route.ContextTokens == 0 || route.ContextTokens == 8192 {
-				if host.ContextTokens > 8192 {
-					route.ContextTokens = host.ContextTokens
-				} else {
-					route.ContextTokens = autoContextWindow(route.Model, host.ContextTokens)
-				}
+			if route.ContextTokens == 0 && host.ContextTokens != 0 {
+				route.ContextTokens = host.ContextTokens
+				route.ContextSource = "host settings"
 			}
 			if route.OutputTokens == 0 {
 				route.OutputTokens = host.OutputTokens
@@ -122,12 +122,9 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 						return nil, err
 					}
 				}
-				if route.ContextTokens == 0 || route.ContextTokens == 8192 {
-					if global.DefaultLocalContextTokens > 8192 {
-						route.ContextTokens = global.DefaultLocalContextTokens
-					} else {
-						route.ContextTokens = autoContextWindow(route.Model, global.DefaultLocalContextTokens)
-					}
+				if route.ContextTokens == 0 && global.DefaultLocalContextTokens != 0 {
+					route.ContextTokens = global.DefaultLocalContextTokens
+					route.ContextSource = "host settings"
 				}
 				if route.OutputTokens == 0 {
 					route.OutputTokens = global.DefaultLocalOutputTokens
@@ -139,7 +136,7 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 		return nil, errors.New("PrAImate CLI requires a model: select one in Local LLM settings or pass --model")
 	}
 	if route.ContextTokens == 0 {
-		route.ContextTokens = autoContextWindow(route.Model, 0)
+		route.ContextTokens, route.ContextSource = c.nativeLimits.lookup(ctx, route)
 	}
 	if route.OutputTokens == 0 {
 		route.OutputTokens = autoOutputTokens(route.ContextTokens, 0)
@@ -147,28 +144,18 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 	if route.OutputTokens < 1 || route.ContextTokens < 2048 || route.ContextTokens > 2_000_000 || route.OutputTokens >= route.ContextTokens {
 		return nil, errors.New("invalid native context/output token limits")
 	}
+	if route.ContextTokens-route.OutputTokens-max(256, route.ContextTokens/20) < 256 {
+		return nil, errors.New("output and safety reserves must leave at least 256 tokens for input; reduce the output reserve or increase the supported context window")
+	}
 	return &route, nil
 }
 
-func autoContextWindow(model string, requested int) int {
+func autoContextWindow(_ string, requested int) int {
 	if requested >= 2048 {
 		return requested
 	}
-	m := strings.ToLower(model)
-	switch {
-	case strings.Contains(m, "128k") || strings.Contains(m, "llama-3") || strings.Contains(m, "llama3") || strings.Contains(m, "qwen2.5") || strings.Contains(m, "qwen-2.5") || strings.Contains(m, "qwen3") || strings.Contains(m, "gpt-4") || strings.Contains(m, "claude") || strings.Contains(m, "gemini") || strings.Contains(m, "deepseek-v3") || strings.Contains(m, "deepseek-r1"):
-		return 131072
-	case strings.Contains(m, "64k") || strings.Contains(m, "deepseek"):
-		return 65536
-	case strings.Contains(m, "32k") || strings.Contains(m, "qwen") || strings.Contains(m, "mistral") || strings.Contains(m, "codestral") || strings.Contains(m, "command-r") || strings.Contains(m, "devstral"):
-		return 32768
-	case strings.Contains(m, "16k"):
-		return 16384
-	case strings.Contains(m, "8k") || strings.Contains(m, "gemma") || strings.Contains(m, "phi"):
-		return 8192
-	default:
-		return 8192
-	}
+	// A model's trained maximum does not describe the server's loaded window.
+	return 8192
 }
 
 func autoOutputTokens(contextTokens, requested int) int {

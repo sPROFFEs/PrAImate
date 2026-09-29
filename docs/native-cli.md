@@ -19,25 +19,9 @@ praimate-cli --agent dev-team --model YOUR_MODEL --workflow "Fix a bug" --inputs
 
 The endpoint must implement OpenAI-compatible Chat Completions streaming and
 function calling for tool use. Ollama, compatible local servers and routers
-such as OmniRoute can supply the endpoint. Model IDs, including provider/model
-namespaces, are passed unchanged. `/models` queries that endpoint's catalogue.
-Use `--context-tokens` and `--output-tokens` to match the loaded model. Defaults
-are 8192 and 1024 unless the selected core Local LLM host has configured limits.
-Context budgeting reserves output tokens plus a safety margin (5% of the window,
-at least 256 tokens). It estimates text, Unicode, tool schemas/calls, skill
-payloads and vision input separately; base64 bytes are not counted as text tokens.
-Endpoint-reported prompt usage calibrates subsequent estimates upward within
-the model session. These are estimates, **not exact tokenizer counts**; image
-token costs in particular differ between models. `/context` shows the last
-request estimate, reservations, compactions and last reported usage.
-
-The transport requests streaming usage when supported, and retries without that
-optional field only if the endpoint explicitly rejects it. A context-length HTTP
-rejection allows one attempt with a smaller input budget. Completed tools are
-not replayed, and partial streams are not silently retried. If the latest
-request, images, instructions or tool schemas cannot fit, the run stops with an
-error rather than silently discarding the current request.
-
+such as OmniRoute can supply the endpoint. Use the endpoint's model ID, including its provider/model namespace.
+`/models` lists assigned core models, or queries the selected endpoint when no
+assignments exist. `HOST_ID::MODEL` selects an assigned model on a specific host.
 The core resolves credentials for the selected saved host. Standalone callers
 can use `OPENAI_BASE_URL`, `OPENAI_MODEL` (or `PRAIMATE_MODEL`) and
 `OPENAI_API_KEY`. Keys are not accepted in argv or written to project files.
@@ -55,6 +39,52 @@ Desktop and Studio terminals receive that identity directly, preserving their
 agent, skills, local route, MCP selection, permissions and transcript. An
 endpoint change on a live model session requires a new chat, preventing silent
 transfer of its private context to another host.
+
+## Context and output budgets
+
+Context limits are selected in this order:
+
+1. An explicit chat or `--context-tokens` override, including 8192.
+2. Saved host settings.
+3. Loaded server metadata: Ollama `/api/ps`, LM Studio `/api/v1/models`, or
+   llama.cpp `/props`.
+4. An 8192-token fallback, labelled as an unknown server window.
+
+Discovery uses cached, bounded read-only requests to the selected server. It
+preserves proxy prefixes and does not load models or infer a running window from
+a model name or training maximum. Cold models and servers without compatible
+metadata may need explicit host limits. Output reserve uses the explicit or
+saved value; otherwise it is one eighth of the window, bounded to 1024–4096
+tokens. A client setting does not enlarge the server's context allocation.
+
+Use `/context` to inspect the source, reservations, last request estimate,
+compactions and last endpoint usage. `/context auto` restores host inheritance
+and discovery. `/context 32768 4096` sets a 32768-token window and 4096-token
+output reserve for this chat. Desktop Chats and Studio expose the same per-chat
+settings. Values of 0 inherit host settings or use automatic selection.
+
+Context budgeting reserves output plus a safety margin of 5% of the window,
+with at least 256 safety tokens. It estimates text, Unicode, tool schemas/calls,
+skills and vision input separately; base64 bytes are not counted as text tokens.
+Endpoint-reported prompt usage calibrates subsequent estimates upward. These
+are estimates, **not exact tokenizer counts**; image token costs vary by model.
+
+The transport requests streaming usage when supported and retries without that
+optional field only if the endpoint explicitly rejects it. A context-length HTTP
+rejection allows one attempt with a smaller input budget. Completed tools are
+not replayed, and partial streams are not silently retried. Older history and
+large tool results can be compacted. If the latest request, images, instructions
+or tool schemas cannot fit, the run stops without silently cutting out the
+current request or system instructions.
+
+An output-limit failure retains visible partial text in the native model
+checkpoint, marked as incomplete. Tool calls from that truncated response are
+not executed. Increase the output reserve within the server's supported window
+and send a follow-up if needed.
+
+Metadata contracts: [Ollama](https://docs.ollama.com/api/ps),
+[LM Studio](https://lmstudio.ai/docs/developer/rest/list),
+[llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
 
 ## Permissions and tools
 
@@ -79,7 +109,7 @@ endpoint/model must support vision; there is no automatic OCR, model switch or
 cloud fallback. Other image formats (including WebP/SVG), PDFs and other binary
 documents require conversion to a supported image or text first.
 Shell syntax requires an explicit platform shell, such as `sh` or `cmd.exe`;
-ordinary commands use an executable and argument array on both platforms.
+ordinary commands use an executable and argument array across supported platforms.
 
 MCP uses the core's registered servers, transports, authentication and timeouts.
 Choose them in Desktop/Studio or use `--mcp ID1,ID2`. A workspace `.mcp.json`
@@ -106,7 +136,7 @@ text and pasted approvals are denied. Prompts are limited to 1 MiB overall and
 fewer than 4096 characters per edited line; use attachments or piped stdin for
 larger inputs. Terminal control characters in model/tool output are filtered.
 
-Interactive commands: `/help`, `/status`, `/context`, `/models`, `/model [ID]`,
+Interactive commands: `/help`, `/status`, `/context [auto|WINDOW [OUTPUT]]`, `/models`, `/model [ID]`,
 `/tools [LEVEL]`, `/attach PATH`, `/attachments`, `/detach [N|all]`, `/mcp`, `/skills`,
 `/sessions`, `/compact`, `/clear`, `/exit`. Without an argument, `/model`,
 `/tools` and `/detach` open a numbered selector; `/sessions` lets you switch
@@ -140,8 +170,9 @@ are **not text-redacted**; attach only content you want sent to that endpoint.
 
 `--format json` emits newline-delimited core events, including a core chat ID,
 text/reasoning deltas, correlated tool start/end events, structured `context`
-and `usage` data in `raw`, and failure status. Text mode displays activity,
-context/usage and a turn summary; `--show-reasoning` also displays reasoning text.
+and `usage` data in `raw`, and failure status. Interactive text mode shows a compact model/permissions header, attachments,
+last-input context meter and a completion/cancellation/failure summary.
+`NO_COLOR` disables styling. Usage is shown when the endpoint reports it; `--show-reasoning` also displays reasoning text.
 Errors, truncated responses and exhausted tool-turn budgets produce a nonzero
 exit code for single-shot/JSON runs. The interactive prompt remains available
 after a failed turn. Ctrl+C cancels the active turn or clears pending input;
@@ -149,7 +180,9 @@ Ctrl+D at an empty prompt exits. A normal native turn allows up to 64
 model/tool rounds; Autonomous mode uses its configured managed budgets.
 
 Build from the repository root with `go build ./cmd/praimate-cli`. The release
-scripts bundle it for Linux and Windows (amd64/arm64); installers and the
-updater manage it alongside Desktop. The GUI build script also builds its
+scripts bundle it alongside Desktop for their supported Linux, Windows and
+macOS Apple Silicon targets; the installers and updater manage the executable. The GUI build script also builds its
 terminal sibling. Cross-compilation does not replace a Windows runtime smoke
 test, and mock-provider tests do not establish compatibility with every model.
+
+For three-tier coordination and saved Worker chats, see [Workers](WORKERS.md).

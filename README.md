@@ -7,7 +7,7 @@
 > Official source and releases:
 > [sPROFFEs/PrAImate](https://github.com/sPROFFEs/PrAImate)
 
-PrAImate is a GUI-only desktop harness for Claude Code,
+PrAImate is a desktop harness for Claude Code,
 OpenClaude, Codex CLI, OpenCode, and the bundled **PrAImate Code** build.
 It also includes **PrAImate CLI**, a core-native runtime for self-configured
 OpenAI-compatible endpoints, with a shared terminal frontend.
@@ -27,11 +27,13 @@ commands and permission boundaries.
 
 - Linux amd64 (release archive)
 - Windows amd64 and arm64 (release archives)
+- macOS Apple Silicon / arm64 (release target)
 - Linux arm64 source builds where the required native WebKitGTK toolchain is
   available
 
-macOS is not a supported or published target. The old Bubble Tea TUI is no
-longer shipped; running `praimate` opens the desktop application.
+The macOS build targets Apple Silicon; Intel Mac archives are not provided.
+Running `praimate` opens the desktop application. `praimate-cli` provides the
+shared native terminal frontend.
 
 ## Install
 
@@ -101,8 +103,8 @@ uses AES-256-XTS.
 On later launches:
 
 - without **Remember on this device**, the password is required again;
-- with it enabled, Windows Credential Manager or the Linux desktop Secret
-  Service stores the password for automatic unlock;
+- with it enabled, Windows Credential Manager, Linux desktop Secret
+  Service, or macOS Keychain stores the password for automatic unlock;
 - **Settings → Data and privacy** can forget that stored credential.
 
 The raw database key exists only in the unlocked process. Losing the password
@@ -114,6 +116,7 @@ All PrAImate-owned persistent data is centralized under:
 |---|---|
 | Linux | `$XDG_CONFIG_HOME/praimate` or `~/.config/praimate` |
 | Windows | `%APPDATA%\praimate` |
+| macOS | `~/Library/Application Support/praimate` |
 
 This root contains the encrypted database and key envelope, non-secret
 bootstrap configuration, agents, skills, managed tools, and managed-run state
@@ -135,7 +138,10 @@ Underlying CLIs may still keep native logs or sessions.
 | Page | Purpose |
 |---|---|
 | **Code** | Run a supported CLI live in a chosen project folder, with optional model, local endpoint, agent context, and MCP wiring. |
-| **Chats** | Create clean conversations, configure per-chat CLI/model/tools/skills/MCP, and reopen saved chat, studio, code, or legacy workspace sessions. |
+| **Chats** | Create and reopen conversations with per-chat CLI, model, tools, skills, MCP and native context limits. |
+| **Studio** | Open projects in the integrated Code-OSS / VSCodium environment with the PrAImate sidebar. |
+| **Documents** | Work on documents with an editor and assistant chat. |
+| **Workers** | Configure Reasoner, Middle and Fast profiles, follow their activity, and save or resume coordinated tasks. |
 | **Agents** | Create, edit, import/export, and run YAML agents and workflows; manage raw or Graphify-backed knowledge. |
 | **Skills** | Enable built-in skills or add a skill from a URL, local ZIP, or manual definition. |
 | **CLI & Tools** | Detect, install, update, or repair supported CLIs and managed tools. |
@@ -185,7 +191,9 @@ Run checkpoints are functional state, not diagnostic/event logs.
 The Autonomous preset does not claim OS-level sandbox isolation: an approved
 command is still a real process on the host. Team/delegation and manifests that
 claim `sandbox` remain fail-closed. Team is not offered in guided creation until
-that coordinator exists. Interactive Terminal execution remains native.
+that coordinator exists. The separate [Workers mode](docs/WORKERS.md) provides
+three-tier coordination without enabling team runtime manifests. Interactive
+Terminal execution remains native.
 
 Skills are managed in PrAImate's shared immutable library and can be bundled
 inside reviewed agent packs. The generic agent importer installs and approves
@@ -198,7 +206,7 @@ into a project are not automatically registered or approved by PrAImate.
 
 ## MCP
 
-PrAImate exposes only MCP servers you configure or install locally:
+External MCP connections use servers you configure or install locally:
 
 - **stdio** servers run a local command or container;
 - **HTTP** servers point to an endpoint you control;
@@ -207,8 +215,9 @@ PrAImate exposes only MCP servers you configure or install locally:
 - enabled servers are selected per chat, or referenced by an agent's
   `mcp_servers` YAML field.
 
-The local catalogue is a convenience list of locally launched utilities, not a
-directory of third-party hosted services.
+The local catalogue lists locally launched utilities. PrAImate also supplies
+its internal skills integration: native chats use core skill tools, while
+compatible external adapters receive the embedded skills MCP integration.
 
 ## Local LLM routing
 
@@ -217,6 +226,7 @@ LocalAI, and similar OpenAI-compatible endpoints.
 
 PrAImate can configure:
 
+- PrAImate CLI directly through core-owned model routing and tools;
 - OpenClaude through per-launch OpenAI-compatible environment variables;
 - OpenCode/PrAImate Code through their provider configuration plus
   environment-based secrets.
@@ -267,9 +277,11 @@ is ordinary workspace content staged into the chat sandbox and synchronized
 back after a session. It is intentionally separate from the removed cross-chat
 memory feature.
 
-The underlying CLI owns communication and native resume. PrAImate records the
-session metadata needed by its GUI and, for legacy workspace chats, can mirror
-the relevant native session slice into the chat folder for portability.
+External CLIs own their provider communication and native resume. PrAImate CLI
+uses encrypted core sessions shared with Desktop and Studio. Worker chats save
+profiles, activity and bounded prior results in the same core database. Legacy
+workspace chats can mirror relevant external CLI session slices into their
+chat folder for portability.
 
 ## Git backup
 
@@ -289,7 +301,7 @@ The database backup consists of:
 - `.praimate-state/db.sqlite` — encrypted snapshot;
 - `.praimate-state/db.sqlite.key` — password-protected key envelope.
 
-A second Windows or Linux installation can import it when opened with the same
+A second installation can import it when opened with the same
 database password. Workspace files, transcripts, native session slices, and
 per-chat `MEMORY.md` files are normal Git objects, not encrypted vault content.
 
@@ -320,8 +332,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the supported release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.2
-scripts/build.sh --version=1.2.2 --with-code --with-graphify
+scripts/build.sh --version=1.2.13
+scripts/build.sh --version=1.2.13 --with-code --with-graphify
 ```
 
 Build PrAImate Code from the vendored OpenCode source:
@@ -340,7 +352,8 @@ asset matrix and checksum process.
 | Document | Scope |
 |---|---|
 | [Full guide](docs/GUIDE.md) | Installation, every GUI page, storage, privacy, agents, skills, MCP, local LLMs, sessions, backup, and deletion. |
-| [Skills test guide](docs/SKILLS_TEST_GUIDE.md) | Numbered end-to-end checks for the shared library, reviewed agent packs, Chat, Studio, workflows, Terminal, budgets, portability and rollback. |
+| [PrAImate CLI](docs/native-cli.md) | Terminal commands, local model context, tools, skills, sessions and attachments. |
+| [Workers](docs/WORKERS.md) | Three-tier profiles, delegation, saved runs, execution limits and verification boundaries. |
 | [Agent creation manual](docs/AGENT_GUIDE.md) | Create, configure, test, package, and share agents; complete `praimate.agent/v1` YAML reference. |
 | [Workpath quickstart](docs/QUICKSTART.md) | Create and compile a workpath with `wpc`. |
 | [Workpath schema](docs/SCHEMA.md) | Source files, imports, hooks, tools, and subagents. |

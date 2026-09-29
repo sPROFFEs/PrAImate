@@ -144,9 +144,12 @@ shared.
 | `codex` | Codex CLI |
 | `opencode` | OpenCode |
 | `praimate-code` | PrAImate Code |
+| `praimate-cli` | Native core provider / terminal frontend |
 
 The selected CLI must also be installed and authenticated on the computer
-running the agent. A declaration in `supports` does not install a CLI.
+running the agent. A declaration in `supports` does not install an external
+CLI. `praimate-cli` runs in-process in Desktop and Studio; standalone terminal
+use requires its bundled executable and a configured model endpoint.
 
 `surfaces` may contain:
 

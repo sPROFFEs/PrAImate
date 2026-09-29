@@ -17,7 +17,8 @@ import (
 
 const (
 	maxWorkerOutputBytes = 64 << 10
-	maxWorkerSteps       = 6
+	maxWorkerSteps       = 16
+	maxRunWorkerRequests = 64
 )
 
 type Event struct {
@@ -87,7 +88,8 @@ func (r Runner) Run(ctx context.Context, config Config, task string) (string, er
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	return r.runTier(ctx, config, Primary, task)
+	remaining := maxRunWorkerRequests
+	return r.runTier(ctx, config, Primary, task, &remaining)
 }
 
 type decision struct {
@@ -108,7 +110,16 @@ func allowedChild(parent, child Tier) bool {
 
 func parseDecision(raw string) (decision, error) {
 	var d decision
-	decoder := json.NewDecoder(strings.NewReader(strings.TrimSpace(raw)))
+	raw = strings.TrimSpace(raw)
+	// A single fenced object is a common formatting choice by CLI models.
+	// Still reject prose, multiple objects and unknown fields before any action.
+	if strings.HasPrefix(raw, "```json\n") || strings.HasPrefix(raw, "```\n") {
+		if strings.HasSuffix(raw, "\n```") {
+			_, raw, _ = strings.Cut(raw, "\n")
+			raw = strings.TrimSuffix(raw, "\n```")
+		}
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&d); err != nil {
 		return d, fmt.Errorf("worker response must be one JSON object: %w", err)
@@ -367,7 +378,7 @@ func workerInputWithEvidence(task string, observations []string, budget int) str
 	return input
 }
 
-func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task string) (string, error) {
+func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task string, remaining *int) (string, error) {
 	profile, _ := config.Profile(tier)
 	worker, err := r.Resolve(profile)
 	if err != nil {
@@ -385,6 +396,7 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 	defer tools.Close()
 	input := task
 	var observations []string
+	consecutiveFailures := 0
 	appendObservation := func(value string) {
 		observations = append(observations, value)
 		input = workerInputWithEvidence(task, observations, profile.MaxInputBytes-len(instructions)-64)
@@ -393,9 +405,13 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
+		if *remaining <= 0 {
+			return "", errors.New("worker run exhausted its budget of 64 worker requests; inspect activity before continuing")
+		}
+		*remaining--
 		r.emit(tier, "request", input, workerruntime.Usage{})
 		result, err := worker.Execute(ctx, workerruntime.Request{
-			Model: profile.Model, SystemPrompt: instructions, Task: input, WorkspaceRoot: config.Workspace,
+			Model: profile.Model, SystemPrompt: instructions + fmt.Sprintf("\nTurns left: %d (run: %d). Finish before this limit.", maxWorkerSteps-step, *remaining+1), Task: input, WorkspaceRoot: config.Workspace,
 			Limits:   workerruntime.Limits{MaxInputBytes: profile.MaxInputBytes, MaxOutputTokens: profile.MaxOutputTokens, Timeout: profile.Timeout()},
 			Progress: func(event workerruntime.ProgressEvent) { r.emit(tier, event.Kind, event.Text, workerruntime.Usage{}) },
 		})
@@ -409,7 +425,13 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 		r.emit(tier, "response", result.Content, result.Usage)
 		d, err := parseDecision(result.Content)
 		if err != nil {
-			return "", err
+			consecutiveFailures++
+			if consecutiveFailures >= 2 {
+				return "", fmt.Errorf("%s worker could not follow the action protocol: %w", tier, err)
+			}
+			r.emit(tier, "error", err.Error(), workerruntime.Usage{})
+			appendObservation("Invalid response; no host action was executed. " + err.Error() + ". Return exactly one JSON action object. Do not repeat any CLI tool side effects.")
+			continue
 		}
 		if d.Action == "final" {
 			return d.Content, nil
@@ -418,8 +440,14 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 			content, err := tools.Execute(ctx, d.Tool, d.Args)
 			if err != nil {
 				r.emit(tier, "error", err.Error(), workerruntime.Usage{})
+				consecutiveFailures++
+				if ctx.Err() == nil && consecutiveFailures < 2 && (d.Tool == "project.read" || d.Tool == "project.search" || d.Tool == "project.list") {
+					appendObservation("Tool " + d.Tool + " failed: " + err.Error() + ". Correct the path or arguments; do not claim success.")
+					continue
+				}
 				return "", err
 			}
+			consecutiveFailures = 0
 			r.emit(tier, "tool", d.Tool+": "+content, workerruntime.Usage{})
 			appendObservation("Tool " + d.Tool + " result:\n" + content)
 			continue
@@ -433,8 +461,14 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 			}
 			if err != nil {
 				r.emit(tier, "error", err.Error(), workerruntime.Usage{})
-				return "", err
+				consecutiveFailures++
+				if ctx.Err() != nil || consecutiveFailures >= 2 {
+					return "", err
+				}
+				appendObservation("Read failed for " + d.Path + ": " + err.Error() + ". Correct the path; do not claim success.")
+				continue
 			}
+			consecutiveFailures = 0
 			r.emit(tier, d.Action, d.Path, workerruntime.Usage{})
 			appendObservation("Result for " + d.Path + ":\n" + content)
 			continue
@@ -448,6 +482,7 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 				return "", err
 			}
 			r.emit(tier, "edited", d.Path, workerruntime.Usage{})
+			consecutiveFailures = 0
 			appendObservation("Exact replacement applied to " + d.Path)
 			continue
 		}
@@ -455,10 +490,17 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 			return "", fmt.Errorf("%s cannot delegate to %s", tier, d.Tier)
 		}
 		r.emit(tier, "delegation", string(d.Tier)+": "+d.Task, workerruntime.Usage{})
-		childResult, err := r.runTier(ctx, config, d.Tier, d.Task)
+		childResult, err := r.runTier(ctx, config, d.Tier, d.Task, remaining)
 		if err != nil {
-			return "", err
+			consecutiveFailures++
+			if ctx.Err() != nil || consecutiveFailures >= 2 || *remaining <= 0 {
+				return "", err
+			}
+			r.emit(tier, "delegated_error", string(d.Tier)+": "+err.Error(), workerruntime.Usage{})
+			appendObservation("Delegated " + string(d.Tier) + " task failed: " + err.Error() + ". It may have performed tools before failure. Inspect recorded activity/state before repeating effects; report the failure or revise the task.")
+			continue
 		}
+		consecutiveFailures = 0
 		if len(childResult) > 16<<10 {
 			return "", errors.New("delegated result exceeds reinjection limit")
 		}

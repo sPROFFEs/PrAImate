@@ -70,6 +70,105 @@ func TestNestedDelegationAndContextIsolation(t *testing.T) {
 	}
 }
 
+func TestWorkerRecoversFromProtocolAndReadErrors(t *testing.T) {
+	for _, first := range []string{"I should inspect the file first.", `{"action":"tool","tool":"project.read","arguments":{"path":"missing.go"}}`} {
+		worker := &fakeWorker{responses: []string{first, "```json\n{\"action\":\"final\",\"content\":\"reported accurately\"}\n```"}}
+		runner := Runner{Resolve: func(Profile) (workerruntime.Runtime, error) { return worker, nil }}
+		result, err := runner.Run(context.Background(), testConfig(t), "inspect task")
+		if err != nil || result != "reported accurately" || len(worker.requests) != 2 {
+			t.Fatalf("result=%s err=%v", result, err)
+		}
+		if !strings.Contains(worker.requests[1].Task, "Invalid response") && !strings.Contains(worker.requests[1].Task, "failed") {
+			t.Fatal("worker did not receive failure evidence")
+		}
+	}
+}
+
+func TestWorkerChildFailureReturnsToParent(t *testing.T) {
+	workers := map[Tier]*fakeWorker{
+		Primary: {responses: []string{`{"action":"delegate","tier":"fast","task":"inspect task"}`, `{"action":"final","content":"child failed; no success claimed"}`}},
+		Fast:    {responses: []string{"malformed", "still malformed"}},
+	}
+	runner := Runner{Resolve: func(p Profile) (workerruntime.Runtime, error) { return workers[p.Tier], nil }}
+	result, err := runner.Run(context.Background(), testConfig(t), "task")
+	if err != nil || !strings.Contains(result, "child failed") {
+		t.Fatalf("result=%s err=%v", result, err)
+	}
+	if !strings.Contains(workers[Primary].requests[1].Task, "task failed") {
+		t.Fatal("parent lost child failure")
+	}
+}
+
+func TestWorkerTaskCanCompleteAfterSixActions(t *testing.T) {
+	worker := &fakeWorker{}
+	for range 7 {
+		worker.responses = append(worker.responses, `{"action":"list","path":"."}`)
+	}
+	worker.responses = append(worker.responses, `{"action":"final","content":"finished"}`)
+	runner := Runner{Resolve: func(Profile) (workerruntime.Runtime, error) { return worker, nil }}
+	if result, err := runner.Run(context.Background(), testConfig(t), "inspect"); err != nil || result != "finished" {
+		t.Fatalf("result=%s err=%v", result, err)
+	}
+}
+
+func TestWorkerResumeEnforcesConcurrencyLimit(t *testing.T) {
+	m := &Manager{runs: map[string]*Run{}}
+	for _, id := range []string{"a", "b", "c"} {
+		m.runs[id] = &Run{Status: "running", cancel: func() {}}
+	}
+	m.runs["saved"] = &Run{Status: "completed"}
+	if err := m.Continue("saved", "continue"); err == nil || !strings.Contains(err.Error(), "three") {
+		t.Fatalf("resume bypassed concurrency limit: %v", err)
+	}
+}
+
+func TestNestedWorkersApplyAndVerifyChange(t *testing.T) {
+	config := testConfig(t)
+	config.Profiles[2].AllowEdits = true
+	path := filepath.Join(config.Workspace, "main.go")
+	if err := os.WriteFile(path, []byte("package old\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	workers := map[Tier]*fakeWorker{
+		Primary: {responses: []string{`{"action":"delegate","tier":"middle","task":"fix and verify main.go"}`, `{"action":"final","content":"integrated verified change"}`}},
+		Middle:  {responses: []string{`{"action":"delegate","tier":"fast","task":"replace package old with package fixed in main.go"}`, `{"action":"inspect","path":"main.go"}`, `{"action":"final","content":"verified main.go contains package fixed"}`}},
+		Fast:    {responses: []string{`{"action":"replace","path":"main.go","oldText":"package old","newText":"package fixed"}`, `{"action":"final","content":"edited main.go"}`}},
+	}
+	runner := Runner{Resolve: func(p Profile) (workerruntime.Runtime, error) { return workers[p.Tier], nil }}
+	result, err := runner.Run(context.Background(), config, "coordinate a fix")
+	if err != nil || result != "integrated verified change" {
+		t.Fatalf("result=%s err=%v", result, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "package fixed\n" {
+		t.Fatalf("data=%q err=%v", data, err)
+	}
+	if !strings.Contains(workers[Middle].requests[2].Task, "package fixed") || !strings.Contains(workers[Primary].requests[1].Task, "verified main.go") {
+		t.Fatal("verification evidence did not reach parent")
+	}
+}
+
+func TestWorkerRunSharesRequestBudgetAcrossDelegations(t *testing.T) {
+	primary, fast := &fakeWorker{}, &fakeWorker{}
+	for range 16 {
+		primary.responses = append(primary.responses, `{"action":"delegate","tier":"fast","task":"inspect"}`)
+		for range 15 {
+			fast.responses = append(fast.responses, `{"action":"list","path":"."}`)
+		}
+		fast.responses = append(fast.responses, `{"action":"final","content":"inspected"}`)
+	}
+	runner := Runner{Resolve: func(p Profile) (workerruntime.Runtime, error) {
+		if p.Tier == Primary {
+			return primary, nil
+		}
+		return fast, nil
+	}}
+	_, err := runner.Run(context.Background(), testConfig(t), "inspect")
+	if err == nil || !strings.Contains(err.Error(), "64 worker requests") || len(primary.requests)+len(fast.requests) != 64 {
+		t.Fatalf("shared budget not enforced: primary=%d fast=%d err=%v", len(primary.requests), len(fast.requests), err)
+	}
+}
+
 func TestSameCLIProfilesKeepIndependentModels(t *testing.T) {
 	config := testConfig(t)
 	for i := range config.Profiles {

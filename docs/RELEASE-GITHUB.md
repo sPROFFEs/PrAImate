@@ -1,132 +1,114 @@
 # Releasing PrAImate on GitHub
 
-PrAImate 1.1 and later is a GUI-only desktop application for Linux and
-Windows. macOS and GUI-less archives are not release targets.
+PrAImate release bundles contain the Desktop GUI, `praimate` bootstrap,
+`praimate-cli` terminal frontend, `wpc`, samples and documentation. The build
+script refuses archives without the GUI.
 
-The installer and updater resolve the latest published release from
-`sPROFFEs/praimate`, so version strings, the Git tag, and asset names must
-agree exactly.
+## Version and automated release
 
-## 1. Version
-
-Update all three defaults:
+Keep these defaults aligned:
 
 - `internal/version/version.go`
 - `scripts/build.sh`
 - `scripts/build.ps1`
 
-## 2. Platform bundles
+The [release workflow](https://github.com/sPROFFEs/PrAImate/blob/main/.github/workflows/release.yml) runs on a pushed `v*`
+tag or manual dispatch. It builds Linux amd64, Windows amd64/arm64 and macOS
+Apple Silicon on separate native runners, merges their artifacts, generates
+`SHA256SUMS`, and creates or updates the matching GitHub release. A push to
+`main` alone does not publish a release.
+
+For example, after reviewing and committing the version and source changes:
+
+```bash
+git tag -a v1.2.13 -m "PrAImate 1.2.13"
+git push origin main
+git push origin v1.2.13
+```
+
+Tags use a `v` prefix in this workflow; the stamped application version does
+not. For manual dispatch, enter the unprefixed version and choose whether the
+release should be a draft or prerelease. Publication remains an explicit step.
+
+## Local builds
+
+Install Go compatible with `go.mod`, Node/npm and archive tools. Linux GUI
+builds also require GTK 3, WebKitGTK 4.1 and pkg-config. macOS builds require the
+native Apple toolchain. Bun builds PrAImate Code; uv and Python build Graphify.
 
 On Linux amd64:
 
 ```bash
-rm -rf dist
 PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH" \
-  bash scripts/build.sh --version=1.2.2 --with-code --with-graphify
+  bash scripts/build.sh --version=1.2.13 --with-code --with-graphify
 ```
 
-This produces the native Linux amd64 GUI bundle and cross-compiled Windows
-amd64/arm64 GUI bundles. A Linux arm64 GUI bundle must be built on a native
-Linux arm64 host; the build refuses to publish a GUI-less archive.
-
-On Windows, `scripts/build.ps1` builds the Windows amd64 and arm64 GUI bundles.
-
-## 3. Managed PrAImate Code assets
-
-Build the supported standalone binaries explicitly. Baseline builds are
-required for amd64 systems without AVX2:
+This builds Linux amd64 and cross-compiles the Windows GUI bundles. Optional
+PrAImate Code and Graphify builds run only for the native host target; Windows
+GUI cross-compilation does not produce those standalone Windows tools. Build
+Linux arm64 bundles on a native arm64 host. Build macOS Apple Silicon on a Mac:
 
 ```bash
-for target in linux-amd64 linux-arm64 windows-amd64 windows-arm64; do
-  PRAIMATE_CODE_TARGET="$target" OUT="dist/$target" \
-    bash scripts/build-praimate-code.sh
-done
-
-for target in linux-amd64 windows-amd64; do
-  PRAIMATE_CODE_TARGET="$target" BASELINE=1 OUT="dist/$target" \
-    bash scripts/build-praimate-code.sh
-done
-
-cp dist/linux-amd64/praimate-code dist/praimate-code-linux-amd64
-cp dist/linux-amd64/praimate-code-baseline dist/praimate-code-linux-amd64-baseline
-cp dist/linux-arm64/praimate-code dist/praimate-code-linux-arm64
-cp dist/windows-amd64/praimate-code.exe dist/praimate-code-windows-amd64.exe
-cp dist/windows-amd64/praimate-code-baseline.exe dist/praimate-code-windows-amd64-baseline.exe
-cp dist/windows-arm64/praimate-code.exe dist/praimate-code-windows-arm64.exe
+bash scripts/build.sh darwin-arm64 --version=1.2.13 --with-code --with-graphify
 ```
 
-Graphify is published as a native Linux amd64 binary. Other platforms use
-the pinned `uv` installation fallback:
+On Windows, `scripts/build.ps1 -Version 1.2.13` builds the Windows GUI bundles.
+The automated workflow uses Bash and builds optional tools on native runners.
+Review the actual output: missing Bun or uv can skip optional assets, and an
+arm64 target on an amd64 Windows runner cannot build native Graphify.
+
+PrAImate Code can also build explicit targets:
 
 ```bash
-OUT=dist/linux-amd64 bash scripts/build-graphify.sh
-cp dist/linux-amd64/praimate-graphify dist/praimate-graphify-linux-amd64
+PRAIMATE_CODE_TARGET=windows-amd64 OUT=dist/windows-amd64 \
+  bash scripts/build-praimate-code.sh
+PRAIMATE_CODE_TARGET=windows-amd64 BASELINE=1 OUT=dist/windows-amd64 \
+  bash scripts/build-praimate-code.sh
 ```
 
-## 4. Checksums
+Supported targets are `linux-amd64`, `linux-arm64`, `windows-amd64`,
+`windows-arm64` and `darwin-arm64`. amd64 releases should include the baseline
+variant for CPUs without AVX2. Graphify is built natively by
+`scripts/build-graphify.sh`; platforms without a matching asset use the managed
+installer's uv fallback.
 
-Create one sidecar per uploaded asset plus the aggregate manifest:
+## Assets and verification
 
-```bash
-cd dist
-rm -f SHA256SUMS *.sha256
-for file in \
-  praimate-linux-amd64.tar.gz \
-  praimate-windows-amd64.zip \
-  praimate-windows-arm64.zip \
-  praimate-code-linux-amd64 \
-  praimate-code-linux-amd64-baseline \
-  praimate-code-linux-arm64 \
-  praimate-code-windows-amd64.exe \
-  praimate-code-windows-amd64-baseline.exe \
-  praimate-code-windows-arm64.exe \
-  praimate-graphify-linux-amd64
-do
-  sha256sum "$file" | tee "$file.sha256" >> SHA256SUMS
-done
-```
-
-## 5. Publish
-
-Create a published release, not a draft or prerelease:
-
-```bash
-git tag -a 1.2.2 -m "PrAImate 1.2.2"
-git push origin main
-git push origin 1.2.2
-
-gh release create 1.2.2 \
-  --repo sPROFFEs/praimate \
-  --target main \
-  --title "PrAImate 1.2.2" \
-  --notes-file RELEASE_NOTES.md
-
-gh release upload 1.2.2 --clobber \
-  dist/praimate-linux-amd64.tar.gz \
-  dist/praimate-windows-amd64.zip \
-  dist/praimate-windows-arm64.zip \
-  dist/praimate-code-linux-amd64 \
-  dist/praimate-code-linux-amd64-baseline \
-  dist/praimate-code-linux-arm64 \
-  dist/praimate-code-windows-amd64.exe \
-  dist/praimate-code-windows-amd64-baseline.exe \
-  dist/praimate-code-windows-arm64.exe \
-  dist/praimate-graphify-linux-amd64 \
-  dist/*.sha256 \
-  dist/SHA256SUMS
-```
-
-## Required asset names
-
-| Asset | Consumer |
+| Asset | Purpose |
 |---|---|
 | `praimate-linux-amd64.tar.gz` | Linux installer and updater |
 | `praimate-windows-{amd64,arm64}.zip` | Windows installer and updater |
+| `praimate-darwin-arm64.tar.gz` | macOS Apple Silicon installer and updater |
+| `praimate-cli-<os>-<arch>[.exe]` | Standalone native terminal frontend |
 | `praimate-code-<os>-<arch>[.exe]` | Managed PrAImate Code installer |
-| `praimate-code-<os>-amd64-baseline[.exe]` | Managed installer on non-AVX2 amd64 hosts |
-| `praimate-graphify-linux-amd64` | Managed Graphify/RAG installer |
-| `*.sha256`, `SHA256SUMS` | Release verification |
+| `praimate-code-<os>-amd64-baseline[.exe]` | PrAImate Code on amd64 CPUs without AVX2 |
+| `praimate-graphify-<os>-<arch>[.exe]` | Native Graphify, where built |
+| `SHA256SUMS` | Hash manifest generated by the workflow |
 
-After publishing, verify `praimate -check-update` reports the installed
-`1.2.2` build as current and that the GitHub release is neither draft nor
-prerelease.
+Verify GUI bundles contain `praimate-gui`, `praimate`, `praimate-cli` and `wpc`
+(with `.exe` on Windows), and that Windows archives use forward-slash ZIP paths.
+Inspect optional standalone assets rather than assuming every runner produced
+them. Perform native runtime checks; cross-compilation only verifies compilation.
+
+For a manual upload, copy only the reviewed release assets into a clean staging
+directory and generate checksums there, avoiding existing checksum files:
+
+```bash
+cd release-staging
+for file in praimate-*; do
+  case "$file" in *.sha256) continue ;; esac
+  test -f "$file" || continue
+  sha256sum "$file"
+done > SHA256SUMS
+sha256sum -c SHA256SUMS
+```
+
+Optional per-asset `.sha256` sidecars can accompany the manifest. Upload the
+reviewed files with `gh release upload TAG ...`; use `--clobber` only when
+replacing existing assets is intentional. When replacing artifacts on an
+existing release, preserve its tag and version, update the checksums, and record
+the source commit in the release notes so the rebuilt binaries are traceable.
+
+After publication, inspect the release's assets and draft/prerelease status and
+check the installer/updater against the intended tag. Stable distribution
+requires a published release with the expected asset names.

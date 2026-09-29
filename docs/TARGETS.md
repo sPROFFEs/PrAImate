@@ -97,9 +97,9 @@ different user-level paths.
 
 ### Limitations
 
-- Neither host has a native subagent primitive. Subagents are listed
-  in `AGENTS.md` as personas the model can adopt and the prompt files
-  are referenced by path so the model can read them on demand.
+- This compiler format lists subagent prompt files in `AGENTS.md`; it does
+  not register native subagent processes. Whether the host can delegate
+  execution depends on that host. PrAImate Workers uses its own coordinator.
 - `AGENTS.md` will be overwritten on re-compile. If you have a
   hand-authored `AGENTS.md`, compile to a scratch dir
   (`--out /tmp/x`) and merge manually, or use the `generic` target

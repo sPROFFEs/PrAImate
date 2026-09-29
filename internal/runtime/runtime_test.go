@@ -141,6 +141,10 @@ func TestOpenCodeWorkersKeepCLISafeWhileUsingHostTools(t *testing.T) {
 func TestPraimateCLIWorkerResolvesModelThroughCore(t *testing.T) {
 	t.Setenv("PRAIMATE_HOME", t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
 		var payload struct {
 			Model string `json:"model"`
 		}

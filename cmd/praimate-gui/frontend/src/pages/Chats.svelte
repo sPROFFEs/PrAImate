@@ -751,8 +751,8 @@
       {/if}
     {/if}
     {#if cfg.cli === 'praimate-cli'}
-      <div class="card-sub" style="margin-top:12px">Native context budget for this chat. Enter 0 to inherit the selected host; without a host hint, the defaults are 8192 context and 1024 output tokens.</div>
-      {#if cfg.contextStatus}<div class="card-sub">Effective: {cfg.contextStatus.window_tokens} context · {cfg.contextStatus.input_limit_tokens} available input · {cfg.contextStatus.output_reserve_tokens} reserved output</div>{/if}
+      <div class="card-sub" style="margin-top:12px">Native context budget for this chat. Enter 0 to use host settings or detect the loaded server context. If detection is unavailable, the context falls back to 8192 tokens. Output reserve is chosen automatically.</div>
+      {#if cfg.contextStatus}<div class="card-sub">Effective: {cfg.contextStatus.window_tokens} context · {cfg.contextStatus.input_limit_tokens} available input · {cfg.contextStatus.output_reserve_tokens} reserved output · {cfg.contextStatus.source || 'configured'}</div>{/if}
       <div class="row" style="gap:10px; flex-wrap:wrap">
         <label class="lbl">Context window tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={cfg.contextTokens} /></label>
         <label class="lbl">Output reserve tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={cfg.outputTokens} /></label>
@@ -1063,7 +1063,7 @@
           {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
         {/if}
         {#if newCli === 'praimate-cli'}
-          <div class="card-sub" style="margin-top:12px">Native context budget. Enter 0 to inherit the selected host; without a host hint, the defaults are 8192 context and 1024 output tokens.</div>
+          <div class="card-sub" style="margin-top:12px">Native context budget. Enter 0 to use host settings or detect the loaded server context. If detection is unavailable, the context falls back to 8192 tokens. Output reserve is chosen automatically.</div>
           <div class="row" style="gap:10px; flex-wrap:wrap">
             <label class="lbl">Context window tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={newContextTokens} /></label>
             <label class="lbl">Output reserve tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={newOutputTokens} /></label>

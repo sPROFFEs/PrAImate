@@ -136,6 +136,55 @@ func TestNativeContextBudgetPreventsOversizedRequest(t *testing.T) {
 	}
 }
 
+func TestNativeCalibratedBudgetPreventsOversizedFollowup(t *testing.T) {
+	c := nativeTestCore(t)
+	run := nativeTestRun(c)
+	run.modelOnly = true
+	requests := 0
+	a := &nativeCLIAdapter{http: &http.Client{Transport: nativeTransport(func(*http.Request) (*http.Response, error) {
+		requests++
+		return nativeHTTP(nativeUsageSSE("ok", 6000, 10)), nil
+	})}}
+	ctx := withNativeExecution(context.Background(), run)
+	root := t.TempDir()
+	first, err := a.SingleShot(ctx, SingleShotOpts{Cwd: root, Message: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.Resume(ctx, first.SessionID, ResumeOpts{Cwd: root, Message: strings.Repeat("requirement ", 100)})
+	if err == nil || !strings.Contains(err.Error(), "context") || requests != 1 {
+		t.Fatalf("calibrated budget ignored: requests=%d error=%v", requests, err)
+	}
+}
+
+func TestNativeOutputLimitKeepsPartialAnswerWithoutExecutingCalls(t *testing.T) {
+	c := nativeTestCore(t)
+	run := nativeTestRun(c)
+	a := &nativeCLIAdapter{http: &http.Client{Transport: nativeTransport(func(*http.Request) (*http.Response, error) {
+		return nativeHTTP(nativeSSE("partial answer", "length", nativeCall("unfinished", "write_file", `{"path":"never.txt","content":"must not run"}`))), nil
+	})}}
+	root := t.TempDir()
+	reply, err := a.SingleShot(withNativeExecution(context.Background(), run), SingleShotOpts{Cwd: root, Message: "work", Tools: "edits"})
+	if err == nil || !strings.Contains(err.Error(), "output token limit") {
+		t.Fatalf("missing truncation error: %v", err)
+	}
+	raw, err := c.GetSetting(context.Background(), ScopeCLI, "native.session."+reply.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved nativeSession
+	if err := json.Unmarshal(raw, &saved); err != nil {
+		t.Fatal(err)
+	}
+	last := saved.Messages[len(saved.Messages)-1]
+	if last.Role != "assistant" || !strings.Contains(last.Content, "partial answer") || !strings.Contains(last.Content, "Incomplete answer") || len(last.ToolCalls) != 0 {
+		t.Fatalf("partial response not retained safely: %+v", last)
+	}
+	if _, err := os.Stat(filepath.Join(root, "never.txt")); !os.IsNotExist(err) {
+		t.Fatal("executed tool from truncated output")
+	}
+}
+
 func TestNativeChatLimitsCanBeRaisedWithoutChangingOtherChats(t *testing.T) {
 	c := nativeTestCore(t)
 	ctx := context.Background()

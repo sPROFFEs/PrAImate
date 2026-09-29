@@ -19,7 +19,8 @@ var errInputCanceled = errors.New("input cancelled")
 
 const interactiveHelp = `Commands:
   /help                 Show this help
-  /status, /context     Session settings / context budget and last usage
+  /status              Session settings
+  /context [auto|N [M]] Context usage; auto-detect or set window N / output M
   /models, /model [ID]  List assigned models / choose one (HOST_ID::MODEL selects a host)
   /tools [LEVEL]        Choose safe | ask | edits | full
   /attach PATH          Queue one file (spaces and quoted paths supported)
@@ -74,6 +75,8 @@ func completeInteractive(line string, pos int, key rune, models, attachments []s
 	name, prefix, _ := strings.Cut(line, " ")
 	var choices []string
 	switch name {
+	case "/context":
+		choices = []string{"auto"}
 	case "/tools":
 		choices = []string{"safe", "ask", "edits", "full"}
 	case "/model":

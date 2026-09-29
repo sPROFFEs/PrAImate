@@ -13,7 +13,7 @@ cd "$(dirname "$0")"
 # the binary compiles but panics at startup ("Wails applications will
 # not build without the correct build tags"). On Linux we also select
 # the modern webkit (webkit2gtk-4.1) via webkit2_41; Windows ignores
-# that tag. macOS is intentionally unsupported.
+# that tag. macOS uses the native Apple frameworks.
 TAGS="desktop,production"
 case "$(uname -s)" in
   Linux) TAGS="$TAGS,webkit2_41" ;;

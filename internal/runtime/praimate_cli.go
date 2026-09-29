@@ -34,6 +34,11 @@ func (ConfiguredNative) Capabilities() Capabilities {
 }
 
 func (p ConfiguredNative) Execute(ctx context.Context, req Request) (*Result, error) {
+	if err := validate(req); err != nil {
+		return nil, err
+	}
+	ctx, cancel := boundedContext(ctx, req.Limits.Timeout)
+	defer cancel()
 	if p.Core == nil {
 		return nil, errors.New("configured native worker requires the PrAImate Core")
 	}

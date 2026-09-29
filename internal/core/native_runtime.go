@@ -338,12 +338,12 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 		if err != nil {
 			return reply, err
 		}
-		budget := int(float64(s.Context.InputLimit)) - schemaTokens - nativeTextTokens(payload)
+		budget := int(float64(s.Context.InputLimit)/s.Context.Calibration) - schemaTokens - nativeTextTokens(payload)
 		if contextRetried && retryBudget > 0 {
 			budget = min(budget, retryBudget)
 		}
 		if budget < 256 {
-			budget = 256
+			return reply, errors.New("context window is too small for output, safety, skills and tool schemas; increase the host context window or reduce tools/skills")
 		}
 		messages, changed, err := compactNativeContext(s.Messages, budget, func(messages []nativeMessage) int {
 			// Token windows do not bound transport/storage bytes for images.
@@ -372,7 +372,7 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 		baseTokens := nativeMessageTokens(wire) + schemaTokens
 		s.Context.EstimatedInput = int(math.Ceil(float64(baseTokens) * s.Context.Calibration))
 		if s.Context.EstimatedInput > s.Context.InputLimit {
-			s.Context.EstimatedInput = s.Context.InputLimit
+			return reply, fmt.Errorf("context budget exceeded after preparing skills (%d/%d input tokens; window: %d); reduce attached context or adjust /context or Chat settings", s.Context.EstimatedInput, s.Context.InputLimit, s.Context.Window)
 		}
 		if err := run.core.saveNativeSession(ctx, s); err != nil {
 			return reply, err
@@ -396,6 +396,21 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 			emit(e)
 		})
 		if err != nil {
+			if errors.Is(err, errNativeOutputLimit) {
+				// Preserve a visible partial answer for follow-up without accepting
+				// incomplete tool calls or pretending the request succeeded.
+				s.Context.observe(message.Usage, baseTokens)
+				if message.Usage != nil {
+					emit(nativeContextEvent("usage", s.Context))
+				}
+				if message.Content != "" {
+					s.Messages = append(s.Messages, nativeMessage{Role: "assistant", Content: message.Content + "\n[Incomplete answer: output token limit reached.]"})
+				}
+				if saveErr := run.core.saveNativeSession(ctx, s); saveErr != nil {
+					return reply, saveErr
+				}
+				return reply, err
+			}
 			var rejected *nativeHTTPError
 			if !contextRetried && errors.As(err, &rejected) && (rejected.status == 400 || rejected.status == 413 || rejected.status == 422) && isContextLengthExceeded(err, "") {
 				// This is a rejected HTTP request, not a partial stream. Retry
@@ -579,27 +594,6 @@ func compactNativeContext(input []nativeMessage, budget int, measure func([]nati
 			}
 		}
 
-		// When only system and current user message remain and still exceed budget,
-		// gracefully trim oversized system or user prompt instead of crashing the turn.
-		if len(messages) >= 2 && messages[1].Role == "user" && len(messages[1].Content) > 2000 {
-			userContent := messages[1].Content
-			targetChars := max(1000, (budget-reserve)*2)
-			half := targetChars / 2
-			if len(userContent) > targetChars && half > 200 {
-				head := strings.ToValidUTF8(userContent[:half], "")
-				tail := strings.ToValidUTF8(userContent[len(userContent)-half:], "")
-				messages[1].Content = head + "\n\n[... content truncated to fit model context window ...]\n\n" + tail
-				changed = true
-				continue
-			}
-		}
-		if len(messages) >= 1 && messages[0].Role == "system" && len(messages[0].Content) > 8000 {
-			sysContent := messages[0].Content
-			messages[0].Content = strings.ToValidUTF8(sysContent[:4000], "") + "\n\n[... system context truncated ...]\n\n" + strings.ToValidUTF8(sysContent[len(sysContent)-2000:], "")
-			changed = true
-			continue
-		}
-
 		return nil, changed, errors.New("context budget exceeded by system instructions or current request; shorten input or raise the configured context window")
 	}
 	if changed && excerpts != "" {
@@ -611,18 +605,7 @@ func compactNativeContext(input []nativeMessage, budget int, measure func([]nati
 		}
 	}
 	if size() > budget {
-		// If still slightly over budget, gracefully trim trailing excerpt to fit
-		if len(messages) > 1 && messages[1].Role == "user" && len(messages[1].Content) > 1000 {
-			userContent := messages[1].Content
-			target := max(500, len(userContent)-(size()-budget)*3)
-			if target < len(userContent) {
-				messages[1].Content = strings.ToValidUTF8(userContent[:target/2], "") + "\n\n[... content truncated to fit context ...]\n\n" + strings.ToValidUTF8(userContent[len(userContent)-target/2:], "")
-				changed = true
-			}
-		}
-		if size() > budget {
-			return nil, changed, errors.New("context budget too small for the current request and compaction receipt")
-		}
+		return nil, changed, errors.New("context budget too small for the current request and compaction receipt")
 	}
 	return messages, changed, nil
 }

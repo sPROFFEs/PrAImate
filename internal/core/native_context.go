@@ -18,6 +18,7 @@ type NativeUsage struct {
 
 type NativeContextStatus struct {
 	Model          string       `json:"model"`
+	Source         string       `json:"source,omitempty"`
 	Window         int          `json:"window_tokens"`
 	OutputReserve  int          `json:"output_reserve_tokens"`
 	SafetyReserve  int          `json:"safety_reserve_tokens"`
@@ -77,6 +78,7 @@ func nativeContextBudget(route ChatLocalEndpoint, previous NativeContextStatus) 
 		previous = NativeContextStatus{Model: route.Model}
 	}
 	previous.Window, previous.OutputReserve = route.ContextTokens, route.OutputTokens
+	previous.Source = route.ContextSource
 	previous.SafetyReserve = max(256, route.ContextTokens/20)
 	previous.InputLimit = previous.Window - previous.OutputReserve - previous.SafetyReserve
 	if previous.Calibration < 1 || math.IsNaN(previous.Calibration) || math.IsInf(previous.Calibration, 0) {

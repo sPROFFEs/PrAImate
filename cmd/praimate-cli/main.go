@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -58,8 +59,8 @@ func run(ctx context.Context, args []string) error {
 	fs.StringVar(&o.inputs, "inputs", "{}", "Workflow inputs as a JSON object")
 	fs.Var(&o.attachments, "attach", "Attach a file to the next chat message (repeatable; images need a vision model)")
 	fs.BoolVar(&o.showReasoning, "show-reasoning", false, "Display streamed model reasoning in text mode")
-	fs.IntVar(&o.contextTokens, "context-tokens", 0, "Model context window (core default: 8192)")
-	fs.IntVar(&o.outputTokens, "output-tokens", 0, "Reserved output tokens (core default: 1024)")
+	fs.IntVar(&o.contextTokens, "context-tokens", 0, "Context window: 0 uses host settings or server discovery (fallback: 8192)")
+	fs.IntVar(&o.outputTokens, "output-tokens", 0, "Reserved output tokens: 0 uses host settings or a window-based reserve")
 	fs.BoolVar(&o.resume, "continue", false, "Resume the latest native chat in this workspace")
 	fs.BoolVar(&o.passwordStdin, "db-password-stdin", false, "Read database password from the first stdin line")
 	fs.BoolVar(&o.version, "version", false, "Print version")
@@ -285,9 +286,11 @@ func run(ctx context.Context, args []string) error {
 		}
 	}
 	colored := interactive && term.IsTerminal(int(os.Stdout.Fd())) && os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb"
+	view := sessionView{out: os.Stderr, color: colored, width: width}
 	renderer := newTextRenderer(os.Stdout, colored, width)
 	var renderedText, thinking, reasoningOpen bool
 	var toolCount int
+	var lastUsage *core.NativeUsage
 	emit := func(event core.StreamEvent) {
 		eventMu.Lock()
 		defer eventMu.Unlock()
@@ -346,10 +349,14 @@ func run(ctx context.Context, args []string) error {
 		case "context_compacted":
 			fmt.Fprintf(statusOutput, "  CONTEXT  %s\n", event.Detail)
 		case "usage":
-			fmt.Fprintf(statusOutput, "  USAGE  %s\n", event.Detail)
-		case "context":
 			if interactive {
-				fmt.Fprintln(statusOutput, "  CONTEXT  "+event.Detail)
+				raw, _ := json.Marshal(event.Raw)
+				var status core.NativeContextStatus
+				if json.Unmarshal(raw, &status) == nil {
+					lastUsage = status.LastUsage
+				}
+			} else {
+				fmt.Fprintf(statusOutput, "  USAGE  %s\n", event.Detail)
 			}
 		}
 	}
@@ -385,10 +392,10 @@ func run(ctx context.Context, args []string) error {
 	if o.format == "json" {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"type": "session", "chatID": chat.ID})
 	} else {
-		fmt.Fprintf(statusOutput, "PrAImate chat: %s\n", chat.ID)
 		if interactive {
-			fmt.Fprintf(statusOutput, "Workspace: %s\n/help for commands · Ctrl+C stops a turn · Ctrl+D exits\n", chat.WorkspacePath)
-			_ = command(ctx, c, chat.ID, "/status", statusOutput)
+			view.banner(version.Current, chat.WorkspacePath, chat.ID)
+		} else {
+			fmt.Fprintf(statusOutput, "PrAImate chat: %s\n", chat.ID)
 		}
 	}
 	prompt := strings.Join(fs.Args(), " ")
@@ -415,6 +422,7 @@ func run(ctx context.Context, args []string) error {
 		}
 		eventMu.Lock()
 		renderedText, thinking, reasoningOpen, toolCount = false, false, false, 0
+		lastUsage = nil
 		renderer = newTextRenderer(os.Stdout, colored, width)
 		eventMu.Unlock()
 		start := time.Now()
@@ -422,6 +430,9 @@ func run(ctx context.Context, args []string) error {
 			fmt.Fprintf(statusOutput, "\n  WORKING  %d attachment(s) · Ctrl+C to cancel\n", len(files))
 		}
 		_, e := c.ContinueChatStream(turnCtx, chat.ID, message, chat.WorkspacePath, system, files, emit)
+		if e == nil {
+			e = turnCtx.Err()
+		}
 		if o.format == "text" {
 			if interactive {
 				eventMu.Lock()
@@ -435,12 +446,9 @@ func run(ctx context.Context, args []string) error {
 			fmt.Fprintln(output)
 			if interactive {
 				eventMu.Lock()
-				fmt.Fprintf(statusOutput, "  DONE  %s · %d tool call(s)\n", time.Since(start).Round(time.Millisecond), toolCount)
+				view.finish(time.Since(start), toolCount, lastUsage, e)
 				eventMu.Unlock()
 			}
-		}
-		if e == nil {
-			return turnCtx.Err()
 		}
 		return e
 	}
@@ -478,6 +486,17 @@ func run(ctx context.Context, args []string) error {
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if current, err := c.GetChat(ctx, chat.ID); err == nil {
+			status, _ := c.NativeContext(ctx, chat.ID)
+			model, level := current.Settings.Model, current.Settings.Tools
+			if status != nil {
+				model = status.Model
+			}
+			if !current.Settings.ToolsConfigured && current.AgentID != "" {
+				level = "agent permissions"
+			}
+			view.session(model, level, status, len(pending))
 		}
 		label := "praimate> "
 		if len(pending) > 0 {
@@ -806,12 +825,35 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 		}
 		fmt.Fprintf(output, "Model: %s · context %d · output reserve %d\n", status.Model, status.Window, status.OutputReserve)
 	case "/context":
+		if arg != "" {
+			fields := strings.Fields(arg)
+			window, reserve := 0, 0
+			if arg != "auto" {
+				if len(fields) > 2 {
+					return errors.New("usage: /context auto | WINDOW [OUTPUT_RESERVE]")
+				}
+				window, err = strconv.Atoi(fields[0])
+				if err != nil {
+					return errors.New("context window must be an integer, or auto")
+				}
+				if len(fields) == 2 {
+					reserve, err = strconv.Atoi(fields[1])
+					if err != nil {
+						return errors.New("output reserve must be an integer")
+					}
+				}
+			}
+			if err := c.SetNativeChatLimits(ctx, id, window, reserve); err != nil {
+				return err
+			}
+		}
 		fmt.Fprintln(output, "\nCONTEXT")
 		status, err := c.NativeContext(ctx, id)
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(output, "Window: %d tokens\nInput limit: %d · output reserve: %d · safety: %d\nLast request estimate: ~%d tokens · calibration: %.2fx · compactions: %d\n", status.Window, status.InputLimit, status.OutputReserve, status.SafetyReserve, status.EstimatedInput, status.Calibration, status.Compactions)
+		fmt.Fprintf(output, "Source: %s\nChange this chat: /context auto or /context WINDOW [OUTPUT_RESERVE]\n", status.Source)
 		if status.LastUsage != nil {
 			fmt.Fprintf(output, "Last endpoint usage: %d input / %d output tokens\n", status.LastUsage.PromptTokens, status.LastUsage.CompletionTokens)
 		} else {

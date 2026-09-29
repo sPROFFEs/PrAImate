@@ -41,6 +41,7 @@ type Core struct {
 
 	managedMu     sync.Mutex
 	managedActive map[string]bool
+	nativeLimits  nativeLimitCache
 }
 
 // ApprovalConfig tells a CLI adapter how to spawn the approval shim —

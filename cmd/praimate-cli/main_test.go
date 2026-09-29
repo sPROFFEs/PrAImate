@@ -97,6 +97,41 @@ func TestNativeCLIModelSelectionSwitchesAssignedHost(t *testing.T) {
 	}
 }
 
+func TestNativeCLIContextCommandPersistsAndValidatesLimits(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeCore()
+	ctx := context.Background()
+	_, err = c.SaveLocalHost(ctx, core.LocalHost{ID: "gpu", Name: "GPU", Endpoint: "http://local.test/v1", ContextTokens: 16384})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := c.CreateChat(ctx, core.CreateChatRequest{CLIAgent: "praimate-cli", Settings: core.ChatSettings{Local: &core.ChatLocalEndpoint{Endpoint: "http://local.test/v1", Model: "test-model"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"/context nope", "/context 1024", "/context 8192 8192", "/context 8192 7900", "/context 100 200 300"} {
+		if err := command(ctx, c, chat.ID, bad, &strings.Builder{}); err == nil {
+			t.Fatalf("accepted %s", bad)
+		}
+	}
+	for _, tc := range []struct {
+		cmd    string
+		window int
+	}{{"/context 8192 2048", 8192}, {"/context auto", 16384}} {
+		if err := command(ctx, c, chat.ID, tc.cmd, &strings.Builder{}); err != nil {
+			t.Fatal(err)
+		}
+		status, err := c.NativeContext(ctx, chat.ID)
+		if err != nil || status.Window != tc.window {
+			t.Fatalf("status=%+v err=%v", status, err)
+		}
+	}
+}
+
 func TestNativeCLIMCPAndSkillStatus(t *testing.T) {
 	t.Setenv("PRAIMATE_HOME", t.TempDir())
 	c, closeCore, err := openCore(bufio.NewReader(strings.NewReader("test-password\n")), true, false)

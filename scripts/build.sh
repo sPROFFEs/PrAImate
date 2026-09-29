@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the GUI-only PrAImate bundle for every supported OS/arch and
+# Build the PrAImate desktop and native CLI bundle for every supported OS/arch and
 # stage it under dist/<os>-<arch>/ ready for distribution. Run from
 # the repo root or from anywhere — we cd to the script's parent
 # automatically.
@@ -19,6 +19,7 @@
 # GUI coverage:
 #   - native Linux         — full cgo build (needs webkit2gtk-4.1
 #                            and GTK 3 development headers)
+#   - native macOS arm64  — Apple Silicon host and native Apple toolchain
 #   - windows-amd64/arm64  — cross-compilable: Wails v2's Windows
 #                            backend is pure Go syscalls (WebView2 loads
 #                            at runtime), so CGO_ENABLED=0 works
@@ -26,7 +27,7 @@
 # Every archive MUST contain praimate-gui. `praimate` is the lightweight
 # bootstrap/maintenance CLI and launches that sibling by default.
 #
-# Requires: Go 1.21+, tar + zip (only when archiving); node+npm and
+# Requires: Go compatible with go.mod, tar + zip (only when archiving); node+npm and
 # webkit2gtk-4.1 dev headers for Linux GUI builds.
 
 set -euo pipefail
@@ -166,7 +167,10 @@ build_one() {
   cp cmd/praimate-gui/frontend/src/assets/monke-icon.png "$out/praimate.png"
   mkdir -p "$out/docs"
   cp docs/ACTIVATION.md docs/TARGETS.md docs/SCHEMA.md docs/QUICKSTART.md \
-    docs/GUIDE.md docs/AGENT_GUIDE.md docs/CLI_AGENT_API.md "$out/docs/"
+    docs/GUIDE.md docs/AGENT_GUIDE.md docs/CLI_AGENT_API.md \
+    docs/native-cli.md docs/WORKERS.md docs/RELEASE-GITHUB.md "$out/docs/"
+  mkdir -p "$out/docs/assets"
+  cp docs/assets/monke-icon.png "$out/docs/assets/"
   mkdir -p "$out/examples"
   cp examples/praimate_agent_capture.py examples/praimate_agent_review.py "$out/examples/"
   cp README.md LICENSE "$out/"

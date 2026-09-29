@@ -132,6 +132,7 @@ type ChatLocalEndpoint struct {
 	Model         string `json:"model,omitempty"`
 	ContextTokens int    `json:"context_tokens,omitempty"`
 	OutputTokens  int    `json:"output_tokens,omitempty"`
+	ContextSource string `json:"-"` // resolved metadata, never a persisted override
 }
 
 // Message is one stored turn. Role is "user" | "assistant" | "tool" |
