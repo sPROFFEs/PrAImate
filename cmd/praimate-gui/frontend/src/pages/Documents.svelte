@@ -219,7 +219,7 @@
       showToast({ title: 'Document Session Opened', message: 'The session is ready in a separate editor window.', tone: 'ok' })
     } catch (e) {
       error = String(e)
-      showToast({ title: 'Failed to open', message: String(e), tone: 'err', duration: 0 })
+      showToast({ title: 'Failed to open', message: String(e), tone: 'err', page: 'documents', duration: 0 })
       if (form) form.busy = false
     }
   }
@@ -233,7 +233,7 @@
       showToast({ title: 'Session Reopened', message: chat.Title, tone: 'ok' })
     } catch (e) {
       error = String(e)
-      showToast({ title: 'Failed to open', message: String(e), tone: 'err', duration: 0 })
+      showToast({ title: 'Failed to open', message: String(e), tone: 'err', page: 'documents', duration: 0 })
     }
   }
 

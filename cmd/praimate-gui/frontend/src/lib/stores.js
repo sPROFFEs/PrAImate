@@ -1,10 +1,10 @@
-import { writable } from 'svelte/store'
+import { get, writable } from 'svelte/store'
 import { api } from './api.js'
 
 // Cross-page navigation state. App.svelte renders the page named by
 // activePage; openChatId, when set, tells the Chats page to open that
 // chat as a live thread (used when Agents starts a new chat).
-export const activePage = writable('code')
+export const activePage = writable('dashboard')
 // Increment after setting pendingTerm when Code must consume a fresh attach
 // request. This also handles clicking a Code session while Code is already
 // the active page (setting the same activePage value alone does not remount).
@@ -16,9 +16,10 @@ export const openChatId = writable(null)
 // them. The shell owns this toast and keeps it visible across navigation.
 export const toast = writable(null)
 let toastTimer = null
-export function showToast({ title, message = '', tone = 'ok', duration = 4200, dismissible = true }) {
+export function showToast({ title, message = '', tone = 'ok', duration = 4200, dismissible = true, page = get(activePage) }) {
+  if (tone === 'err' && page !== get(activePage)) return
   if (toastTimer) clearTimeout(toastTimer)
-  toast.set({ title, message, tone, dismissible })
+  toast.set({ title, message, tone, dismissible, page })
   toastTimer = duration > 0 ? setTimeout(() => {
     toast.set(null)
     toastTimer = null
@@ -29,6 +30,11 @@ export function dismissToast() {
   toastTimer = null
   toast.set(null)
 }
+
+activePage.subscribe((page) => {
+  const notice = get(toast)
+  if (notice?.tone === 'err' && notice.page !== page) dismissToast()
+})
 
 // Global Confirmation Dialog Modal store
 export const confirmModal = writable(null)

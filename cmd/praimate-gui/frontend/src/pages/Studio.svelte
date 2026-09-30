@@ -54,7 +54,7 @@
       showToast({ title: 'Studio Installed', message: 'PrAImate Studio environment is ready.', tone: 'ok' })
     } catch (e) {
       error = String(e)
-      showToast({ title: 'Studio Install Failed', message: String(e), tone: 'err' })
+      showToast({ title: 'Studio Install Failed', message: String(e), tone: 'err', page: 'studio' })
     } finally {
       studioActionBusy = false
     }
@@ -69,7 +69,7 @@
       showToast({ title: 'Studio Updated', message: 'PrAImate Studio updated successfully.', tone: 'ok' })
     } catch (e) {
       error = String(e)
-      showToast({ title: 'Studio Update Failed', message: String(e), tone: 'err' })
+      showToast({ title: 'Studio Update Failed', message: String(e), tone: 'err', page: 'studio' })
     } finally {
       studioActionBusy = false
     }
@@ -84,7 +84,7 @@
       showToast({ title: 'Studio Repaired', message: 'PrAImate Studio repaired successfully.', tone: 'ok' })
     } catch (e) {
       error = String(e)
-      showToast({ title: 'Studio Repair Failed', message: String(e), tone: 'err' })
+      showToast({ title: 'Studio Repair Failed', message: String(e), tone: 'err', page: 'studio' })
     } finally {
       studioActionBusy = false
     }
@@ -124,7 +124,7 @@
       showToast({ title: 'Studio Launched', message: `PrAImate Studio opened in ${ws}. If Studio was already running, use Developer: Reload Window to activate the updated extension.`, tone: 'ok' })
     } catch (e) {
       error = String(e)
-      showToast({ title: 'Launch Failed', message: String(e), tone: 'err' })
+      showToast({ title: 'Launch Failed', message: String(e), tone: 'err', page: 'studio' })
     } finally {
       openProjectForm.busy = false
     }

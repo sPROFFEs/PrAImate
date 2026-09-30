@@ -62,10 +62,15 @@ func (c CLI) Execute(ctx context.Context, req Request) (*Result, error) {
 	}
 	var reply *core.Reply
 	var err error
+	var usage core.UsageAccumulator
 	if stream, ok := c.Adapter.(interface {
 		SingleShotStream(context.Context, core.SingleShotOpts, core.StreamHandler) (*core.Reply, error)
-	}); ok && req.Progress != nil {
+	}); ok {
 		reply, err = stream.SingleShotStream(ctx, opts, func(event core.StreamEvent) {
+			usage.Observe(event)
+			if req.Progress == nil {
+				return
+			}
 			if event.Type == "text" && event.Text != "" {
 				req.Progress(ProgressEvent{Kind: "stream", Text: event.Text})
 			} else if event.Type == "tool_start" {
@@ -78,11 +83,19 @@ func (c CLI) Execute(ctx context.Context, req Request) (*Result, error) {
 	} else {
 		reply, err = c.Adapter.SingleShot(ctx, opts)
 	}
+	result := &Result{FinishReason: "stop", Usage: Usage{Source: "unavailable"}}
+	input, output, calls, _ := usage.Snapshot()
+	if calls > 0 {
+		result.Usage = Usage{InputTokens: int(input), OutputTokens: int(output), Source: "provider"}
+	}
+	if reply != nil {
+		result.Content = reply.Text
+	}
 	if err != nil {
-		return nil, err
+		return result, err
 	}
 	if reply == nil || reply.ExitCode != 0 {
-		return nil, fmt.Errorf("CLI worker %q failed", c.Adapter.Name())
+		return result, fmt.Errorf("CLI worker %q failed", c.Adapter.Name())
 	}
-	return &Result{Content: reply.Text, FinishReason: "stop", Usage: Usage{Source: "unavailable"}}, nil
+	return result, nil
 }

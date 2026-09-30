@@ -346,7 +346,7 @@ func run(ctx context.Context, args []string) error {
 				state = "✗ failed"
 			}
 			fmt.Fprintf(statusOutput, "  %s  %s\n", state, event.Tool)
-		case "context_compacted":
+		case "context_compacted", "context_recovery":
 			fmt.Fprintf(statusOutput, "  CONTEXT  %s\n", event.Detail)
 		case "usage":
 			if interactive {
@@ -855,7 +855,7 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 		fmt.Fprintf(output, "Window: %d tokens\nInput limit: %d · output reserve: %d · safety: %d\nLast request estimate: ~%d tokens · calibration: %.2fx · compactions: %d\n", status.Window, status.InputLimit, status.OutputReserve, status.SafetyReserve, status.EstimatedInput, status.Calibration, status.Compactions)
 		fmt.Fprintf(output, "Source: %s\nChange this chat: /context auto or /context WINDOW [OUTPUT_LIMIT]\n", status.Source)
 		if status.OutputAutomatic {
-			fmt.Fprintln(output, "Output mode: automatic — reserve is a minimum; each response can use remaining context, up to 16384 tokens, including reasoning.")
+			fmt.Fprintln(output, "Output mode: automatic — reserve is a minimum; each response can use remaining backend context, including reasoning.")
 		} else {
 			fmt.Fprintln(output, "Output mode: fixed by chat or host settings (includes reasoning).")
 		}

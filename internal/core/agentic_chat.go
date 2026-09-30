@@ -154,9 +154,12 @@ func managedStreamEvent(event ManagedRunEvent) StreamEvent {
 		out.Type = "tool_end"
 	case "model.reasoning", "model.step_start", "model.step_finish":
 		out.Type = strings.TrimPrefix(event.Type, "model.")
-	case "model.context", "model.usage", "model.context_compacted":
+	case "model.context", "model.usage", "model.model", "model.context_compacted", "model.context_recovery":
 		out.Type = strings.TrimPrefix(event.Type, "model.")
 		out.Raw = event.Payload
+		out.Usage, _ = event.Payload["provider_usage"].(*NativeUsage)
+		out.Model, _ = event.Payload["provider_model"].(string)
+		out.ID, _ = event.Payload["provider_event_id"].(string)
 	}
 	return out
 }

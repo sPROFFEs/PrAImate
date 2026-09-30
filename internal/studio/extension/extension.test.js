@@ -198,7 +198,7 @@ function webviewHarness() {
   const script = /<script>([\s\S]*?)<\/script>/.exec(html)[1];
   const elements = new Map();
   const element = tag => ({tag,dataset:{},listeners:{},value:'',checked:true,disabled:false,children:[],innerHTML:'',textContent:'',className:'',
-    classList:{add(){},remove(){}},get options(){return this.children;},
+    style:{},append(...v){this.children.push(...v);},prepend(v){this.children.unshift(v);},classList:{add(){},remove(){}},get options(){return this.children;},
     scrollHeight:0,scrollTop:0,clientHeight:0,setAttribute(name,value){this[name]=value;},
     addEventListener(name,fn){this.listeners[name]=fn;},appendChild(v){this.children.push(v);},replaceChildren(...v){this.children=v;this.innerHTML='';},
     fire(name,event={}){this.listeners[name]?.(event);}});
@@ -303,4 +303,30 @@ test('Workers view keeps separate models for the same CLI and renders live event
   const fast=h.elements.get('worker-lanes').children[2];
   assert.equal(fast.children[1].children[1].textContent,'<script>unsafe</script>');
   assert.equal(fast.children[1].children[1].innerHTML,'');
+});
+
+test('late action errors stay on the originating page and conversation', () => {
+  const h = webviewHarness();
+  h.send({type:'status',status:{connected:true,activeCLI:'claude',chatId:'first'}});
+  h.eval("post('send',{text:'test'})"); const first=h.posted.at(-1);
+  h.eval("navigate('overview')");
+  h.send({type:'actionResult',id:first.requestId,ok:false,error:'old chat failure'});
+  assert.equal(h.elements.get('notice').hidden,true);
+  h.eval("navigate('chat'); post('send',{text:'test'})"); const second=h.posted.at(-1);
+  h.send({type:'status',status:{connected:true,activeCLI:'claude',chatId:'second'}});
+  h.send({type:'actionResult',id:second.requestId,ok:false,error:'first conversation failure'});
+  assert.equal(h.elements.get('notice').hidden,true);
+});
+
+test('overview requests the selected month and renders usage labels as text', () => {
+  const h=webviewHarness();
+  h.send({type:'status',status:{connected:true,activeCLI:'claude'}});
+  h.elements.get('usage-month').value='2026-09';h.eval("navigate('overview')");
+  assert.equal(h.posted.at(-1).type,'usageDashboard');
+  assert.equal(h.posted.at(-1).month,'2026-09');
+  h.send({type:'usageDashboard',dashboard:{month:'2026-09',totals:{runs:1,reportedRuns:1,inputTokens:12,outputTokens:8,tokens:20,activeDays:1},clis:[{name:'<private-model>',runs:1}],models:[],months:[]}});
+  const root=h.elements.get('usage-content');
+  assert.equal(root.children[0].children[0].children[1].textContent,'20');
+  assert.equal(root.children[1].children[0].children[1].children[0].textContent,'<private-model>');
+  assert.equal(root.children[1].children[0].children[1].children[0].innerHTML,'');
 });

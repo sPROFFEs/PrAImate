@@ -528,7 +528,7 @@
     if (!stream) stream = { text: '', tools: [], reasoning: [], steps: [] }
     if (ev.type === 'text') stream.text += (ev.text || '')
     else if (ev.type === 'reasoning') stream.reasoning = (stream.reasoning || '') + (ev.text || ev.detail || '')
-    else if (ev.type === 'step_start' || ev.type === 'step_finish' || ev.type === 'error') stream.steps = [...(stream.steps || []), { type: ev.type, detail: ev.detail, ok: ev.type !== 'error' && ev.ok !== false }]
+    else if (ev.type === 'step_start' || ev.type === 'step_finish' || ev.type === 'context_compacted' || ev.type === 'context_recovery' || ev.type === 'error') stream.steps = [...(stream.steps || []), { type: ev.type.startsWith('context_') ? 'step_start' : ev.type, detail: ev.detail, ok: ev.type !== 'error' && ev.ok !== false }]
     else if (ev.type === 'tool_start') stream.tools = [...stream.tools, { id: ev.id || '', tool: ev.tool, detail: ev.detail, done: false, ok: true }]
     else if (ev.type === 'tool_end') {
       const t = [...stream.tools]

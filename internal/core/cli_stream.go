@@ -52,6 +52,9 @@ type StreamEvent struct {
 	// Raw carries the original backend event/part when preserving it is
 	// useful for later UI upgrades. It is intentionally opaque.
 	Raw map[string]any `json:"raw,omitempty"`
+	// Usage is normalized once by each adapter, including zero-valued reports.
+	Usage *NativeUsage `json:"usage,omitempty"`
+	Model string       `json:"model,omitempty"`
 }
 
 // StreamHandler receives events as the turn runs. Called from the

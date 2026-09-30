@@ -19,6 +19,7 @@ function call(method, ...args) {
 }
 
 export const api = {
+  usageDashboard: (month = '') => call('UsageDashboard', month),
   workerConfig: () => call('WorkerConfig'),
   saveWorkerConfig: (config) => call('SaveWorkerConfig', JSON.stringify(config)),
   startWorkerRun: (task) => call('StartWorkerRun', task),

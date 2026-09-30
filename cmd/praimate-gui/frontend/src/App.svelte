@@ -14,6 +14,7 @@
 
   // Lucide-style outline icon paths (24x24 viewBox, stroke-based).
   const icons = {
+		dashboard: 'M3 3h7v7H3zM14 3h7v4h-7zM14 11h7v10h-7zM3 14h7v7H3z',
     code: 'M8 9l-4 3 4 3M16 9l4 3-4 3M13 5l-2 14',
     chats: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
     studio: 'M3 3h18v18H3zM3 9h18M9 21V9',
@@ -59,6 +60,7 @@
   // Code-oriented order: lead with the live coding terminal, then
   // conversations and agents, with config last.
   const pages = [
+    { id: 'dashboard', label: 'Dashboard', icon: icons.dashboard, load: () => import('./pages/Dashboard.svelte') },
     { id: 'code', label: 'Code', icon: icons.code, load: () => import('./pages/Code.svelte') },
     { id: 'chats', label: 'Chats', icon: icons.chats, load: () => import('./pages/Chats.svelte') },
     { id: 'studio', label: 'Studio', icon: icons.studio, load: () => import('./pages/Studio.svelte') },
@@ -79,9 +81,11 @@
   let pageComponent = null
   let requestedPage = ''
   let pageLoadToken = 0
+	let pageLoadError = ''
   async function loadPage(id) {
     if (requestedPage === id && pageComponent) return
     requestedPage = id
+    pageLoadError = ''
     pageComponent = null
     const token = ++pageLoadToken
     const page = pages.find((item) => item.id === id) || pages[0]
@@ -89,7 +93,7 @@
       const module = await page.load()
       if (token === pageLoadToken) pageComponent = module.default
     } catch (e) {
-      if (token === pageLoadToken) health = { ok: false, error: `Could not load ${page.label}: ${String(e)}` }
+      if (token === pageLoadToken) pageLoadError = `Could not load ${page.label}: ${String(e)}`
     }
   }
 
@@ -326,8 +330,8 @@
       {/if}
     </div>
     {#each pages as p}
-      {#if p.id === 'code' || p.id === 'agents' || p.id === 'clis'}
-        <div class="nav-group" aria-hidden="true">{#if !collapsed}{p.id === 'code' ? 'Workspace' : p.id === 'agents' ? 'Automation' : 'Configure'}{/if}</div>
+      {#if p.id === 'dashboard' || p.id === 'agents' || p.id === 'clis'}
+        <div class="nav-group" aria-hidden="true">{#if !collapsed}{p.id === 'dashboard' ? 'Workspace' : p.id === 'agents' ? 'Automation' : 'Configure'}{/if}</div>
       {/if}
       <button
         class="nav-item"
@@ -382,7 +386,7 @@
       <div class="banner">Backend failed to initialise: {health.error}</div>
     {/if}
     {#key `${$activePage}:${$pageRevision}`}
-      {#if pageComponent}<svelte:component this={pageComponent} />{:else}<div class="boot-screen">Opening {current.label}…</div>{/if}
+      {#if pageLoadError}<div class="banner" role="alert">{pageLoadError}</div>{:else if pageComponent}<svelte:component this={pageComponent} />{:else}<div class="boot-screen">Opening {current.label}…</div>{/if}
     {/key}
   </main>
 </div>

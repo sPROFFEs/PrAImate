@@ -223,6 +223,7 @@ func handleOpenCodeLine(line openCodeStreamLine, raw map[string]any, acc *string
 	case "step_start":
 		emit(StreamEvent{Type: "step_start", Detail: openCodePartDetail(line.Part), ID: stringFromMap(line.Part, "id"), Raw: raw})
 	case "step_finish":
+		emitOpenCodeUsage(line.Part, emit)
 		emit(StreamEvent{Type: "step_finish", Detail: openCodePartDetail(line.Part), ID: stringFromMap(line.Part, "id"), OK: true, Raw: raw})
 	case "message.part.delta":
 		if line.Field == "text" && line.Delta != "" {
@@ -254,6 +255,7 @@ func handleOpenCodePartUpdated(part map[string]any, raw map[string]any, acc *str
 	case "step-start":
 		emit(StreamEvent{Type: "step_start", Detail: openCodePartDetail(part), ID: stringFromMap(part, "id"), Raw: raw})
 	case "step-finish":
+		emitOpenCodeUsage(part, emit)
 		emit(StreamEvent{Type: "step_finish", Detail: openCodePartDetail(part), ID: stringFromMap(part, "id"), OK: true, Raw: raw})
 	}
 }

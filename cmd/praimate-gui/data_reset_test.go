@@ -34,6 +34,8 @@ func TestDeleteAllStoredDataRemovesAppAndConfirmedProjects(t *testing.T) {
 	t.Setenv("PRAIMATE_HOME", root)
 	t.Setenv("HOME", fakeHome)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(fakeHome, ".config"))
+	// Isolate legacy cache cleanup even when the host exports XDG_CACHE_HOME.
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(fakeHome, ".cache"))
 	if err := os.MkdirAll(projects, 0o700); err != nil {
 		t.Fatal(err)
 	}

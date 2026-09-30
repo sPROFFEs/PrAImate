@@ -42,12 +42,12 @@ func (n Native) Execute(ctx context.Context, req Request) (*Result, error) {
 		}
 	}
 	reply, err := core.ExecuteNativeWorkerStream(ctx, route, req.SystemPrompt, req.Task, emit)
-	if err != nil {
+	if reply == nil {
 		return nil, err
 	}
 	result := &Result{Content: reply.Content, FinishReason: "stop", Usage: Usage{Source: "unavailable"}}
 	if reply.Usage != nil {
 		result.Usage = Usage{InputTokens: reply.Usage.PromptTokens, OutputTokens: reply.Usage.CompletionTokens, Source: "provider"}
 	}
-	return result, nil
+	return result, err
 }

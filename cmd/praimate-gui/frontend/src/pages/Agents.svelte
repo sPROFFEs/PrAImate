@@ -276,7 +276,7 @@
       showToast({ title: 'Studio opened', message: `${agentLabel} is ready in a separate Studio window.`, tone: 'ok' })
     } catch (e) {
       error = String(e)
-      showToast({ title: 'Launch failed', message: String(e), tone: 'err', duration: 0 })
+      showToast({ title: 'Launch failed', message: String(e), tone: 'err', page: 'agents', duration: 0 })
       if (dlg) dlg.busy = false
     }
   }

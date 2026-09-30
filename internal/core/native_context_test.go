@@ -52,6 +52,10 @@ func TestNativeAutomaticOutputUsesFreeContextForReasoning(t *testing.T) {
 	if err != nil || status == nil || !status.OutputAutomatic || status.LastOutputLimit != sent || status.LastUsage == nil || status.LastUsage.CompletionTokens != 2000 {
 		t.Fatalf("missing automatic mode/last request: %+v %v", status, err)
 	}
+	dashboard, err := c.UsageDashboard(ctx, "")
+	if err != nil || dashboard.Totals.Runs != 1 || dashboard.Totals.ReportedRuns != 1 || dashboard.Totals.Tokens != 2948 {
+		t.Fatalf("chat usage not recorded exactly once: %+v %v", dashboard, err)
+	}
 }
 
 func TestNativeAutomaticOutputRejectionReducesAllowanceWithoutDroppingTask(t *testing.T) {
@@ -87,7 +91,7 @@ func TestNativeAutomaticOutputRejectionReducesAllowanceWithoutDroppingTask(t *te
 func TestNativeOutputAllocationRespectsContextAndExplicitLimits(t *testing.T) {
 	for _, tc := range []struct{ window, input, fixed, want int }{
 		{8192, 948, 0, 6835}, {8192, 6500, 0, 1283},
-		{32768, 2000, 0, 16384}, {8192, 948, 1024, 1024},
+		{32768, 2000, 0, 29130}, {8192, 948, 1024, 1024},
 	} {
 		route := ChatLocalEndpoint{ContextTokens: tc.window, OutputTokens: autoOutputTokens(tc.window, tc.fixed), OutputAutomatic: tc.fixed == 0}
 		status := nativeContextBudget(route, NativeContextStatus{})

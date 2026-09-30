@@ -58,7 +58,7 @@ server's context allocation.
 
 An explicit chat or saved host output limit stays fixed. Otherwise, automatic
 mode reserves one eighth of the window (1024–4096 tokens) when fitting input,
-then lets each response use the remaining estimated context, up to 16384 output
+then lets each response use the remaining estimated backend context for output
 tokens. The reserve is a minimum, not a generation ceiling. Output includes
 both reasoning and the visible answer; reasoning models can exhaust a small
 fixed limit before producing any visible text.
@@ -81,18 +81,25 @@ optional field only if the endpoint explicitly rejects it. A context-length HTTP
 rejection allows one attempt with a more conservative budget. Automatic mode
 reduces the output allowance and increases the input estimate; fixed mode
 trims eligible history while retaining the configured output limit. Completed tools are
-not replayed, and partial streams are not silently retried. Older history and
+not replayed. Older history and
 large tool results can be compacted. If the latest request, images, instructions
 or tool schemas cannot fit, the run stops without silently cutting out the
 current request or system instructions.
 
-An output-limit failure retains visible partial text in the native model
-checkpoint, marked as incomplete. Tool calls from that truncated response are
-not executed. Inspect `/context`: if output is fixed, raise it within the server's
-supported window or reset the chat/host output limit to 0 for automatic mode.
-If automatic mode runs out of space, use a larger context supported by the server
-or narrow the task, then send a follow-up if needed. Partial streams are never
-silently replayed to extend an answer.
+A response ending at the output limit retains visible partial text, marks it as
+incomplete in the model checkpoint, and continues automatically with a recovery
+notice. Automatic mode compacts eligible history and makes more generation room
+inside the backend window; explicit output limits remain fixed. Truncated tool
+calls are discarded. Completed tools are not automatically replayed. The model
+receives continuation instructions and retained tool receipts; it must inspect
+state before deciding to repeat an action.
+
+Recovery is bounded to three consecutive continuations to avoid endless reasoning.
+Network errors and arbitrary broken streams are not replayed. Managed structured
+responses only retry when no visible answer has started, preserving the JSON
+contract. If essential instructions, images or the latest request cannot fit,
+or the backend repeatedly exhausts output, the error remains visible. Use
+`/context` or the chat settings to select a window supported by the backend.
 
 Metadata contracts: [Ollama](https://docs.ollama.com/api/ps),
 [LM Studio](https://lmstudio.ai/docs/developer/rest/list),

@@ -60,14 +60,42 @@ func ResolveRuntime(profile Profile) (workerruntime.Runtime, error) {
 // keeping third-party CLI workers on their existing registered adapters.
 func ResolveRuntimeWithCore(c *core.Core) func(Profile) (workerruntime.Runtime, error) {
 	return func(profile Profile) (workerruntime.Runtime, error) {
+		var runtime workerruntime.Runtime
+		var err error
 		if profile.Runtime == "native" {
-			return workerruntime.ConfiguredNative{Core: c, Endpoint: profile.Endpoint}, nil
+			runtime = workerruntime.ConfiguredNative{Core: c, Endpoint: profile.Endpoint}
+		} else if profile.Runtime == "cli" && profile.CLI == "praimate-cli" {
+			runtime = workerruntime.PraimateCLI{Core: c}
+		} else {
+			runtime, err = ResolveRuntime(profile)
 		}
-		if profile.Runtime == "cli" && profile.CLI == "praimate-cli" {
-			return workerruntime.PraimateCLI{Core: c}, nil
+		if err != nil || c == nil {
+			return runtime, err
 		}
-		return ResolveRuntime(profile)
+		cli := profile.CLI
+		if profile.Runtime == "native" {
+			cli = "native"
+		}
+		return meteredRuntime{Runtime: runtime, core: c, cli: cli}, nil
 	}
+}
+
+type meteredRuntime struct {
+	workerruntime.Runtime
+	core *core.Core
+	cli  string
+}
+
+func (r meteredRuntime) Execute(ctx context.Context, req workerruntime.Request) (*workerruntime.Result, error) {
+	usage, err := r.core.BeginUsage(ctx, r.cli, req.Model, "workers")
+	if err != nil {
+		return nil, err
+	}
+	result, runErr := r.Runtime.Execute(ctx, req)
+	if result != nil && result.Usage.Source == "provider" {
+		usage.Observe(core.StreamEvent{Type: "usage", Usage: &core.NativeUsage{PromptTokens: result.Usage.InputTokens, CompletionTokens: result.Usage.OutputTokens}})
+	}
+	return result, errors.Join(runErr, usage.Finish(runErr))
 }
 
 func (r Runner) emit(tier Tier, kind, text string, usage workerruntime.Usage) {

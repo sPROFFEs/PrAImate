@@ -330,6 +330,8 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 	schema, _ := json.Marshal(definitions)
 	schemaTokens := nativeTextTokens(string(schema))
 	contextRetried, retryBudget, retryOutputLimit := false, 0, 0
+	outputRetries := 0
+	recoveryPrompt := ""
 	for turn := 0; turn < 64; turn++ {
 		if err := ctx.Err(); err != nil {
 			return reply, err
@@ -338,6 +340,7 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 		if err != nil {
 			return reply, err
 		}
+		payload += recoveryPrompt
 		budget := int(float64(s.Context.InputLimit)/s.Context.Calibration) - schemaTokens - nativeTextTokens(payload)
 		if contextRetried && retryBudget > 0 {
 			budget = min(budget, retryBudget)
@@ -402,14 +405,39 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 		})
 		if err != nil {
 			if errors.Is(err, errNativeOutputLimit) {
-				// Preserve a visible partial answer for follow-up without accepting
-				// incomplete tool calls or pretending the request succeeded.
+				// A length stop is a recoverable model step, not a completed turn.
+				// Retain visible text, but never accept or execute truncated calls.
 				s.Context.observe(message.Usage, baseTokens)
 				if message.Usage != nil {
 					emit(nativeContextEvent("usage", s.Context))
 				}
 				if message.Content != "" {
 					s.Messages = append(s.Messages, nativeMessage{Role: "assistant", Content: message.Content + "\n[Incomplete answer: output token limit reached.]"})
+				}
+				if outputRetries < 3 && (!run.modelOnly || message.Content == "") && ctx.Err() == nil {
+					outputRetries++
+					s.Context.OutputRecoveries++
+					extraTokens := schemaTokens + nativeTextTokens(payload)
+					if recoveryPrompt == "" {
+						extraTokens += nativeTextTokens(nativeOutputRecoveryPrompt)
+					}
+					recoveryPrompt = nativeOutputRecoveryPrompt
+					// Free room for generation within the actual backend window.
+					// Explicit output settings stay fixed. Essential instructions
+					// and the current user request are never cut to make space.
+					if run.local.OutputAutomatic {
+						reserveNativeRecoveryOutput(s, extraTokens)
+					}
+					retryBudget, retryOutputLimit = 0, 0
+					if saveErr := run.core.saveNativeSession(ctx, s); saveErr != nil {
+						return reply, saveErr
+					}
+					emit(StreamEvent{Type: "context_recovery", Detail: fmt.Sprintf("Response reached the output limit; compacting context and continuing (%d/3). Completed tools will not be replayed.", outputRetries), OK: true})
+					if message.Content != "" {
+						reply.Text += "\n\n"
+						emit(StreamEvent{Type: "text", Text: "\n\n"})
+					}
+					continue
 				}
 				if saveErr := run.core.saveNativeSession(ctx, s); saveErr != nil {
 					return reply, saveErr
@@ -450,6 +478,8 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 			run.local.Model = canonical
 		}
 		s.Context.observe(message.Usage, baseTokens)
+		outputRetries = 0
+		recoveryPrompt = ""
 		retryBudget = 0
 		retryOutputLimit = 0
 		if message.Usage != nil {
@@ -550,6 +580,18 @@ func compactNativeContext(input []nativeMessage, budget int, measure func([]nati
 	if size() <= budget {
 		return messages, false, nil
 	}
+	changed := false
+	// Completed non-tool reasoning is not needed to continue a conversation.
+	// Tool exchanges retain their original shape until evicted as a pair.
+	for i := 1; i < len(messages); i++ {
+		if messages[i].Role == "assistant" && len(messages[i].ToolCalls) == 0 && messages[i].Reasoning != "" {
+			messages[i].Reasoning = ""
+			changed = true
+		}
+	}
+	if size() <= budget {
+		return messages, changed, nil
+	}
 	reserve := min(2048, max(0, budget/8))
 	var excerpts string
 	record := func(dropped []nativeMessage) {
@@ -563,7 +605,6 @@ func compactNativeContext(input []nativeMessage, budget int, measure func([]nati
 			excerpts = excerpts[len(excerpts)-reserve/2:]
 		}
 	}
-	changed := false
 	for size() > budget-reserve {
 		lastUser := -1
 		for i, m := range messages {
@@ -605,6 +646,18 @@ func compactNativeContext(input []nativeMessage, budget int, measure func([]nati
 				changed = true
 				continue
 			}
+		}
+		if len(messages) > 3 && messages[2].Role == "assistant" && len(messages[2].ToolCalls) == 0 {
+			record(messages[2:3])
+			messages = append(messages[:2], messages[3:]...)
+			changed = true
+			continue
+		}
+		if len(messages) == 3 && messages[2].Role == "assistant" && len(messages[2].ToolCalls) == 0 && len(messages[2].Content) > 1024 {
+			content := messages[2].Content
+			messages[2].Content = "[Partial answer excerpt; full text remains in the chat.]\n" + strings.ToValidUTF8(content[:256], "") + "\n…\n" + strings.ToValidUTF8(content[len(content)-512:], "")
+			changed = true
+			continue
 		}
 
 		return nil, changed, errors.New("context budget exceeded by system instructions or current request; shorten input or raise the configured context window")

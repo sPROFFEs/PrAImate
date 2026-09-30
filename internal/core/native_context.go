@@ -17,18 +17,19 @@ type NativeUsage struct {
 }
 
 type NativeContextStatus struct {
-	Model           string       `json:"model"`
-	Source          string       `json:"source,omitempty"`
-	Window          int          `json:"window_tokens"`
-	OutputReserve   int          `json:"output_reserve_tokens"`
-	SafetyReserve   int          `json:"safety_reserve_tokens"`
-	InputLimit      int          `json:"input_limit_tokens"`
-	EstimatedInput  int          `json:"estimated_input_tokens"`
-	LastUsage       *NativeUsage `json:"last_usage,omitempty"`
-	Calibration     float64      `json:"calibration"`
-	Compactions     int          `json:"compactions"`
-	OutputAutomatic bool         `json:"output_automatic"`
-	LastOutputLimit int          `json:"last_output_limit_tokens,omitempty"`
+	Model            string       `json:"model"`
+	Source           string       `json:"source,omitempty"`
+	Window           int          `json:"window_tokens"`
+	OutputReserve    int          `json:"output_reserve_tokens"`
+	SafetyReserve    int          `json:"safety_reserve_tokens"`
+	InputLimit       int          `json:"input_limit_tokens"`
+	EstimatedInput   int          `json:"estimated_input_tokens"`
+	LastUsage        *NativeUsage `json:"last_usage,omitempty"`
+	Calibration      float64      `json:"calibration"`
+	Compactions      int          `json:"compactions"`
+	OutputAutomatic  bool         `json:"output_automatic"`
+	LastOutputLimit  int          `json:"last_output_limit_tokens,omitempty"`
+	OutputRecoveries int          `json:"output_recoveries"`
 }
 
 // No universal tokenizer exists for local/remote routers. This deliberately
@@ -99,7 +100,7 @@ func nativeOutputLimit(route ChatLocalEndpoint, status NativeContextStatus) int 
 		return route.OutputTokens
 	}
 	available := status.Window - status.SafetyReserve - status.EstimatedInput
-	return min(16384, available)
+	return max(1, available)
 }
 
 func (s *NativeContextStatus) observe(usage *NativeUsage, uncalibrated int) {
@@ -125,7 +126,11 @@ func nativeContextEvent(kind string, status NativeContextStatus) StreamEvent {
 	if kind == "usage" && status.LastUsage != nil {
 		detail = fmt.Sprintf("Endpoint usage: %d input / %d output tokens", status.LastUsage.PromptTokens, status.LastUsage.CompletionTokens)
 	}
-	return StreamEvent{Type: kind, Detail: detail, Raw: fields, OK: true}
+	e := StreamEvent{Type: kind, Detail: detail, Raw: fields, OK: true, Model: status.Model}
+	if kind == "usage" {
+		e.Usage = status.LastUsage
+	}
+	return e
 }
 
 // NativeContext returns only budgeting metadata, never prompts, images or keys.

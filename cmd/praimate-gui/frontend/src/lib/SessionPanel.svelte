@@ -12,6 +12,7 @@
   // it crashed, this brings it back. Trade-off documented in the
   // tooltip.
   import { onMount, onDestroy } from 'svelte'
+  import { floatingPanel } from './floatingPanel.js'
   import { api } from './api.js'
   import { showConfirm } from './stores.js'
   import { term, findTerminalForChat } from './terminal.js'
@@ -25,18 +26,21 @@
   let open = false
   let loading = false
   let timer = null
+  let trigger
+  let error = ''
+  let deleting = false
 
   async function load() {
     if (loading) return
     loading = true
     try {
       const [cs, ids, terms, loadedAgents] = await Promise.all([
-        api.listChats().catch(() => []),
+        api.listChats(),
         api.activeChatIDs().catch(() => []),
         api.listTerminalSessions().catch(() => []),
         api.listAgents().catch(() => []),
       ])
-      chats = cs || []
+      chats = (cs || []).filter(c => c.Settings?.surface !== 'workers' && c.Settings?.surface !== 'workflow')
       agents = loadedAgents || []
       agentNames = new Map(agents.map((a) => [a.id, a.name || a.id]))
       active = new Set(ids || [])
@@ -54,6 +58,8 @@
         m.set(c.ID, recovered)
       }
       liveTerms = m
+    } catch (e) {
+      error = String(e)
     } finally {
       loading = false
     }
@@ -94,32 +100,47 @@
     return `${Math.round(h / 24)}d ago`
   }
 
-  async function closeSession(c, confirmClose = true) {
-    if (confirmClose) {
+  async function deleteSession(c) {
+    await api.cancelChatTurn(c.ID)
+    const live = liveTerms.get(c.ID)
+    if (live) await term.close(live.id)
+    await api.deleteChat(c.ID)
+    if ($openChatId === c.ID) openChatId.set('')
+    pageRevision.update(n => n + 1)
+  }
+
+  async function closeSession(c) {
+    if (deleting) return
+    deleting = true
+    try {
       const ok = await showConfirm({
-        title: 'Close Session',
-        message: `Close "${c.Title || c.ID}"? In-flight replies will be cancelled and the session removed.`
+        title: 'Delete session?',
+        message: `Delete "${c.Title || c.ID}" from PrAImate? This stops its running reply or terminal and permanently deletes the saved conversation and messages throughout the application. It does not just remove this item from the panel. Project files are kept. This cannot be undone.`,
+        confirmLabel: 'Delete session'
       })
       if (!ok) return
-    }
-    // 1. Cancel any in-flight turn — no-op if nothing's running.
-    try { await api.cancelChatTurn(c.ID) } catch {}
-    // 2. Kill the bound PTY if it's still up.
-    const live = liveTerms.get(c.ID)
-    if (live) { try { await term.close(live.id) } catch {} }
-    // 3. Drop the chat row so it stops showing up.
-    try { await api.deleteChat(c.ID) } catch {}
-    await load()
+      error = ''
+      await deleteSession(c)
+      await load()
+    } catch (e) { error = String(e) }
+    finally { deleting = false }
   }
 
   async function closeAllSessions() {
-    if (!chats.length) return
-    const ok = await showConfirm({
-      title: 'Close All Sessions',
-      message: `Close all ${chats.length} active sessions? In-flight replies will be cancelled.`
-    })
-    if (!ok) return
-    for (const c of chats) await closeSession(c, false)
+    if (deleting || !chats.length) return
+    const sessions = [...chats]
+    deleting = true
+    try {
+      const ok = await showConfirm({
+        title: 'Delete all listed sessions?',
+        message: `Permanently delete all ${sessions.length} listed conversations and their messages throughout PrAImate? Running replies and terminals will stop. This includes saved sessions that are not running. Project files are kept. This cannot be undone.`,
+        confirmLabel: 'Delete all sessions'
+      })
+      if (!ok) return
+      error = ''
+      for (const c of sessions) await deleteSession(c)
+    } catch (e) { error = String(e) }
+    finally { await load(); deleting = false }
   }
 
   async function jump(c) {
@@ -183,19 +204,21 @@
 </script>
 
 <div class="wrap">
-  <button class="sess-btn" title="Open sessions — chats, Studio, and Code terminals you have running" on:click={toggle} class:on={open}>
+  <button bind:this={trigger} aria-expanded={open} aria-controls="session-flyout" class="sess-btn" title="Saved and running sessions" on:click={toggle} class:on={open}>
     <span class="dot" class:live={active.size > 0}></span>
     <span class="lbl">Sessions{active.size ? ` · ${active.size} live` : ''}</span>
   </button>
 
   {#if open}
-    <div class="sheet">
+    <div class="sheet" id="session-flyout" role="dialog" aria-label="Sessions" tabindex="-1" use:floatingPanel={{ anchor: trigger, close: () => open = false }}>
       <div class="sheet-head">
-        <strong class="grow">Open sessions</strong>
-        <button class="close-all" title="Close every open session" on:click={closeAllSessions} disabled={loading || chats.length === 0}>Close all</button>
+        <strong class="grow">Sessions</strong>
+        <button class="close-all" title="Delete all listed sessions and their saved history" on:click={closeAllSessions} disabled={loading || deleting || chats.length === 0}>Delete all</button>
         <button class="x" title="Refresh" on:click={load} disabled={loading}>↻</button>
-        <button class="x" title="Close" on:click={() => (open = false)}>×</button>
+        <button class="x" title="Close panel" aria-label="Close sessions panel" on:click={() => (open = false)}>×</button>
       </div>
+      {#if error}<div class="panel-error" role="alert">{error}</div>{/if}
+      <div class="panel-hint">Saved conversations and running terminals. Deleting a session removes its history from PrAImate.</div>
       {#if chats.length === 0}
         <div class="empty">No chats yet — start one from the Code, Chats, or Agents page.</div>
       {/if}
@@ -210,7 +233,7 @@
             <span class="title grow">{c.Title || c.ID}</span>
             <span class="meta">{#if c.AgentID}Agent: {agentName(c)} · {/if}{c.CLIAgent || ''} · {fmtAgo(c.UpdatedAt || c.CreatedAt)}</span>
           </button>
-          <button class="row-close" title="Close this session (stops the chat / kills the PTY and deletes the row)" on:click|stopPropagation={() => closeSession(c)}>×</button>
+          <button class="row-close" disabled={deleting} aria-label={`Delete session ${c.Title || c.ID}`} title="Delete session and saved history" on:click|stopPropagation={() => closeSession(c)}>×</button>
         </div>
       {/each}
     </div>
@@ -235,19 +258,19 @@
   .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   .sheet {
-    position: absolute;
-    bottom: calc(100% + 6px);
-    left: 0;
-    width: min(420px, 96vw);
-    max-height: 60vh;
+    position: fixed;
+    width: min(540px, calc(100vw - 24px));
+    max-height: min(640px, calc(100dvh - 24px));
     overflow-y: auto;
     background: var(--bg-raised, var(--bg-panel));
     border: 1px solid var(--border-bright, var(--border));
     border-radius: 10px;
-    box-shadow: 0 12px 36px rgba(0,0,0,0.45);
-    z-index: 50;
+    box-shadow: var(--shadow-overlay, 0 12px 36px rgba(0,0,0,0.25));
+    z-index: 19000;
   }
-  .sheet-head { display: flex; gap: 6px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .panel-error { padding: 12px; color: var(--err); overflow-wrap: anywhere; }
+  .panel-hint { padding: 10px 12px; font-size: 11px; color: var(--text-dim); border-bottom: 1px solid var(--border); }
+  .sheet-head { position: sticky; top: 0; background: var(--bg-raised, var(--bg-panel)); z-index: 1; display: flex; gap: 6px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); }
   .sheet-head .x { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 2px 8px; font-size: 14px; }
   .close-all { background: none; border: 1px solid var(--border); border-radius: 5px; color: var(--err); cursor: pointer; font-size: 11px; padding: 3px 6px; }
   .close-all:disabled { cursor: default; opacity: .5; }
@@ -280,11 +303,12 @@
     background: var(--bg-panel); color: var(--text-dim);
     flex: none;
   }
-  .surf-studio { color: #b09cff; }
-  .surf-code   { color: #ffa657; }
-  .surf-helper { color: #79c0ff; }
+  .surf-studio { color: var(--accent); }
+  .surf-code   { color: var(--warn); }
+  .surf-helper { color: var(--accent); }
   .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .meta { font-size: 10px; color: var(--text-dim); flex: none; }
+  .meta { font-size: 10px; color: var(--text-dim); max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (prefers-reduced-motion: reduce) { .dot.live, .pulse.live { animation: none; } }
   .grow { flex: 1; min-width: 0; }
 
   @keyframes pulse {

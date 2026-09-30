@@ -477,6 +477,14 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 			return nil, err
 		}
 		return true, NewManager(s.core).SaveRecentProject(p.Path)
+	case "usage.dashboard":
+		var p struct {
+			Month string `json:"month"`
+		}
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return s.core.UsageDashboard(ctx, p.Month)
 	case "chats.list":
 		chats, err := s.core.ListChats(ctx, 0)
 		if err != nil {

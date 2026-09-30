@@ -15,6 +15,7 @@
   let agentNames = new Map()
   let workspaceChats = []
   let error = ''
+  let threadErrors = {}
   let selected = null
   let messages = []
   let draft = ''
@@ -384,14 +385,18 @@
       return
     }
     selected = chat
+    error = threadErrors[chat.ID] || ''
     toolsLevel = normalizeToolsForCli(chat.CLIAgent, chat.Settings?.tools)
     attachments = []
     approvals = []
     try {
-      messages = (await api.chatMessages(chat.ID)) || []
+      const history = (await api.chatMessages(chat.ID)) || []
+      if (selected?.ID !== chat.ID) return
+      messages = history
+      error = threadErrors[chat.ID] || history.at(-1)?.Meta?.error || ''
       await scrollToBottom(true)
     } catch (e) {
-      error = String(e)
+      if (selected?.ID === chat.ID) error = String(e)
     }
   }
 
@@ -400,6 +405,8 @@
     // the CLI waiting on an answer.
     for (const ap of approvals) api.resolveApproval(ap.id, false, false).catch(() => {})
     approvals = []
+    error = ''
+    stream = null
     selected = null
     messages = []
     draft = ''
@@ -440,8 +447,8 @@
       stream.text += (ev.text || '')
     } else if (ev.type === 'reasoning') {
       stream.reasoning = (stream.reasoning || '') + (ev.text || ev.detail || '')
-    } else if (ev.type === 'step_start' || ev.type === 'step_finish' || ev.type === 'error') {
-      stream.steps = [...(stream.steps || []), { type: ev.type, detail: ev.detail, ok: ev.type !== 'error' && ev.ok !== false }]
+    } else if (ev.type === 'step_start' || ev.type === 'step_finish' || ev.type === 'context_compacted' || ev.type === 'context_recovery' || ev.type === 'error') {
+      stream.steps = [...(stream.steps || []), { type: ev.type.startsWith('context_') ? 'step_start' : ev.type, detail: ev.detail, ok: ev.type !== 'error' && ev.ok !== false }]
     } else if (ev.type === 'tool_start') {
       stream.tools = [...stream.tools, { id: ev.id || '', tool: ev.tool, detail: ev.detail, done: false, ok: true }]
     } else if (ev.type === 'tool_end') {
@@ -492,6 +499,7 @@
     const chatID = selected.ID
     sending = true
     error = ''
+    delete threadErrors[chatID]
     stream = null
     const isCommand = text.startsWith('!')
     const staged = compact ? [] : attachments
@@ -512,27 +520,33 @@
         await api.sendChatStream(chatID, text, staged.map((a) => a.path))
       }
       // Replace the optimistic copy with the persisted pair.
-      if (selected?.ID === chatID) messages = (await api.chatMessages(chatID)) || messages
+      const history = await api.chatMessages(chatID)
+      if (selected?.ID === chatID) messages = history || messages
       if (selected?.ID === chatID) {
         const refreshed = ((await api.listChats().catch(() => [])) || []).find((chat) => chat.ID === chatID)
-        if (refreshed) {
+        if (refreshed && selected?.ID === chatID) {
           selected = refreshed
           showSkillDeliveryToast(refreshed.Settings?.skill_runtime, 'Chat')
         }
       }
     } catch (e) {
-      error = String(e)
+      threadErrors[chatID] = String(e)
+      if (selected?.ID !== chatID) return
+      error = threadErrors[chatID]
       try {
-        if (selected?.ID === chatID) messages = (await api.chatMessages(chatID)) || messages.filter((m) => !m._pending)
+        const history = await api.chatMessages(chatID)
+        if (selected?.ID === chatID) messages = history || messages.filter((m) => !m._pending)
       } catch {
-        messages = messages.filter((m) => !m._pending)
+        if (selected?.ID === chatID) messages = messages.filter((m) => !m._pending)
       }
-      if (!compact) attachments = staged
+      if (!compact && selected?.ID === chatID) attachments = staged
     } finally {
       sending = false
-      stream = null
-      approvals = [] // turn is over; anything unanswered was denied/cancelled
-      await scrollToBottom()
+      if (selected?.ID === chatID) {
+        stream = null
+        approvals = [] // turn is over; anything unanswered was denied/cancelled
+        await scrollToBottom()
+      }
     }
   }
 
@@ -760,7 +774,7 @@
       {/if}
     {/if}
     {#if cfg.cli === 'praimate-cli'}
-      <div class="card-sub" style="margin-top:12px">Use 0 for host defaults or automatic selection. Automatic context comes from the server (8192 tokens if unavailable). Automatic output uses the remaining space, up to 16384 tokens including reasoning. A nonzero output limit stays fixed.</div>
+      <div class="card-sub" style="margin-top:12px">Use 0 for host defaults or automatic selection. Automatic context comes from the server (8192 tokens if unavailable). Automatic output uses the remaining backend context, including reasoning. A nonzero output limit stays fixed.</div>
       {#if cfg.contextStatus}
         <div class="card-sub">Effective: {cfg.contextStatus.window_tokens} context · {cfg.contextStatus.input_limit_tokens} available input · {cfg.contextStatus.output_automatic ? 'automatic output' : `${cfg.contextStatus.output_reserve_tokens} output limit`} · {cfg.contextStatus.source || 'configured'}</div>
         {#if cfg.contextStatus.last_output_limit_tokens}<div class="card-sub">Last request output limit: {cfg.contextStatus.last_output_limit_tokens} tokens, including reasoning.</div>{/if}
@@ -1075,7 +1089,7 @@
           {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
         {/if}
         {#if newCli === 'praimate-cli'}
-          <div class="card-sub" style="margin-top:12px">Use 0 for host defaults or automatic selection. Automatic context comes from the server (8192 tokens if unavailable). Automatic output uses the remaining space, up to 16384 tokens including reasoning. A nonzero output limit stays fixed.</div>
+          <div class="card-sub" style="margin-top:12px">Use 0 for host defaults or automatic selection. Automatic context comes from the server (8192 tokens if unavailable). Automatic output uses the remaining backend context, including reasoning. A nonzero output limit stays fixed.</div>
           <div class="row" style="gap:10px; flex-wrap:wrap">
             <label class="lbl">Context window tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={newContextTokens} /></label>
             <label class="lbl">Output limit tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={newOutputTokens} /></label>

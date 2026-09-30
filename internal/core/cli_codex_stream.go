@@ -193,6 +193,7 @@ func (a *execAdapter) codexResumeStream(ctx context.Context, sessionID string, o
 // releases.
 type codexStreamLine struct {
 	Type     string         `json:"type"`
+	Usage    map[string]any `json:"usage"`
 	ThreadID string         `json:"thread_id"`
 	Item     map[string]any `json:"item"`
 	Msg      *struct {
@@ -232,6 +233,9 @@ func parseCodexStream(r io.Reader, emit StreamHandler) codexStreamResult {
 				case line.Type == "turn.started":
 					emit(StreamEvent{Type: "step_start", Detail: "turn"})
 				case line.Type == "turn.completed":
+					if usage := reportedUsage(line.Usage, "input_tokens", "output_tokens"); usage != nil {
+						emit(StreamEvent{Type: "usage", Usage: usage, OK: true})
+					}
 					emit(StreamEvent{Type: "step_finish", Detail: "turn"})
 				case line.Msg != nil:
 					if line.Msg.SessionID != "" {

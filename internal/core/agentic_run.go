@@ -427,7 +427,15 @@ func (m *managedCLIModel) Turn(ctx context.Context, input agentic.ModelInput, em
 		if emit == nil || ev.Type == "text" {
 			return
 		}
-		emit(agentic.Event{Type: "model." + ev.Type, Tool: ev.Tool, Detail: ev.Detail, OK: ev.OK, Payload: ev.Raw})
+		payload := ev.Raw
+		if ev.Usage != nil || ev.Model != "" {
+			payload = make(map[string]any, len(ev.Raw)+3)
+			for key, value := range ev.Raw {
+				payload[key] = value
+			}
+			payload["provider_usage"], payload["provider_model"], payload["provider_event_id"] = ev.Usage, ev.Model, ev.ID
+		}
+		emit(agentic.Event{Type: "model." + ev.Type, Tool: ev.Tool, Detail: ev.Detail, OK: ev.OK, Payload: payload})
 	}
 	// V2 requests carry the complete measured payload each time. Starting a
 	// fresh safe CLI call prevents private native history duplicating it.

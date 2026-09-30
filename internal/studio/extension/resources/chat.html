@@ -17,6 +17,12 @@ main{flex:1;min-height:0;display:flex}.page{flex:1;min-width:0;overflow:auto;pad
 .form-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));margin:18px 0}.field{display:flex;flex-direction:column;gap:6px}.section{border-top:1px solid var(--vscode-widget-border,#8884);padding-top:16px;margin-top:20px}#settings-page{max-width:980px;width:100%;margin:0 auto}@media(min-width:720px){#chat-page{max-width:1000px;margin:auto;height:100%;padding:0 28px 18px}.page{padding:22px}}
 .worker-profiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:8px}.worker-profiles fieldset{min-width:0;border:1px solid var(--vscode-widget-border,#8884);border-radius:6px;margin:0;padding:10px}.worker-profiles .field{margin:8px 0}.worker-lanes{display:flex;gap:8px;overflow:auto;min-height:240px}.worker-lanes section{flex:1 0 220px;min-width:0;border:1px solid var(--vscode-widget-border,#8884);border-radius:6px}.worker-lanes section.closed{flex:0 0 70px}.worker-lanes section.closed .lane-title{writing-mode:vertical-rl;min-height:180px}.worker-lanes pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}.worker-tabs{display:flex;gap:5px;overflow:auto;padding:8px 0}.worker-tabs button{white-space:nowrap;flex:none}.worker-tabs .selected{border-color:var(--vscode-focusBorder)}.worker-event{border-top:1px solid var(--vscode-widget-border,#8884);padding:7px}.worker-event small{color:var(--vscode-descriptionForeground)}
 .worker-layout{display:grid;grid-template-columns:190px minmax(0,1fr);gap:12px;margin-top:12px}.worker-tabs{display:flex;flex-direction:column;max-height:calc(100vh - 180px);border-right:1px solid var(--vscode-widget-border,#8884);padding-right:8px}.worker-tabs button{text-align:left;white-space:normal;overflow-wrap:anywhere}.worker-main{min-width:0}.worker-overlay{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:12px;background:#0009}.worker-create-card{width:min(960px,100%);max-height:calc(100vh - 24px);overflow:auto;padding:16px;border:1px solid var(--vscode-widget-border,#8884);border-radius:8px;background:var(--vscode-editor-background);color:var(--vscode-editor-foreground)}.worker-create-head{display:flex;align-items:center;gap:8px}.worker-create-head h2{flex:1}.worker-chat-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.worker-chat-head strong{flex:1;min-width:160px;overflow-wrap:anywhere}@media(max-width:620px){.worker-layout{grid-template-columns:1fr}.worker-tabs{flex-direction:row;max-height:none;border-right:0;border-bottom:1px solid var(--vscode-widget-border,#8884);padding:0 0 8px}.worker-tabs button{min-width:150px}}
+
+/* Theme-native surfaces, quiet motion and visible keyboard focus. */
+body{--panel-border:var(--vscode-widget-border,#8884);--panel-bg:var(--vscode-editor-background);line-height:1.5}
+header{padding:14px 16px;gap:10px}header strong{font-size:15px;letter-spacing:.02em}button{border-radius:8px;min-height:30px;transition:background .14s,border-color .14s,box-shadow .14s}button:active:not(:disabled){transform:translateY(1px)}.primary:hover{background:var(--vscode-button-hoverBackground)}input,select,textarea{border-radius:8px;transition:border-color .14s}nav{gap:5px;padding:10px 12px}nav button[aria-current=page]{border-color:transparent;box-shadow:inset 0 0 0 1px var(--vscode-focusBorder)}h1{font-size:21px;letter-spacing:-.025em}.card,.msg,.worker-lanes section,.worker-profiles fieldset{border-radius:12px}.card,.worker-lanes section{background:var(--panel-bg)}.card{padding:16px;box-shadow:0 2px 8px #00000008}.card:hover{border-color:var(--vscode-focusBorder)}.msg{padding:14px}.msg.assistant{border:1px solid var(--panel-border);background:var(--panel-bg)}.role{font-weight:600;letter-spacing:.07em}.composer{padding:12px;border:1px solid var(--panel-border);border-radius:14px;background:var(--panel-bg);box-shadow:0 4px 18px #0000000a}.composer:focus-within{border-color:var(--vscode-focusBorder)}#prompt-input{border-color:transparent;background:transparent;min-height:80px}#notice{flex:none;margin:8px 0;border:1px solid var(--vscode-inputValidation-errorBorder,var(--vscode-errorForeground));border-radius:9px;background:var(--vscode-inputValidation-errorBackground);white-space:pre-wrap;max-width:100%}.worker-create-card{border-radius:16px;box-shadow:0 20px 70px #0005;padding:20px}.worker-event{padding:12px}.worker-lanes{gap:12px}.worker-lanes>section>button{margin:8px;max-width:calc(100% - 16px)}.usage-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,155px),1fr));gap:12px;margin:18px 0}.usage-value{font-size:28px;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:-.04em;margin:8px 0}.usage-bar{height:6px;border-radius:6px;background:var(--vscode-button-background);margin:8px 0 16px;min-width:2px}.usage-months{display:flex;align-items:end;gap:12px;min-height:120px;margin-top:16px}.usage-months>div{flex:1;min-width:0;text-align:center}.usage-months .usage-bar{margin:auto auto 6px;width:70%;border-radius:6px 6px 2px 2px}.usage-months small{font-size:10px}.usage-label{display:flex;gap:8px;justify-content:space-between;overflow-wrap:anywhere}.usage-label span:last-child{flex:none;color:var(--vscode-descriptionForeground)}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}button:active:not(:disabled){transform:none}}
+@media(forced-colors:active){button,.card,.msg,.composer{border:1px solid ButtonText}.usage-bar{background:Highlight}}
 </style>
 </head>
 <body>
@@ -25,6 +31,7 @@ main{flex:1;min-height:0;display:flex}.page{flex:1;min-width:0;overflow:auto;pad
 <div id="notice" class="error" role="alert" hidden></div>
 <nav id="navigation" aria-label="PrAImate sections"></nav>
 <main>
+<section id="overview-page" class="page" hidden><div class="toolbar"><h1 class="grow">Overview</h1><input id="usage-month" type="month" aria-label="Usage month" style="width:auto"><button id="usage-refresh">Refresh</button></div><p class="hint">Your usage, stored in the encrypted PrAImate profile database.</p><div id="usage-content" aria-live="polite"></div></section>
 <section id="chat-page" class="page">
   <div class="toolbar"><button id="new-btn">New chat</button><span class="grow"></span><button id="chat-terminal-btn" title="Choose an installed native CLI; its own permissions and configuration apply">CLI terminal…</button><button id="settings-btn">Session settings</button></div>
   <div id="session-summary" class="muted"></div><div id="messages" role="log" aria-label="Conversation"></div>
@@ -53,14 +60,14 @@ main{flex:1;min-height:0;display:flex}.page{flex:1;min-width:0;overflow:auto;pad
   </div><p class="hint">Ask requests approval for managed tools. Native CLIs without an approval bridge fall back to safe mode. Full permits autonomous tool use.</p>
   <div class="section"><h2>Local model routing</h2><p id="local-hint" class="hint">Leave endpoint empty to use the CLI provider.</p><div class="form-grid">
     <label class="field">Endpoint<input id="local-endpoint" placeholder="http://localhost:11434/v1"></label><label class="field">Local model<input id="local-model" placeholder="Model name"></label>
-  </div><div id="native-budget" hidden><p class="hint">Use 0 for host defaults or automatic selection. Automatic context comes from the server (8192 tokens if unavailable). Automatic output uses the remaining space, up to 16384 tokens including reasoning. A nonzero output limit stays fixed.</p><div class="form-grid"><label class="field">Context window tokens<input id="local-context-tokens" type="number" min="0" max="2000000" step="1"></label><label class="field">Output limit tokens<input id="local-output-tokens" type="number" min="0" max="2000000" step="1"></label></div></div><div class="toolbar"><button id="local-hosts-btn" type="button">Manage profiles…</button></div></div><div class="toolbar"><button id="save-session" class="primary" type="submit">Save session</button><span id="saved-label" class="hint" aria-live="polite"></span></div></form>
+  </div><div id="native-budget" hidden><p class="hint">Use 0 for host defaults or automatic selection. Automatic context comes from the server (8192 tokens if unavailable). Automatic output uses the remaining backend context, including reasoning. A nonzero output limit stays fixed.</p><div class="form-grid"><label class="field">Context window tokens<input id="local-context-tokens" type="number" min="0" max="2000000" step="1"></label><label class="field">Output limit tokens<input id="local-output-tokens" type="number" min="0" max="2000000" step="1"></label></div></div><div class="toolbar"><button id="local-hosts-btn" type="button">Manage profiles…</button></div></div><div class="toolbar"><button id="save-session" class="primary" type="submit">Save session</button><span id="saved-label" class="hint" aria-live="polite"></span></div></form>
   <div class="section"><h2>Workspace, privacy & integrations</h2><p class="hint">Switching workspace starts a new conversation. Credentials are collected by the extension host and never enter this page.</p><div class="toolbar"><button id="workspace-btn">Workspace folder…</button><button id="privacy-btn">Privacy patterns…</button><button id="settings-skills">Skills</button><button id="settings-mcp">MCP servers</button></div></div>
   <div class="section"><h2>CLI availability & native terminals</h2><p class="hint">Detection can take up to 20 seconds. A failed probe is separate from the Core connection.</p><div id="cli-health" class="cards"></div><div class="toolbar"><button id="rescan-btn">Rescan CLIs</button><button id="terminal-btn">Open selected CLI terminal</button><button id="choose-terminal-btn">Choose CLI…</button></div><p class="hint">Terminals run Claude Code, OpenClaude, Codex, OpenCode or PrAImate Code interactively in this workspace. The selected CLI uses the saved model; choosing another CLI uses its default model. Native CLI permissions and configuration apply: Studio's persona, skills, MCP, local routing and tool permissions are not copied. Save model changes before opening a terminal.</p></div>
 </section>
 </main>
 <script>
 const vscode = acquireVsCodeApi(), $ = id => document.getElementById(id);
-const pages = {chat:'Chat',workers:'Workers',history:'History',agents:'Agents',workflows:'Workflows',skills:'Skills',mcp:'MCP',runs:'Runs',settings:'Settings'};
+const pages = {overview:'Overview',chat:'Chat',workers:'Workers',history:'History',agents:'Agents',workflows:'Workflows',skills:'Skills',mcp:'MCP',runs:'Runs',settings:'Settings'};
 const descriptions = {
   history:'Conversations in this workspace. Resume, rename or delete a conversation.',
   agents:'Create, edit, import, export and choose personas. Agent YAML also owns workflow definitions.',
@@ -73,14 +80,15 @@ const saved = vscode.getState?.() || {}, pending = new Map();
 let page = pages[saved.page] ? saved.page : 'chat', status = {}, collections = {}, dirty = false, configSignature = '', requestID = 0;
 const messagesDiv = $('messages'), promptInput = $('prompt-input'); promptInput.value = saved.draft || '';
 function persist() { vscode.setState?.({page,draft:promptInput.value}); }
-function post(type,data = {},done) { const requestId = ++requestID; if(done) pending.set(requestId,done); vscode.postMessage({type,...data,requestId}); }
+function post(type,data = {},done) { const requestId = ++requestID; pending.set(requestId,{done,page,chatId:status.chatId,workerId:workerSelected}); vscode.postMessage({type,...data,requestId}); }
 function button(label,fn,disabled = false) { const b = document.createElement('button'); b.textContent = label; b.disabled = disabled; b.addEventListener('click',fn); return b; }
 function element(tag,text,className = '') { const e = document.createElement(tag); e.textContent = text; e.className = className; return e; }
-function notice(text) { $('notice').textContent = text; $('notice').hidden = !text; }
+function notice(text) { const target=$(pages[page] && ['chat','workers','settings','overview'].includes(page) ? page+'-page' : 'catalog-page'); target.prepend($('notice')); $('notice').textContent = text; $('notice').hidden = !text; }
 function navigate(next) {
-  page = next; persist(); notice(''); $('chat-page').hidden = page !== 'chat'; $('workers-page').hidden = page !== 'workers'; $('settings-page').hidden = page !== 'settings'; $('catalog-page').hidden = page === 'chat' || page === 'workers' || page === 'settings';
+  page = next; persist(); notice(''); $('overview-page').hidden = page !== 'overview'; $('chat-page').hidden = page !== 'chat'; $('workers-page').hidden = page !== 'workers'; $('settings-page').hidden = page !== 'settings'; $('catalog-page').hidden = page === 'chat' || page === 'workers' || page === 'settings' || page === 'overview';
   for(const b of $('navigation').children) b.setAttribute('aria-current',b.dataset.page === page ? 'page' : 'false');
   if(descriptions[page]) { $('search').value = ''; loadCollection(); }
+  if(page === 'overview' && status.connected) loadUsage();
   if(page === 'workers' && status.connected) post('workerLoad');
 }
 for(const [id,label] of Object.entries(pages)) { const b = button(label,() => navigate(id)); b.dataset.page = id; $('navigation').appendChild(b); }
@@ -191,10 +199,11 @@ function renderWorkerProfiles() {
     host.appendChild(box);
   }
 }
+const workerVisible = new Map();
 function renderWorkerRuns() {
   const tabs=$('worker-tabs');tabs.replaceChildren();
   if(!workerRuns.length) tabs.appendChild(element('p','No worker chats yet.','empty'));
-  for(const run of workerRuns) {const tab=button((run.title || run.task || '').slice(0,48)+' · '+run.status,() => {workerSelected=run.id;workerRenaming=false;post('workerRefresh',{id:workerSelected});});if(run.id===workerSelected)tab.classList.add('selected');tabs.appendChild(tab);}
+  for(const run of workerRuns) {const tab=button((run.title || run.task || '').slice(0,48)+' · '+run.status,() => {notice('');workerSelected=run.id;workerRenaming=false;post('workerRefresh',{id:workerSelected});});if(run.id===workerSelected)tab.classList.add('selected');tabs.appendChild(tab);}
   const result=$('worker-result');result.replaceChildren();const lanes=$('worker-lanes');lanes.replaceChildren();
   $('worker-continue').hidden=!workerSnapshot || workerSnapshot.status==='running';
   $('worker-status').textContent=workerSnapshot?.status || '';
@@ -219,7 +228,9 @@ function renderWorkerRuns() {
   for(const [tier,label] of workerTiers) {
     const lane=element('section','',workerCollapsed[tier]?'closed':''), profile=(workerSnapshot.profiles || []).find(p => p.tier===tier) || {};
     lane.appendChild(button(label+' · '+(profile.cli || 'Local')+' / '+(profile.model || '—')+(workerCollapsed[tier]?' ▸':' ▾'),() => {workerCollapsed[tier]=!workerCollapsed[tier];renderWorkerRuns();}));
-    if(!workerCollapsed[tier]) for(const ev of (workerSnapshot.events || []).filter(event => event.tier===tier)) {const item=element('article','','worker-event');item.appendChild(element('small',ev.kind+' · '+new Date(ev.timestamp).toLocaleTimeString()));item.appendChild(element('pre',ev.text || ''));lane.appendChild(item);}
+    const eventKey=workerSelected+':'+tier, events=(workerSnapshot.events || []).filter(event=>event.tier===tier), limit=workerVisible.get(eventKey) || 80;
+    if(!workerCollapsed[tier] && events.length>limit) lane.appendChild(button('Show '+Math.min(80,events.length-limit)+' earlier events',()=>{workerVisible.set(eventKey,limit+80);renderWorkerRuns();}));
+    if(!workerCollapsed[tier]) for(const ev of events.slice(-limit)) {const item=element('article','','worker-event');item.appendChild(element('small',ev.kind+' · '+new Date(ev.timestamp).toLocaleTimeString()));item.appendChild(element('pre',ev.text || ''));lane.appendChild(item);}
     lanes.appendChild(lane);
   }
 }
@@ -321,7 +332,8 @@ $('local-hosts-btn').addEventListener('click',() => post('manageLocalHosts'));
 $('reload-btn').addEventListener('click',loadCollection); $('search').addEventListener('input',renderCollection);
 for(const [action,label] of Object.entries({explain:'Explain',fix:'Fix',refactor:'Refactor',test:'Tests',reviewFile:'Review file',reviewDiff:'Review changes'})) $('quick-actions').appendChild(button(label,() => post('quickAction',{action})));
 window.addEventListener('message',({data:m}) => {
-  if(m.type === 'status') updateStatus(m.status,m.context);
+  if(m.type === 'status') {const wasConnected=status.connected; if(status.chatId !== m.status.chatId) notice(''); updateStatus(m.status,m.context); if(!wasConnected && status.connected && page === 'overview') loadUsage();}
+  else if(m.type === 'usageDashboard' && m.dashboard.month === $('usage-month').value) renderUsage(m.dashboard);
   else if(m.type === 'workerState') {if(m.config?.profiles?.length) workerConfig=m.config;workerRuns=m.runs || [];if(!workerSelected && workerRuns.length)workerSelected=workerRuns[0].id;renderWorkerProfiles();renderWorkerRuns();if(workerSelected)post('workerRefresh',{id:workerSelected});}
   else if(m.type === 'workerModels') {workerModels[m.cli]=m.models || [];workerModelPending.delete(m.cli);renderWorkerProfiles();}
   else if(m.type === 'workerStarted') {workerSelected=m.id;$('worker-status').textContent='Running';$('worker-create').hidden=true;post('workerRefresh',{id:workerSelected});}
@@ -331,8 +343,24 @@ window.addEventListener('message',({data:m}) => {
   else if(m.type === 'messages') renderMessages(m.messages);
   else if(m.type === 'collection') {collections[m.name] = m; if(page === m.name) renderCollection();}
   else if(m.type === 'refresh') loadCollection();
-  else if(m.type === 'actionResult') {if(!m.ok) notice(m.error); const done = pending.get(m.id); pending.delete(m.id); if(done) done(m.ok);}
+  else if(m.type === 'actionResult') {const origin = pending.get(m.id); pending.delete(m.id); if(!m.ok && origin?.page === page && (page !== 'chat' || origin.chatId === status.chatId) && (page !== 'workers' || origin.workerId === workerSelected)) notice(m.error); if(origin?.done) origin.done(m.ok);}
 });
+
+const usageMonth=$('usage-month'); usageMonth.value=new Date().toISOString().slice(0,7); usageMonth.max=usageMonth.value;
+function loadUsage(){if(status.connected)post('usageDashboard',{month:usageMonth.value});}
+usageMonth.addEventListener('change',loadUsage); $('usage-refresh').addEventListener('click',loadUsage);
+function renderUsage(data){
+  const root=$('usage-content'),totals=data.totals,fmt=n=>Number(n || 0).toLocaleString(undefined,{maximumFractionDigits:0});root.replaceChildren();
+  const grid=element('div','','usage-grid');
+  for(const [label,value,detail] of [['Reported tokens',totals.tokens,fmt(totals.inputTokens)+' input · '+fmt(totals.outputTokens)+' output'],['Runs',totals.runs,'Chat turns and worker calls'],['Tokens / reported run',totals.averageTokensPerRun,'Average where usage is available'],['Active days',totals.activeDays,fmt(totals.averageTokensPerDay)+' tokens / calendar day']]){
+    const card=element('div','','card');card.append(element('div',label,'hint'),element('div',fmt(value),'usage-value'),element('div',detail,'hint'));grid.appendChild(card);
+  }root.appendChild(grid);
+  if(!totals.runs)root.appendChild(element('p','Your activity will appear here after your first chat or worker run. Earlier token usage cannot be reconstructed.','empty'));
+  const lists=element('div','','cards');for(const [title,rows] of [['Most used CLIs',data.clis],['Most used models',data.models]]){const card=element('section','','card');card.appendChild(element('h2',title));for(const row of rows.slice(0,6)){const label=element('div','','usage-label');label.append(element('span',row.name),element('span',fmt(row.runs)+' runs'));const bar=element('div','','usage-bar');bar.style.width=(100*row.runs/Math.max(1,totals.runs))+'%';card.append(label,bar);}lists.appendChild(card);}root.appendChild(lists);
+  const months=element('section','','card');months.style.marginTop='12px';months.appendChild(element('h2','Monthly tokens'));const bars=element('div','','usage-months'),max=Math.max(1,...data.months.map(m=>m.tokens));for(const row of data.months){const item=element('div'),bar=element('div','','usage-bar');bar.style.height=Math.max(2,row.tokens/max*90)+'px';item.title=row.name+': '+fmt(row.tokens)+' reported tokens';item.append(element('small',fmt(row.tokens)),bar,element('small',row.name));bars.appendChild(item);}months.appendChild(bars);root.appendChild(months);
+  root.appendChild(element('p',fmt(totals.reportedRuns)+' of '+fmt(totals.runs)+' runs include provider token reports. Missing reports are not estimated. Chat, Studio and Workers · UTC months. Standalone third-party terminals are not measured.','hint'));
+}
+
 post('ready'); navigate(page);
 </script>
 </body>

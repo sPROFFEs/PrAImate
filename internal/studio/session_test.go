@@ -79,6 +79,25 @@ func fixture(t *testing.T) (*Server, *studioAdapter) {
 	s.session.Workspace = t.TempDir()
 	return s, ad
 }
+
+func TestUsageDashboardUsesProfileStoreAndRequiresAuthentication(t *testing.T) {
+	s, _ := fixture(t)
+	s.token = "test-launch-token"
+	request := RPCRequest{ID: 1, Method: "usage.dashboard", Params: map[string]any{"month": "2026-09"}}
+	if response := s.dispatch(request); response.Error == nil {
+		t.Fatal("unauthenticated usage access")
+	}
+	s.authenticated = true
+	if response := s.dispatch(request); response.Error != nil {
+		t.Fatal(response.Error)
+	} else if dashboard, ok := response.Result.(*core.UsageDashboard); !ok || dashboard.Month != "2026-09" || dashboard.Totals.Runs != 0 {
+		t.Fatalf("unexpected dashboard: %+v", response.Result)
+	}
+	request.Params = map[string]any{"month": "invalid"}
+	if response := s.dispatch(request); response.Error == nil {
+		t.Fatal("invalid month accepted")
+	}
+}
 func rpcOK(t *testing.T, s *Server, method string, p any) any {
 	t.Helper()
 	r := s.dispatch(RPCRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: p})

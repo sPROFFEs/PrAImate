@@ -38,7 +38,7 @@ func ExecuteNativeWorkerStream(ctx context.Context, route ChatLocalEndpoint, sys
 	provider := nativeProvider{route: route}
 	reply, err := provider.turn(ctx, messages, nil, emit)
 	if err != nil {
-		return nil, err
+		return &NativeWorkerReply{Content: reply.Content, Usage: reply.Usage}, err
 	}
 	if len(reply.ToolCalls) != 0 {
 		return nil, errors.New("native worker returned an unrequested tool call")

@@ -137,6 +137,7 @@ Underlying CLIs may still keep native logs or sessions.
 
 | Page | Purpose |
 |---|---|
+| **Dashboard** | Monthly reported tokens, averages, and most-used CLIs/models, stored in the encrypted profile database. |
 | **Code** | Run a supported CLI live in a chosen project folder, with optional model, local endpoint, agent context, and MCP wiring. |
 | **Chats** | Create and reopen conversations with per-chat CLI, model, tools, skills, MCP and native context limits. |
 | **Studio** | Open projects in the integrated Code-OSS / VSCodium environment with the PrAImate sidebar. |
@@ -149,6 +150,20 @@ Underlying CLIs may still keep native logs or sessions.
 | **MCP** | Add, edit, enable, or remove locally configured stdio/HTTP MCP servers and local catalogue entries. |
 | **Settings** | Updates, source builds, appearance, Git backup, and storage/privacy controls. |
 | **About** | Version, platform, encryption status, paths, compatibility, and the full privacy disclosure. |
+
+Usage tracking starts with this update. Chat/Studio turns and Worker model calls
+are counted separately; missing provider token reports are shown as unavailable,
+not estimated. Standalone third-party terminals are not measured. Months use UTC.
+The VS Code extension's **Overview** reads the same encrypted profile metrics.
+Metrics contain CLI/model labels, timestamps, counts and durations, without
+prompts, responses, file contents or credentials. No separate telemetry file or
+remote analytics service is used.
+
+The sidebar **Sessions** button opens a floating panel of saved conversations and
+running terminals. **Delete session** and **Delete all** require confirmation:
+they stop active work and permanently delete those conversations from PrAImate,
+including their saved messages. Project files are kept. Closing the panel itself
+does not stop or delete any session.
 
 ## Agents and workflows
 

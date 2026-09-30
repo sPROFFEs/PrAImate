@@ -122,10 +122,11 @@ func firstErr(errs ...error) error {
 // claudeStreamLine is the tolerant superset of the stream-json line
 // shapes we care about; unknown types fall through silently.
 type claudeStreamLine struct {
-	Type      string `json:"type"`
-	SessionID string `json:"session_id"`
-	Result    string `json:"result"`
-	IsError   bool   `json:"is_error"`
+	Type      string         `json:"type"`
+	SessionID string         `json:"session_id"`
+	Result    string         `json:"result"`
+	IsError   bool           `json:"is_error"`
+	Usage     map[string]any `json:"usage"`
 	Event     *struct {
 		Type  string `json:"type"`
 		Delta *struct {
@@ -135,6 +136,7 @@ type claudeStreamLine struct {
 	} `json:"event"`
 	Message *struct {
 		Content []claudeContentBlock `json:"content"`
+		Model   string               `json:"model"`
 	} `json:"message"`
 }
 
@@ -181,6 +183,9 @@ func parseClaudeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 					}
 				case "assistant":
 					if line.Message != nil {
+						if line.Message.Model != "" {
+							emit(StreamEvent{Type: "model", Model: line.Message.Model})
+						}
 						for _, b := range line.Message.Content {
 							switch b.Type {
 							case "tool_use":
@@ -204,6 +209,9 @@ func parseClaudeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 						}
 					}
 				case "result":
+					if usage := reportedUsage(line.Usage, "input_tokens", "output_tokens"); usage != nil {
+						emit(StreamEvent{Type: "usage", Usage: usage, OK: true})
+					}
 					return &Reply{
 						Text:      strings.TrimRight(line.Result, "\n"),
 						SessionID: sessionID,

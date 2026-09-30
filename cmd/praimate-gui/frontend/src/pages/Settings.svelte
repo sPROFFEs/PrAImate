@@ -236,7 +236,7 @@
       }
     } catch (e) {
       error = String(e)
-      showToast({ title: 'Backup configuration failed', message: String(e), tone: 'err', duration: 0 })
+      showToast({ title: 'Backup configuration failed', message: String(e), tone: 'err', page: 'settings', duration: 0 })
       await bkLoad()
     } finally {
       bkBusy = ''
@@ -265,7 +265,7 @@
       })
     } catch (e) {
       error = String(e)
-      showToast({ title: 'Remote connection failed', message: String(e), tone: 'err', duration: 0 })
+      showToast({ title: 'Remote connection failed', message: String(e), tone: 'err', page: 'settings', duration: 0 })
     } finally {
       bkBusy = ''
     }

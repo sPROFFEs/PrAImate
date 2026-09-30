@@ -241,6 +241,7 @@ class ChatView {
         resetSession:async () => { this.newChat(); await context.workspaceState.update('session', {}); await context.workspaceState.update('launchId', launchInfo.launchId || 'environment'); connect(); },
         output:() => output.show(),
         openPanel:() => vscode.commands.executeCommand('praimate.openPanel'),
+        usageDashboard:async () => { const dashboard=await call('usage.dashboard',{month:data.month || ''}); view.webview.postMessage({type:'usageDashboard',dashboard}); },
         collection:() => this.loadCollection(data.name, view),
         selectAgent:() => configure({agentId:data.id}),
         agentDetails:async () => showJSON(await call('agents.get',{id:data.id})),
@@ -393,7 +394,8 @@ class ChatView {
     else if (event.type === 'tool_finish') {
       const tool = this.current.tools.find(t => (event.id ? t.id === event.id : t.name === event.tool) && t.status === 'running');
       if (tool) tool.status = event.ok ? 'completed' : 'failed';
-    } else if (event.type === 'error') this.current.content += '\n'+(event.text || event.detail || '');
+    } else if (event.type === 'context_compacted' || event.type === 'context_recovery') this.current.tools.push({name:'Context',detail:event.detail,status:'completed'});
+    else if (event.type === 'error') this.current.content += '\n'+(event.text || event.detail || '');
     this.render();
   }
   async workflow(wf) {

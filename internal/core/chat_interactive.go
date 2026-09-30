@@ -173,7 +173,7 @@ func (c *Core) ContinueChatWithAttachments(ctx context.Context, chatID, userMess
 // Note on privacy: streamed deltas show the REDACTED outbound form;
 // placeholder reveal happens only on the persisted final message (same
 // trade Claude/Codex desktop make — you watch the wire format live).
-func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd, systemPrompt string, attachments []string, onEvent StreamHandler) (*ChatTurn, error) {
+func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd, systemPrompt string, attachments []string, onEvent StreamHandler) (turn *ChatTurn, runErr error) {
 	if c.store == nil {
 		return nil, errors.New("ContinueChat: no store configured")
 	}
@@ -334,7 +334,11 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	// that persists on the assistant message, so reopened chats still
 	// show what the agent did.
 	var activity []map[string]any
+	var usage *UsageRecorder
 	collect := func(ev StreamEvent) {
+		if usage != nil {
+			usage.Observe(ev)
+		}
 		if len(activity) < 100 {
 			switch ev.Type {
 			case "reasoning":
@@ -354,7 +358,7 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 						}
 					}
 				}
-			case "step_start":
+			case "step_start", "context_compacted", "context_recovery":
 				activity = append(activity, map[string]any{"type": "step_start", "detail": compactActivityText(ev.Detail, 300), "ok": true})
 			case "step_finish":
 				activity = append(activity, map[string]any{"type": "step_finish", "detail": compactActivityText(ev.Detail, 300), "ok": ev.OK})
@@ -386,6 +390,15 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 	if chat.Settings.Surface == "studio" || chat.Settings.Surface == "studio-ide" || chat.Settings.Surface == "agent-helper" {
 		surface = SurfaceStudio
 	}
+	model := chat.Settings.Model
+	if model == "" && chat.Settings.Local != nil {
+		model = chat.Settings.Local.Model
+	}
+	usage, err = c.BeginUsage(ctx, chat.CLIAgent, model, string(surface))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { runErr = errors.Join(runErr, usage.Finish(runErr)) }()
 	if agent != nil {
 		if !contains(agent.Supports, chat.CLIAgent) {
 			return nil, fmt.Errorf("agent %q does not support CLI %q", agent.ID, chat.CLIAgent)
@@ -454,8 +467,8 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 
 	var reply *Reply
 	streamed := false
-	shouldStream := onEvent != nil || isOpenCodeLikeAdapter(adapter.Name()) || adapter.Name() == "praimate-cli"
-	if sc, ok := adapter.(streamingAdapter); ok && shouldStream {
+	// Collect provider usage even when the caller does not render live events.
+	if sc, ok := adapter.(streamingAdapter); ok {
 		if resuming {
 			reply, err = sc.ResumeStream(ctx, chat.SessionID, resumeOpts, collect)
 		} else {
@@ -493,7 +506,7 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 			var retryReply *Reply
 			var retryErr error
 			retryStreamed := false
-			if sc, ok := adapter.(streamingAdapter); ok && shouldStream {
+			if sc, ok := adapter.(streamingAdapter); ok {
 				retryReply, retryErr = sc.SingleShotStream(ctx, retryShotOpts, collect)
 				if errors.Is(retryErr, ErrStreamUnsupported) {
 					retryReply, retryErr = nil, nil
