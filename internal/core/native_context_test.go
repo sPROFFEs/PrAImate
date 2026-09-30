@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,6 +11,116 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestNativeAutomaticOutputUsesFreeContextForReasoning(t *testing.T) {
+	c := nativeTestCore(t)
+	var sent int
+	a := &nativeCLIAdapter{http: &http.Client{Transport: nativeTransport(func(r *http.Request) (*http.Response, error) {
+		var request struct {
+			MaxTokens int `json:"max_tokens"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		sent = request.MaxTokens
+		if sent <= 1024 {
+			return nativeHTTP(nativeSSE("", "length")), nil
+		}
+		thinking := "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"Planning the answer\"}}]}\n\n"
+		return nativeHTTP(thinking + nativeUsageSSE("Answer after reasoning", 948, 2000)), nil
+	})}}
+	installNativeTestAdapter(t, a)
+	ctx := context.Background()
+	chat, err := c.CreateChat(ctx, CreateChatRequest{CLIAgent: "praimate-cli", WorkspacePath: t.TempDir(), Settings: ChatSettings{Local: &ChatLocalEndpoint{Endpoint: "http://local.test/v1", Model: "reasoner", ContextTokens: 8192}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var budget NativeContextStatus
+	reply, err := c.ContinueChatStream(ctx, chat.ID, "Explain the project", chat.WorkspacePath, "", nil, func(e StreamEvent) {
+		if e.Type == "context" {
+			raw, _ := json.Marshal(e.Raw)
+			_ = json.Unmarshal(raw, &budget)
+		}
+	})
+	if err != nil || reply.Reply != "Answer after reasoning" {
+		t.Fatalf("reply=%+v error=%v", reply, err)
+	}
+	if sent <= 1024 || sent+budget.EstimatedInput+budget.SafetyReserve > budget.Window || budget.LastOutputLimit != sent {
+		t.Fatalf("unsafe or undersized automatic output: sent=%d budget=%+v", sent, budget)
+	}
+	status, err := c.NativeContext(ctx, chat.ID)
+	if err != nil || status == nil || !status.OutputAutomatic || status.LastOutputLimit != sent || status.LastUsage == nil || status.LastUsage.CompletionTokens != 2000 {
+		t.Fatalf("missing automatic mode/last request: %+v %v", status, err)
+	}
+}
+
+func TestNativeAutomaticOutputRejectionReducesAllowanceWithoutDroppingTask(t *testing.T) {
+	c := nativeTestCore(t)
+	run := nativeTestRun(c)
+	run.local.OutputAutomatic = true
+	var limits []int
+	a := &nativeCLIAdapter{http: &http.Client{Transport: nativeTransport(func(r *http.Request) (*http.Response, error) {
+		var request struct {
+			MaxTokens int             `json:"max_tokens"`
+			Messages  []nativeMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		limits = append(limits, request.MaxTokens)
+		if len(limits) == 1 {
+			response := nativeHTTP(`{"error":"context_length_exceeded"}`)
+			response.StatusCode = 400
+			return response, nil
+		}
+		if len(limits) != 2 || request.Messages[len(request.Messages)-1].Content != "Keep this complete request" {
+			t.Fatal("replayed request or lost current task")
+		}
+		return nativeHTTP(nativeSSE("done", "stop")), nil
+	})}}
+	reply, err := a.SingleShot(withNativeExecution(context.Background(), run), SingleShotOpts{Cwd: t.TempDir(), Message: "Keep this complete request"})
+	if err != nil || reply.Text != "done" || len(limits) != 2 || limits[1] >= limits[0] || limits[1] < run.local.OutputTokens {
+		t.Fatalf("limits=%v reply=%+v error=%v", limits, reply, err)
+	}
+}
+
+func TestNativeOutputAllocationRespectsContextAndExplicitLimits(t *testing.T) {
+	for _, tc := range []struct{ window, input, fixed, want int }{
+		{8192, 948, 0, 6835}, {8192, 6500, 0, 1283},
+		{32768, 2000, 0, 16384}, {8192, 948, 1024, 1024},
+	} {
+		route := ChatLocalEndpoint{ContextTokens: tc.window, OutputTokens: autoOutputTokens(tc.window, tc.fixed), OutputAutomatic: tc.fixed == 0}
+		status := nativeContextBudget(route, NativeContextStatus{})
+		status.EstimatedInput = tc.input
+		if got := nativeOutputLimit(route, status); got != tc.want {
+			t.Fatalf("%+v: got %d", tc, got)
+		}
+	}
+}
+
+func TestNativeExplicitHostOutputIsNotAutomatic(t *testing.T) {
+	c := nativeTestCore(t)
+	ctx := context.Background()
+	if _, err := c.SaveLocalHost(ctx, LocalHost{ID: "fixed", Endpoint: "http://local.test/v1", ContextTokens: 8192, OutputTokens: 1024}); err != nil {
+		t.Fatal(err)
+	}
+	route, err := c.resolveNativeRoute(ctx, &ChatLocalEndpoint{Endpoint: "http://local.test/v1", Model: "m"}, "")
+	if err != nil || route.OutputAutomatic || route.OutputTokens != 1024 {
+		t.Fatalf("host override lost: %+v %v", route, err)
+	}
+}
+
+func TestNativeReasoningLimitExplainsMissingAnswer(t *testing.T) {
+	requests := 0
+	p := nativeProvider{route: nativeTestRun(nil).local, http: &http.Client{Transport: nativeTransport(func(*http.Request) (*http.Response, error) {
+		requests++
+		return nativeHTTP("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"Still thinking\"},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n"), nil
+	})}}
+	_, err := p.turn(context.Background(), []nativeMessage{{Role: "user", Content: "explain"}}, nil, nil)
+	if !errors.Is(err, errNativeOutputLimit) || !strings.Contains(err.Error(), "reasoning consumes") || !strings.Contains(err.Error(), "before producing an answer") || requests != 1 {
+		t.Fatalf("misleading error or replayed partial stream: %v requests=%d", err, requests)
+	}
+}
 
 func nativeUsageSSE(text string, input, output int) string {
 	raw, _ := json.Marshal(map[string]any{"choices": []any{}, "usage": NativeUsage{input, output, input + output}})

@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { api, onApproval } from './lib/api.js'
   import { activePage, pageRevision, prefetchCLIs, agentStudio } from './lib/stores.js'
   import { initTheme, themeMode, setThemeMode } from './lib/theme.js'
@@ -27,6 +27,7 @@
     settings:
       'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
     sun: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4',
+    monitor: 'M3 3h18v14H3zM8 21h8M12 17v4',
     moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
     info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 10v7M12 7h.01',
     chevronLeft: 'M15 18l-6-6 6-6',
@@ -115,6 +116,12 @@
     }
   }
 
+  const cleanup = []
+  onDestroy(() => {
+    window.removeEventListener('keydown', handleKeydown)
+    cleanup.forEach((dispose) => dispose?.())
+  })
+
   let health = null
   // Detached chat/terminal children are presentation-only processes. Detect
   // them before asking for the encrypted DB password; the main process owns
@@ -202,7 +209,7 @@
 
   onMount(async () => {
     window.addEventListener('keydown', handleKeydown)
-    initTheme()
+    cleanup.push(initTheme())
     try {
       detachedMode = await api.detachedMode()
     } catch {
@@ -215,11 +222,11 @@
       try { await api.detachedRendererReady() } catch {}
       return
     }
-    onApproval((request) => {
+    cleanup.push(onApproval((request) => {
       if (request.chatId?.startsWith('worker-')) workerApprovals = [...workerApprovals, request]
-    })
+    }))
     if (window.runtime?.EventsOn) {
-      window.runtime.EventsOn('praimate:close-blocked', (event) => { closeBlocked = event })
+      cleanup.push(window.runtime.EventsOn('praimate:close-blocked', (event) => { closeBlocked = event }))
     }
     // A genuinely fresh install chooses between a new workspace and an
     // existing backup before creating a database password. A cloned backup
@@ -299,27 +306,34 @@
   {/key}
 {:else if editorMode}
 <div class="shell">
-  <nav class="sidebar" class:collapsed>
+  <nav class="sidebar" class:collapsed aria-label="Main navigation">
     <!-- Collapsed: the logo itself is the expand button (no floating
          chevron overlapping the icon). Expanded: logo + wordmark + a
          collapse chevron pinned to the right edge. -->
-    <div class="brand" class:clickable={collapsed} on:click={collapsed ? toggleCollapsed : undefined} title={collapsed ? 'Expand sidebar' : ''}>
-      <img src={logo} alt="PrAImate" />
+    <div class="brand">
+      {#if collapsed}
+        <button class="brand-toggle" on:click={toggleCollapsed} title="Expand sidebar" aria-label="Expand sidebar" aria-expanded="false"><img src={logo} alt="PrAImate" /></button>
+      {:else}<img src={logo} alt="PrAImate" />{/if}
       {#if !collapsed}
         <span>PrAImate</span>
         <button
           class="icon-btn collapse-btn"
           title="Collapse sidebar"
+          aria-label="Collapse sidebar" aria-expanded="true"
           on:click|stopPropagation={toggleCollapsed}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={icons.chevronLeft} /></svg>
         </button>
       {/if}
     </div>
     {#each pages as p}
+      {#if p.id === 'code' || p.id === 'agents' || p.id === 'clis'}
+        <div class="nav-group" aria-hidden="true">{#if !collapsed}{p.id === 'code' ? 'Workspace' : p.id === 'agents' ? 'Automation' : 'Configure'}{/if}</div>
+      {/if}
       <button
         class="nav-item"
         class:active={$activePage === p.id}
         title={collapsed ? p.label : ''}
+        aria-label={p.label} aria-current={$activePage === p.id ? 'page' : undefined}
         on:click={() => activePage.set(p.id)}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={p.icon} /></svg>
         {#if !collapsed}<span class="nav-label">{p.label}</span>{/if}
@@ -340,7 +354,7 @@
       {:else}
         <span></span>
       {/if}
-      <button class="icon-btn" title="Theme: {$themeMode}" on:click={cycleTheme}>
+      <button class="icon-btn" title="Theme: {$themeMode}" aria-label="Theme: {$themeMode}. Switch theme" on:click={cycleTheme}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={themeIcon} /></svg>
       </button>
     </div>
@@ -358,7 +372,7 @@
           <button class="btn sm primary" type="button" on:click={applyUpdate} disabled={updatingApp}>
             {updatingApp ? 'Updating & restarting…' : 'Update & restart'}
           </button>
-          <button class="btn sm" type="button" on:click={() => (availableUpdate = null)} disabled={updatingApp}>
+          <button class="btn sm" type="button" aria-label="Dismiss update" on:click={() => (availableUpdate = null)} disabled={updatingApp}>
             ✕
           </button>
         </div>

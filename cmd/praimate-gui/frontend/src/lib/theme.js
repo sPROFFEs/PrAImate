@@ -19,12 +19,14 @@ export const ACCENT_PRESETS = [
 ]
 
 function storedMode() {
-  const v = localStorage.getItem(MODE_KEY)
+  let v
+  try { v = localStorage.getItem(MODE_KEY) } catch {}
   return v === 'light' || v === 'dark' || v === 'system' ? v : 'dark'
 }
 
 function storedAccent() {
-  const v = localStorage.getItem(ACCENT_KEY)
+  let v
+  try { v = localStorage.getItem(ACCENT_KEY) } catch {}
   if (v === 'default') return 'default'
   if (v && /^#[0-9a-f]{6}$/i.test(v)) return v
   return 'default'
@@ -51,7 +53,8 @@ function readableForeground(hex) {
   }
   const lum =
     0.2126 * toLin((v >> 16) & 255) + 0.7152 * toLin((v >> 8) & 255) + 0.0722 * toLin(v & 255)
-  return lum > 0.45 ? 'oklch(0.145 0 0)' : 'oklch(0.985 0 0)'
+  // Choose the greater contrast ratio, including medium-bright presets.
+  return (lum + 0.05) / 0.05 > 1.05 / (lum + 0.05) ? '#000000' : '#ffffff'
 }
 
 function apply(mode, accent) {
@@ -71,14 +74,14 @@ let accent = storedAccent()
 
 export function setThemeMode(next) {
   mode = next
-  localStorage.setItem(MODE_KEY, next)
+  try { localStorage.setItem(MODE_KEY, next) } catch {}
   themeMode.set(next)
   apply(mode, accent)
 }
 
 export function setAccent(next) {
   accent = next
-  localStorage.setItem(ACCENT_KEY, next)
+  try { localStorage.setItem(ACCENT_KEY, next) } catch {}
   accentColor.set(next)
   apply(mode, accent)
 }
@@ -87,7 +90,7 @@ export function initTheme() {
   apply(mode, accent)
   // Track OS preference while in "system" mode.
   const mq = window.matchMedia('(prefers-color-scheme: light)')
-  mq.addEventListener('change', () => {
-    if (mode === 'system') apply(mode, accent)
-  })
+  const changed = () => { if (mode === 'system') apply(mode, accent) }
+  mq.addEventListener('change', changed)
+  return () => mq.removeEventListener('change', changed)
 }

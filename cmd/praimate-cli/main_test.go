@@ -121,9 +121,14 @@ func TestNativeCLIContextCommandPersistsAndValidatesLimits(t *testing.T) {
 	for _, tc := range []struct {
 		cmd    string
 		window int
-	}{{"/context 8192 2048", 8192}, {"/context auto", 16384}} {
-		if err := command(ctx, c, chat.ID, tc.cmd, &strings.Builder{}); err != nil {
+		mode   string
+	}{{"/context 8192 2048", 8192, "fixed"}, {"/context auto", 16384, "automatic"}} {
+		var output strings.Builder
+		if err := command(ctx, c, chat.ID, tc.cmd, &output); err != nil {
 			t.Fatal(err)
+		}
+		if !strings.Contains(output.String(), "Output mode: "+tc.mode) {
+			t.Fatalf("unclear output mode: %s", output.String())
 		}
 		status, err := c.NativeContext(ctx, chat.ID)
 		if err != nil || status.Window != tc.window {

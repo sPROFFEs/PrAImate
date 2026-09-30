@@ -26,6 +26,7 @@ esac
 # automatically (taskbar + titlebar icon). Regenerate after changing
 # frontend/src/assets/monke-icon.png with:
 #   go run github.com/tc-hib/go-winres@v0.3.3 simply \
+#     --arch amd64,arm64,386 --manifest gui \
 #     --icon frontend/src/assets/monke-icon.png \
 #     --product-name "PrAImate GUI" --product-version <version>
 

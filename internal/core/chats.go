@@ -129,10 +129,11 @@ type ChatLocalEndpoint struct {
 	// Model is the backend model name at the endpoint (e.g.
 	// "qwen3-coder"). Used as the chat's model when no explicit model
 	// pin is set.
-	Model         string `json:"model,omitempty"`
-	ContextTokens int    `json:"context_tokens,omitempty"`
-	OutputTokens  int    `json:"output_tokens,omitempty"`
-	ContextSource string `json:"-"` // resolved metadata, never a persisted override
+	Model           string `json:"model,omitempty"`
+	ContextTokens   int    `json:"context_tokens,omitempty"`
+	OutputTokens    int    `json:"output_tokens,omitempty"`
+	ContextSource   string `json:"-"` // resolved metadata, never a persisted override
+	OutputAutomatic bool   `json:"-"` // resolved mode; explicit chat/host limits remain fixed
 }
 
 // Message is one stored turn. Role is "user" | "assistant" | "tool" |

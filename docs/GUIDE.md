@@ -87,6 +87,23 @@ Linux arm64 can be built on a native arm64 host with the GUI dependencies.
 The macOS build requires an Apple Silicon host and the native Apple toolchain.
 Intel Mac archives are not provided. The Unix installer also supports macOS.
 
+The Linux installer registers `praimate.desktop` and its icon in
+`${XDG_DATA_HOME:-~/.local/share}` and copies the launcher to the configured
+Desktop folder when present. Launchers support install paths containing spaces
+and use core PATH discovery without running interactive shell startup files.
+Re-run the installer with the same prefix to refresh an older shortcut; updating
+the executable alone does not replace previously installed launcher scripts.
+The runtime uses the same `praimate` window identity for taskbar matching and a
+bounded window icon so GTK does not discard it as an oversized X11 property.
+
+Windows amd64 and arm64 executables contain the application icon. The macOS
+installer creates `~/Applications/PrAImate.app` and a Desktop link when available;
+direct launches also set the Dock icon. Title-bar and minimized-window icon
+placement is controlled by the operating system and desktop theme.
+
+Appearance settings apply to both light and dark surfaces. The interface follows
+the system's reduced-motion preference, including dialogs and notifications.
+
 ## First launch
 
 Startup is intentionally locked until the database is available.
@@ -655,8 +672,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.13
-scripts/build.sh --version=1.2.13 --with-code --with-graphify
+scripts/build.sh --version=1.2.14
+scripts/build.sh --version=1.2.14 --with-code --with-graphify
 ```
 
 Build only the GUI:

@@ -17,16 +17,18 @@ type NativeUsage struct {
 }
 
 type NativeContextStatus struct {
-	Model          string       `json:"model"`
-	Source         string       `json:"source,omitempty"`
-	Window         int          `json:"window_tokens"`
-	OutputReserve  int          `json:"output_reserve_tokens"`
-	SafetyReserve  int          `json:"safety_reserve_tokens"`
-	InputLimit     int          `json:"input_limit_tokens"`
-	EstimatedInput int          `json:"estimated_input_tokens"`
-	LastUsage      *NativeUsage `json:"last_usage,omitempty"`
-	Calibration    float64      `json:"calibration"`
-	Compactions    int          `json:"compactions"`
+	Model           string       `json:"model"`
+	Source          string       `json:"source,omitempty"`
+	Window          int          `json:"window_tokens"`
+	OutputReserve   int          `json:"output_reserve_tokens"`
+	SafetyReserve   int          `json:"safety_reserve_tokens"`
+	InputLimit      int          `json:"input_limit_tokens"`
+	EstimatedInput  int          `json:"estimated_input_tokens"`
+	LastUsage       *NativeUsage `json:"last_usage,omitempty"`
+	Calibration     float64      `json:"calibration"`
+	Compactions     int          `json:"compactions"`
+	OutputAutomatic bool         `json:"output_automatic"`
+	LastOutputLimit int          `json:"last_output_limit_tokens,omitempty"`
 }
 
 // No universal tokenizer exists for local/remote routers. This deliberately
@@ -79,12 +81,25 @@ func nativeContextBudget(route ChatLocalEndpoint, previous NativeContextStatus) 
 	}
 	previous.Window, previous.OutputReserve = route.ContextTokens, route.OutputTokens
 	previous.Source = route.ContextSource
+	previous.OutputAutomatic = route.OutputAutomatic
 	previous.SafetyReserve = max(256, route.ContextTokens/20)
 	previous.InputLimit = previous.Window - previous.OutputReserve - previous.SafetyReserve
 	if previous.Calibration < 1 || math.IsNaN(previous.Calibration) || math.IsInf(previous.Calibration, 0) {
 		previous.Calibration = 1
 	}
 	return previous
+}
+
+// The reserve guarantees some output space during compaction. In automatic
+// mode it is a minimum, not a generation ceiling: short prompts can use the
+// remaining window for reasoning and the final answer. Estimates already
+// include tools, images, skill payloads and upward tokenizer calibration.
+func nativeOutputLimit(route ChatLocalEndpoint, status NativeContextStatus) int {
+	if !route.OutputAutomatic {
+		return route.OutputTokens
+	}
+	available := status.Window - status.SafetyReserve - status.EstimatedInput
+	return min(16384, available)
 }
 
 func (s *NativeContextStatus) observe(usage *NativeUsage, uncalibrated int) {
@@ -104,6 +119,9 @@ func nativeContextEvent(kind string, status NativeContextStatus) StreamEvent {
 	var fields map[string]any
 	_ = json.Unmarshal(raw, &fields)
 	detail := fmt.Sprintf("Context ~%d/%d input tokens; %d output + %d safety reserved", status.EstimatedInput, status.InputLimit, status.OutputReserve, status.SafetyReserve)
+	if status.OutputAutomatic {
+		detail += fmt.Sprintf("; automatic output limit %d (includes reasoning)", status.LastOutputLimit)
+	}
 	if kind == "usage" && status.LastUsage != nil {
 		detail = fmt.Sprintf("Endpoint usage: %d input / %d output tokens", status.LastUsage.PromptTokens, status.LastUsage.CompletionTokens)
 	}

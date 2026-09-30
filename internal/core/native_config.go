@@ -138,7 +138,8 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 	if route.ContextTokens == 0 {
 		route.ContextTokens, route.ContextSource = c.nativeLimits.lookup(ctx, route)
 	}
-	if route.OutputTokens == 0 {
+	route.OutputAutomatic = route.OutputTokens == 0
+	if route.OutputAutomatic {
 		route.OutputTokens = autoOutputTokens(route.ContextTokens, 0)
 	}
 	if route.OutputTokens < 1 || route.ContextTokens < 2048 || route.ContextTokens > 2_000_000 || route.OutputTokens >= route.ContextTokens {

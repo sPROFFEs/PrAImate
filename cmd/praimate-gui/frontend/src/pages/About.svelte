@@ -64,7 +64,7 @@
 
 <h2>Compatibility</h2>
 <div class="card stack">
-  <p>Supported desktop systems: Linux and Windows. macOS is unsupported.</p>
+  <p>Available for Linux, Windows and macOS on Apple Silicon.</p>
 </div>
 
 <style>

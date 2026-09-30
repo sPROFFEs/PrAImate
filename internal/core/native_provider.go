@@ -56,7 +56,7 @@ type nativeHTTPError struct {
 	message string
 }
 
-var errNativeOutputLimit = errors.New("model output token limit reached; increase the output reserve with /context WINDOW OUTPUT, --output-tokens, or Chat settings")
+var errNativeOutputLimit = errors.New("model output token limit reached; check /context, then raise the output limit or supported context window (--output-tokens or Chat settings)")
 
 func (e *nativeHTTPError) Error() string {
 	return fmt.Sprintf("native model HTTP %d: %s", e.status, e.message)
@@ -345,7 +345,14 @@ func (p *nativeProvider) turn(ctx context.Context, messages []nativeMessage, too
 		return result, errors.New("model stream ended before completion")
 	}
 	if finish == "length" {
-		return result, errNativeOutputLimit
+		detail := fmt.Sprintf("requested limit: %d output tokens", p.route.OutputTokens)
+		if result.Reasoning != "" {
+			detail += "; reasoning consumes this budget too"
+			if strings.TrimSpace(result.Content) == "" {
+				detail += "; model stopped before producing an answer"
+			}
+		}
+		return result, fmt.Errorf("%w (%s)", errNativeOutputLimit, detail)
 	}
 	if finish != "stop" && finish != "tool_calls" {
 		return result, fmt.Errorf("model returned unsupported finish reason %q", finish)

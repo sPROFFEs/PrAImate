@@ -140,17 +140,20 @@ func TestOpenCodeWorkersKeepCLISafeWhileUsingHostTools(t *testing.T) {
 
 func TestPraimateCLIWorkerResolvesModelThroughCore(t *testing.T) {
 	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	limits := make(chan int, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			http.NotFound(w, r)
 			return
 		}
 		var payload struct {
-			Model string `json:"model"`
+			Model     string `json:"model"`
+			MaxTokens int    `json:"max_tokens"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Model != "tiny-model" {
 			t.Errorf("model=%q error=%v", payload.Model, err)
 		}
+		limits <- payload.MaxTokens
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"action\\\":\\\"final\\\",\\\"content\\\":\\\"done\\\"}\"},\"finish_reason\":\"stop\"}]}\n\n")
 		fmt.Fprint(w, "data: [DONE]\n\n")
@@ -166,9 +169,20 @@ func TestPraimateCLIWorkerResolvesModelThroughCore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := (PraimateCLI{Core: c}).Execute(context.Background(), Request{Model: "tiny-model", Task: "work", WorkspaceRoot: t.TempDir(), Limits: Limits{MaxInputBytes: 4096, Timeout: time.Second}})
+	req := Request{Model: "tiny-model", Task: "work", WorkspaceRoot: t.TempDir(), Limits: Limits{MaxInputBytes: 4096, Timeout: time.Second}}
+	result, err := (PraimateCLI{Core: c}).Execute(context.Background(), req)
 	if err != nil || result.Content != `{"action":"final","content":"done"}` {
 		t.Fatalf("result=%+v error=%v", result, err)
+	}
+	if limit := <-limits; limit <= 1024 || limit >= 8192 {
+		t.Fatalf("automatic worker limit=%d", limit)
+	}
+	req.Limits.MaxOutputTokens = 333
+	if _, err := (PraimateCLI{Core: c}).Execute(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if limit := <-limits; limit != 333 {
+		t.Fatalf("explicit worker limit=%d", limit)
 	}
 }
 

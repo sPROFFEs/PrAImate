@@ -172,13 +172,13 @@
     load()
     // Refresh every 3s while the panel is open so the live indicator
     // tracks streams without the user hammering a refresh button.
-    timer = setInterval(() => { if (open) load() }, 3000)
+    timer = setInterval(() => { if (open && !document.hidden) load() }, 3000)
   })
   onDestroy(() => clearInterval(timer))
 
   function toggle() {
     open = !open
-    if (open) load()
+    if (open && !document.hidden) load()
   }
 </script>
 

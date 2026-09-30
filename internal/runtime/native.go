@@ -10,7 +10,8 @@ import (
 // Native executes a stateless, tool-free task through the existing
 // OpenAI-compatible transport. The route is supplied by trusted host config.
 type Native struct {
-	Route core.ChatLocalEndpoint
+	Route           core.ChatLocalEndpoint
+	AutomaticOutput bool // only configured routes with no explicit worker limit
 }
 
 func (Native) ID() string { return "native" }
@@ -31,6 +32,7 @@ func (n Native) Execute(ctx context.Context, req Request) (*Result, error) {
 	route := n.Route
 	route.Model = req.Model
 	route.OutputTokens = req.Limits.MaxOutputTokens
+	route.OutputAutomatic = n.AutomaticOutput
 	var emit core.StreamHandler
 	if req.Progress != nil {
 		emit = func(event core.StreamEvent) {

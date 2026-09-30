@@ -33,6 +33,8 @@ func ExecuteNativeWorkerStream(ctx context.Context, route ChatLocalEndpoint, sys
 	if !validNativeWindow(route.ContextTokens) || status.InputLimit < 256 || input > status.InputLimit {
 		return nil, fmt.Errorf("worker context budget exceeded: ~%d input tokens, %d available (%d window, %d output reserve); narrow the delegated task or adjust the host limits", input, status.InputLimit, route.ContextTokens, route.OutputTokens)
 	}
+	status.EstimatedInput = input
+	route.OutputTokens = nativeOutputLimit(route, status)
 	provider := nativeProvider{route: route}
 	reply, err := provider.turn(ctx, messages, nil, emit)
 	if err != nil {

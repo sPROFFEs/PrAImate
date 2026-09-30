@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PrAImate GUI installer for Linux.
+# PrAImate GUI installer for Linux and macOS.
 #
 # One-liner:
 #   curl -fsSL https://raw.githubusercontent.com/sPROFFEs/praimate/main/scripts/install.sh | bash
@@ -97,7 +97,9 @@ do_uninstall() {
         && { printf '  removed %s\n' "$(dirname "$d")/share/praimate"; removed=1; }
     fi
   done
-  local apps="$HOME/.local/share/applications" desk_dir
+  local data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+  [[ "$data_home" = /* ]] || data_home="$HOME/.local/share"
+  local apps="$data_home/applications" desk_dir
   desk_dir="$(command -v xdg-user-dir >/dev/null 2>&1 && xdg-user-dir DESKTOP || echo "$HOME/Desktop")"
   local e
   for e in praimate.desktop praimate-gui.desktop; do
@@ -105,9 +107,19 @@ do_uninstall() {
       [[ -f "$d/$e" ]] && rm -f "$d/$e" && printf '  removed %s\n' "$d/$e"
     done
   done
-  rm -f "$HOME/.local/share/icons/praimate.png" 2>/dev/null || true
+  rm -f "$data_home/icons/praimate.png" "$data_home/icons/hicolor/512x512/apps/praimate.png" "$data_home/pixmaps/praimate.png" 2>/dev/null || true
   command -v update-desktop-database >/dev/null 2>&1 \
     && update-desktop-database "$apps" 2>/dev/null || true
+
+  if [[ "$(uname -s)" == Darwin ]]; then
+    local app_dir="$HOME/Applications/PrAImate.app"
+    if [[ -f "$app_dir/Contents/Info.plist" ]] && grep -q '<string>com.praimate.desktop</string>' "$app_dir/Contents/Info.plist"; then
+      rm -rf "$app_dir"
+    fi
+    if [[ -L "$HOME/Desktop/PrAImate.app" && "$(readlink "$HOME/Desktop/PrAImate.app")" == "$app_dir" ]]; then
+      rm -f "$HOME/Desktop/PrAImate.app"
+    fi
+  fi
 
   if [[ "$PURGE" == 1 ]]; then
     local cfg="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -623,138 +635,81 @@ EOF
 esac
 
 
+# Desktop Entry strings decode backslash escapes before Exec is parsed.
+desktop_string() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "$value"
+}
+desktop_exec_path() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//\$/\\$}"
+  value="${value//\`/\\\`}"
+  value="${value//%/%%}"
+  desktop_string "$value"
+}
+
 # ---------- desktop shortcut (GUI only) ----------
 create_shortcuts() {
   local icon_src="$1"
   case "$(uname -s)" in
     Linux)
-      local apps="$HOME/.local/share/applications"
+      local data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+      [[ "$data_home" = /* ]] || data_home="$HOME/.local/share"
+      local apps="$data_home/applications"
       mkdir -p "$apps"
       local icon_line=""
       if [[ -n "$icon_src" && -f "$icon_src" ]]; then
-        mkdir -p "$HOME/.local/share/icons" "$HOME/.local/share/icons/hicolor/512x512/apps" "$HOME/.local/share/pixmaps"
-        cp -f "$icon_src" "$HOME/.local/share/icons/praimate.png" 2>/dev/null || true
-        cp -f "$icon_src" "$HOME/.local/share/icons/hicolor/512x512/apps/praimate.png" 2>/dev/null || true
-        cp -f "$icon_src" "$HOME/.local/share/pixmaps/praimate.png" 2>/dev/null || true
-        icon_line="Icon=$HOME/.local/share/icons/hicolor/512x512/apps/praimate.png"
+        mkdir -p "$data_home/icons" "$data_home/icons/hicolor/512x512/apps" "$data_home/pixmaps"
+        cp -f "$icon_src" "$data_home/icons/praimate.png" 2>/dev/null || true
+        cp -f "$icon_src" "$data_home/icons/hicolor/512x512/apps/praimate.png" 2>/dev/null || true
+        cp -f "$icon_src" "$data_home/pixmaps/praimate.png" 2>/dev/null || true
+        icon_line="Icon=praimate"
       fi
 
-      # Write a launcher script next to each binary that ALWAYS reproduces
-      # the user's shell PATH before exec'ing. The desktop session's PATH
-      # is minimal; embedding this work in a wrapper (instead of in the
-      # .desktop Exec line) means:
-      #   - it survives users who edit .desktop later by hand
-      #   - the same script is reusable from a terminal / from dock pins
-      #   - rc-file sourcing errors don't print into .desktop's debug log
-      # We source the user's rc files in a fixed order — most specific
-      # last so PATH additions there win — then walk a fixed list of
-      # well-known per-user CLI install dirs and prepend any that the rc
-      # files missed.
+      # Core startup imports managed and common CLI paths, including nvm.
+      # Never source interactive shell files here: they may block, exit, or
+      # contain syntax for a different shell than this launcher.
       cat > "$DEST/praimate-launch" <<'WRAP'
 #!/usr/bin/env bash
-# PrAImate launch wrapper — reproduces the user's shell PATH so binaries
-# installed via shell installers (bun, pnpm, cargo, deno, …) resolve
-# even when the app is launched from a desktop / dock / Start-menu
-# shortcut (where the session's PATH is the minimal one systemd/launchd
-# inherits, NOT the user's interactive shell PATH).
-set -u
-
-# 1. Ask the user's own interactive login shell for its PATH directly.
-#    This is the most reliable way to pick up nvm / fnm / fish-style
-#    environments that don't follow the bash rc convention. We capture
-#    PATH only — never the rest of the env — to avoid leaking
-#    interactive-shell side-effects (PROMPT, fzf, etc.).
-__praimate_shell_path() {
-  local sh="${SHELL:-/bin/bash}"
-  [ -x "$sh" ] || return 0
-  local base
-  base="$(basename "$sh")"
-  case "$base" in
-    bash|zsh)
-      "$sh" -ilc 'printf "%s" "$PATH"' 2>/dev/null
-      ;;
-    fish)
-      "$sh" -ilc 'printf "%s" $PATH | string join :' 2>/dev/null
-      ;;
-    *)
-      "$sh" -lc 'printf "%s" "$PATH"' 2>/dev/null
-      ;;
-  esac
-}
-
-__USER_PATH="$(__praimate_shell_path || true)"
-if [ -n "${__USER_PATH:-}" ]; then
-  # Prepend the user's interactive PATH, keeping the existing one as
-  # a fallback. Splice in front so the user's choices win.
-  PATH="$__USER_PATH:$PATH"
-fi
-
-# 2. Belt-and-braces: also source the common rc files directly. Covers
-#    users whose installer wrote PATH= to .bashrc / .profile but whose
-#    $SHELL invocation above produced nothing (unusual locked-down
-#    setups).
-__praimate_source() { [ -f "$1" ] && . "$1" 2>/dev/null || true; }
-__praimate_source "/etc/profile"
-__praimate_source "$HOME/.profile"
-__praimate_source "$HOME/.bash_profile"
-__praimate_source "$HOME/.bashrc"
-__praimate_source "$HOME/.zshenv"
-__praimate_source "$HOME/.zshrc"
-
-# 3. Final fallback: prepend well-known CLI dirs the rc files might
-#    have missed (e.g. user has no rc files at all on a fresh
-#    Parrot/Debian VM).
-for __d in \
-    "$HOME/.local/bin" \
-    "$HOME/.bun/bin" \
-    "$HOME/.deno/bin" \
-    "$HOME/.cargo/bin" \
-    "$HOME/.rye/shims" \
-    "$HOME/.volta/bin" \
-    "$HOME/.foundry/bin" \
-    "$HOME/go/bin" \
-    "$HOME/.npm-global/bin" \
-    "$HOME/.local/share/pnpm" \
-    "$HOME/.config/praimate/bin" \
-    "$HOME/.config/clade/bin" \
-    "/opt/homebrew/bin" \
-    "/opt/homebrew/sbin" \
-    "/usr/local/bin" \
-; do
-  [ -d "$__d" ] || continue
-  case ":$PATH:" in *":$__d:"*) ;; *) PATH="$__d:$PATH" ;; esac
-done
-
-# 4. Collapse duplicates and export, so the child binary's PATH is
-#    clean. (Order-preserving dedupe.)
-PATH="$(awk -v RS=: -v ORS=: '!seen[$0]++ {print}' <<<"$PATH" | sed 's/:$//')"
-export PATH
-
-__praimate_bin="${0##*/}"
-__praimate_bin="${__praimate_bin%-launch}"
-__praimate_self="$(readlink -f "$0" 2>/dev/null || echo "$0")"
-__praimate_dir="$(dirname "$__praimate_self")"
-exec "$__praimate_dir/$__praimate_bin" "$@"
+set -eu
+praimate_bin="${0##*/}"
+praimate_bin="${praimate_bin%-launch}"
+praimate_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec "$praimate_dir/$praimate_bin" "$@"
 WRAP
       chmod 755 "$DEST/praimate-launch"
 
       ln -sf praimate-launch "$DEST/praimate-gui-launch"
+      local exec_path home_path
+      exec_path="$(desktop_exec_path "$DEST/praimate-gui-launch")"
+      home_path="$(desktop_string "$HOME")"
+      # GIO checks the first executable before expanding %% field escapes.
+      # A fixed interpreter also permits literal percent signs in DEST.
       cat > "$apps/praimate.desktop" <<DESK
 [Desktop Entry]
 Type=Application
 Name=PrAImate
 Comment=Multi-CLI agent desktop app
-Exec=$DEST/praimate-gui-launch %F
-Path=$HOME
+Exec=/usr/bin/env bash "$exec_path"
+Path=$home_path
 Terminal=false
 $icon_line
 StartupWMClass=praimate
-Categories=Development;Utility;
+StartupNotify=true
+Categories=Development;
 DESK
       rm -f "$apps/praimate-gui.desktop"
       chmod 755 "$apps/praimate.desktop" 2>/dev/null || true
       command -v update-desktop-database >/dev/null 2>&1 \
         && update-desktop-database "$apps" 2>/dev/null || true
+      command -v gtk-update-icon-cache >/dev/null 2>&1 \
+        && gtk-update-icon-cache -f -t "$data_home/icons/hicolor" 2>/dev/null || true
       # Mirror onto the Desktop when one exists. Each copy needs its
       # own +x AND a gio "trusted" flag — otherwise the Desktop shows
       # the file with a stop-sign overlay and the user has to right-
@@ -774,6 +729,46 @@ DESK
       c_grn "  desktop shortcuts created (app menu + Desktop)"
       ;;
     Darwin)
+      # Keep one canonical executable in DEST so the updater and CLI siblings
+      # keep working. Finder opens a small application bundle that launches it.
+      local app_dir="$HOME/Applications/PrAImate.app" icon_name="praimate.png"
+      mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
+      printf '#!/bin/bash\nexec %q "$@"\n' "$DEST/praimate-gui" > "$app_dir/Contents/MacOS/PrAImate"
+      chmod 755 "$app_dir/Contents/MacOS/PrAImate"
+      if [[ -n "$icon_src" && -f "$icon_src" ]]; then
+        cp -f "$icon_src" "$app_dir/Contents/Resources/praimate.png"
+        if command -v sips >/dev/null && command -v iconutil >/dev/null; then
+          local iconset size
+          iconset="$(mktemp -d)/praimate.iconset"
+          mkdir -p "$iconset"
+          for size in 16 32 128 256 512; do
+            sips -z "$size" "$size" "$icon_src" --out "$iconset/icon_${size}x${size}.png" >/dev/null
+            sips -z "$((size * 2))" "$((size * 2))" "$icon_src" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          if iconutil -c icns "$iconset" -o "$app_dir/Contents/Resources/praimate.icns"; then
+            icon_name="praimate.icns"
+          fi
+          rm -rf "${iconset%/*}"
+        fi
+      fi
+      cat > "$app_dir/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.praimate.desktop</string>
+<key>CFBundleName</key><string>PrAImate</string>
+<key>CFBundleDisplayName</key><string>PrAImate</string>
+<key>CFBundleExecutable</key><string>PrAImate</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleIconFile</key><string>$icon_name</string>
+<key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+PLIST
+      if [[ -d "$HOME/Desktop" && ! -e "$HOME/Desktop/PrAImate.app" ]]; then
+        ln -s "$app_dir" "$HOME/Desktop/PrAImate.app"
+      fi
+      local lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+      [[ ! -x "$lsregister" ]] || "$lsregister" -f "$app_dir" || true
       # Clear quarantine attributes so macOS Gatekeeper allows execution
       xattr -rd com.apple.quarantine "$DEST" 2>/dev/null || true
       # Ad-hoc sign binaries if codesign is present
@@ -782,7 +777,7 @@ DESK
           [[ -f "$bin" ]] && codesign --force --deep -s - "$bin" 2>/dev/null || true
         done
       fi
-      c_grn "  macOS quarantine cleared and binaries signed"
+      c_grn "  macOS launcher installed in ~/Applications/PrAImate.app"
       ;;
   esac
 }

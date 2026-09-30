@@ -329,7 +329,7 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 	provider := nativeProvider{route: run.local, http: a.http}
 	schema, _ := json.Marshal(definitions)
 	schemaTokens := nativeTextTokens(string(schema))
-	contextRetried, retryBudget := false, 0
+	contextRetried, retryBudget, retryOutputLimit := false, 0, 0
 	for turn := 0; turn < 64; turn++ {
 		if err := ctx.Err(); err != nil {
 			return reply, err
@@ -374,6 +374,11 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 		if s.Context.EstimatedInput > s.Context.InputLimit {
 			return reply, fmt.Errorf("context budget exceeded after preparing skills (%d/%d input tokens; window: %d); reduce attached context or adjust /context or Chat settings", s.Context.EstimatedInput, s.Context.InputLimit, s.Context.Window)
 		}
+		provider.route.OutputTokens = nativeOutputLimit(run.local, s.Context)
+		if retryOutputLimit > 0 {
+			provider.route.OutputTokens = min(provider.route.OutputTokens, retryOutputLimit)
+		}
+		s.Context.LastOutputLimit = provider.route.OutputTokens
 		if err := run.core.saveNativeSession(ctx, s); err != nil {
 			return reply, err
 		}
@@ -417,9 +422,16 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 				// only the next model call, with its already-checkpointed tool
 				// results. Never restart the run or replay executed tools.
 				contextRetried = true
-				retryBudget = max(1, baseTokens*3/4-schemaTokens-nativeTextTokens(payload))
 				s.Context.Calibration *= 1.5
-				emit(StreamEvent{Type: "context_compacted", Detail: "Endpoint rejected context size; trying once with a smaller input budget (completed tools will not be replayed)"})
+				if run.local.OutputAutomatic {
+					// An automatic ceiling can exceed the server's free space
+					// when its tokenizer/window differs from our estimate. Reduce
+					// generation headroom without forcing removal of a short task.
+					retryOutputLimit = max(run.local.OutputTokens, provider.route.OutputTokens/2)
+				} else {
+					retryBudget = max(1, baseTokens*3/4-schemaTokens-nativeTextTokens(payload))
+				}
+				emit(StreamEvent{Type: "context_compacted", Detail: "Endpoint rejected context size; trying once with a more conservative context budget (completed tools will not be replayed)"})
 				continue
 			}
 			return reply, err
@@ -439,6 +451,7 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 		}
 		s.Context.observe(message.Usage, baseTokens)
 		retryBudget = 0
+		retryOutputLimit = 0
 		if message.Usage != nil {
 			emit(nativeContextEvent("usage", s.Context))
 		}

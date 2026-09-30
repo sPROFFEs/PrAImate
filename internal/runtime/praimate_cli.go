@@ -46,6 +46,7 @@ func (p ConfiguredNative) Execute(ctx context.Context, req Request) (*Result, er
 	if err != nil {
 		return nil, err
 	}
+	automaticOutput := req.Limits.MaxOutputTokens <= 0 && route.OutputAutomatic
 	if req.Limits.MaxOutputTokens <= 0 {
 		req.Limits.MaxOutputTokens = route.OutputTokens
 		if req.Limits.MaxOutputTokens <= 0 {
@@ -53,5 +54,5 @@ func (p ConfiguredNative) Execute(ctx context.Context, req Request) (*Result, er
 		}
 	}
 	req.Model = route.Model
-	return (Native{Route: *route}).Execute(ctx, req)
+	return (Native{Route: *route, AutomaticOutput: automaticOutput}).Execute(ctx, req)
 }

@@ -53,14 +53,21 @@ Context limits are selected in this order:
 Discovery uses cached, bounded read-only requests to the selected server. It
 preserves proxy prefixes and does not load models or infer a running window from
 a model name or training maximum. Cold models and servers without compatible
-metadata may need explicit host limits. Output reserve uses the explicit or
-saved value; otherwise it is one eighth of the window, bounded to 1024–4096
-tokens. A client setting does not enlarge the server's context allocation.
+metadata may need explicit host limits. A client setting does not enlarge the
+server's context allocation.
 
-Use `/context` to inspect the source, reservations, last request estimate,
-compactions and last endpoint usage. `/context auto` restores host inheritance
+An explicit chat or saved host output limit stays fixed. Otherwise, automatic
+mode reserves one eighth of the window (1024–4096 tokens) when fitting input,
+then lets each response use the remaining estimated context, up to 16384 output
+tokens. The reserve is a minimum, not a generation ceiling. Output includes
+both reasoning and the visible answer; reasoning models can exhaust a small
+fixed limit before producing any visible text.
+
+Use `/context` to inspect the source, automatic/fixed output mode, last requested
+output limit, reservations, input estimate, compactions and last endpoint usage.
+`/context auto` restores host inheritance
 and discovery. `/context 32768 4096` sets a 32768-token window and 4096-token
-output reserve for this chat. Desktop Chats and Studio expose the same per-chat
+fixed output limit for this chat. Desktop Chats and Studio expose the same per-chat
 settings. Values of 0 inherit host settings or use automatic selection.
 
 Context budgeting reserves output plus a safety margin of 5% of the window,
@@ -71,7 +78,9 @@ are estimates, **not exact tokenizer counts**; image token costs vary by model.
 
 The transport requests streaming usage when supported and retries without that
 optional field only if the endpoint explicitly rejects it. A context-length HTTP
-rejection allows one attempt with a smaller input budget. Completed tools are
+rejection allows one attempt with a more conservative budget. Automatic mode
+reduces the output allowance and increases the input estimate; fixed mode
+trims eligible history while retaining the configured output limit. Completed tools are
 not replayed, and partial streams are not silently retried. Older history and
 large tool results can be compacted. If the latest request, images, instructions
 or tool schemas cannot fit, the run stops without silently cutting out the
@@ -79,8 +88,11 @@ current request or system instructions.
 
 An output-limit failure retains visible partial text in the native model
 checkpoint, marked as incomplete. Tool calls from that truncated response are
-not executed. Increase the output reserve within the server's supported window
-and send a follow-up if needed.
+not executed. Inspect `/context`: if output is fixed, raise it within the server's
+supported window or reset the chat/host output limit to 0 for automatic mode.
+If automatic mode runs out of space, use a larger context supported by the server
+or narrow the task, then send a follow-up if needed. Partial streams are never
+silently replayed to extend an answer.
 
 Metadata contracts: [Ollama](https://docs.ollama.com/api/ps),
 [LM Studio](https://lmstudio.ai/docs/developer/rest/list),

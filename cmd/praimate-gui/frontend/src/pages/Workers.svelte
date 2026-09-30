@@ -1,6 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { api } from '../lib/api.js'
+  import { createPoller } from '../lib/poller.js'
+  import { focusDialog } from '../lib/focusDialog.js'
 
   const tiers = [
     { id: 'primary', label: 'Reasoner' },
@@ -30,17 +32,28 @@
   let renameTitle = ''
   let deletePending = false
   let open = { primary: true, middle: true, fast: true }
-  let timer
+  let disposed = false
+  let submitting = false
+  let snapshotStamp = ''
+  let modelRequests = new Map()
+  let visibleCounts = { primary: 80, middle: 80, fast: 80 }
+  $: eventsByTier = Object.fromEntries(tiers.map(({ id }) => [id, (snapshot?.events || []).filter((event) => event.tier === id)]))
+  const poller = createPoller(loadRuns, { delay: () => runs.some((run) => run.status === 'running') ? 1000 : 10000 })
+  const refresh = () => poller.request()
 
-  async function refresh() {
+  async function loadRuns() {
     try {
-      runs = (await api.workerRuns()) || []
+      const nextRuns = (await api.workerRuns()) || []
+      if (disposed) return
+      runs = nextRuns
       if (!runs.some((run) => run.id === selected)) selected = runs[0]?.id || ''
       const id = selected
-      if (id) {
+      const summary = runs.find((run) => run.id === id)
+      const stamp = `${id}:${summary?.updatedAt}:${summary?.status}`
+      if (id && (!snapshot || summary?.status === 'running' || snapshotStamp !== stamp)) {
         const current = await api.workerRunSnapshot(id)
-        if (selected === id) snapshot = current
-      } else snapshot = null
+        if (!disposed && selected === id) { snapshot = current; snapshotStamp = stamp }
+      } else if (!id) { snapshot = null; snapshotStamp = '' }
     } catch (e) { error = String(e) }
   }
 
@@ -59,9 +72,11 @@
       await refresh()
       loading = false
     })()
-    timer = setInterval(refresh, 700)
+    const onVisible = () => { if (!document.hidden) refresh() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   })
-  onDestroy(() => clearInterval(timer))
+  onDestroy(() => { disposed = true; poller.stop() })
 
   async function chooseWorkspace() {
     try {
@@ -82,10 +97,10 @@
 
   async function loadModels(cli) {
     if (!cli || modelSuggestions[cli]) return
-    try {
-      const models = (await api.listCLIModels(cli)) || []
-      modelSuggestions = { ...modelSuggestions, [cli]: models }
-    } catch (e) { modelSuggestions = { ...modelSuggestions, [cli]: [] } }
+    if (!modelRequests.has(cli)) modelRequests.set(cli, api.listCLIModels(cli).then((models) => {
+      if (!disposed) modelSuggestions = { ...modelSuggestions, [cli]: models || [] }
+    }).catch(() => {}).finally(() => modelRequests.delete(cli)))
+    return modelRequests.get(cli)
   }
 
   function cliChanged(p) {
@@ -97,7 +112,8 @@
   }
 
   async function start() {
-    if (!newTask.trim()) return
+    if (submitting || !newTask.trim()) return
+    submitting = true
     error = ''
     try {
       const id = await api.startWorkerRunWithConfig(newTask, config)
@@ -106,17 +122,18 @@
       task = ''
       showCreate = false
       await refresh()
-    } catch (e) { error = String(e) }
+    } catch (e) { error = String(e) } finally { submitting = false }
   }
 
   async function continueRun() {
-    if (!selected || !task.trim()) return
+    if (submitting || !selected || !task.trim()) return
+    submitting = true
     error = ''
     try {
       await api.continueWorkerRun(selected, task)
       task = ''
       await refresh()
-    } catch (e) { error = String(e) }
+    } catch (e) { error = String(e) } finally { submitting = false }
   }
 
   async function cancel() {
@@ -129,6 +146,7 @@
     selected = id
     editingTitle = false
     snapshot = null
+    visibleCounts = { primary: 80, middle: 80, fast: 80 }
     refresh()
   }
 
@@ -152,7 +170,6 @@
     } catch (e) { error = String(e) }
   }
 
-  function eventsFor(tier) { return (snapshot?.events || []).filter((event) => event.tier === tier) }
   function runProfile(tier) { return (snapshot?.profiles || []).find((p) => p.tier === tier) }
   function shortTask(value) { return value.length > 42 ? value.slice(0, 42) + '…' : value }
 </script>
@@ -161,7 +178,7 @@
   <header class="heading">
     <div>
       <h1>Workers</h1>
-      <p>Saved worker chats keep their task history, results and worker activity for later follow-up.</p>
+      <p>One task. Three workers. Follow every handoff and pick up where you left off.</p>
     </div>
     <button class="primary" disabled={loading} on:click={() => { error = ''; showCreate = true }}>New worker chat</button>
   </header>
@@ -196,18 +213,19 @@
         <div class="lanes">
           {#each tiers as tier}
             <section class:closed={!open[tier.id]}>
-              <button class="lanehead" on:click={() => open = { ...open, [tier.id]: !open[tier.id] }}>
+              <button class="lanehead" aria-expanded={open[tier.id]} on:click={() => open = { ...open, [tier.id]: !open[tier.id] }}>
                 <strong>{tier.label}<small> · {runProfile(tier.id)?.cli || 'Local'} / {runProfile(tier.id)?.model || '—'}</small></strong><span>{open[tier.id] ? 'Hide' : 'Show'}</span>
               </button>
               {#if open[tier.id]}
                 <div class="messages">
-                  {#each eventsFor(tier.id) as event}
+                  {#if eventsByTier[tier.id].length > visibleCounts[tier.id]}<button class="earlier" on:click={() => visibleCounts = { ...visibleCounts, [tier.id]: visibleCounts[tier.id] + 80 }}>Show earlier activity ({eventsByTier[tier.id].length - visibleCounts[tier.id]})</button>{/if}
+                  {#each eventsByTier[tier.id].slice(-visibleCounts[tier.id]) as event}
                     <article class={event.kind}>
                       <small>{event.kind} · {new Date(event.timestamp).toLocaleTimeString()}{event.usage?.source === 'provider' ? ` · ${event.usage.inputTokens}/${event.usage.outputTokens} tokens` : ''}</small>
                       <pre>{event.text}</pre>
                     </article>
                   {/each}
-                  {#if !eventsFor(tier.id).length}<p class="empty">No activity yet</p>{/if}
+                  {#if !eventsByTier[tier.id].length}<p class="empty">No activity yet</p>{/if}
                 </div>
               {/if}
             </section>
@@ -216,8 +234,8 @@
         {#if snapshot.result}<p class="result"><strong>Result</strong><br />{snapshot.result}</p>{/if}
         {#if snapshot.error}<p class="error" role="alert">{snapshot.error}</p>{/if}
         <div class="composer">
-          <textarea bind:value={task} rows="3" placeholder="Ask the reasoner to continue this chat…" disabled={snapshot.status === 'running'}></textarea>
-          <button class="primary" disabled={snapshot.status === 'running' || !task.trim()} on:click={continueRun}>Continue chat</button>
+          <textarea aria-label="Follow-up task" bind:value={task} rows="3" placeholder="Ask the reasoner to continue this chat…" disabled={snapshot.status === 'running'}></textarea>
+          <button class="primary" disabled={submitting || snapshot.status === 'running' || !task.trim()} on:click={continueRun}>{submitting ? 'Sending…' : 'Continue chat'}</button>
         </div>
       {:else}
         <p class="empty">Select a saved worker chat or create a new one.</p>
@@ -227,7 +245,7 @@
 
   {#if showCreate}
     <div class="dialog-backdrop">
-      <div class="create-dialog" role="dialog" aria-modal="true" aria-label="New worker chat">
+      <div class="create-dialog" role="dialog" aria-modal="true" aria-label="New worker chat" use:focusDialog={{ onClose: () => { if (!submitting) showCreate = false } }}>
         <header class="dialog-heading"><h2>New worker chat</h2><button aria-label="Close" on:click={() => showCreate = false}>×</button></header>
         <p>Choose a workspace and configure the three workers for this chat. These profiles remain attached to its saved history.</p>
         {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -270,14 +288,14 @@
         {/each}
       </div>
         </div>
-        <div class="dialog-actions"><button on:click={() => showCreate = false}>Cancel</button><button class="primary" disabled={!newTask.trim()} on:click={start}>Create chat</button></div>
+        <div class="dialog-actions"><button on:click={() => showCreate = false}>Cancel</button><button class="primary" disabled={submitting || !newTask.trim()} on:click={start}>{submitting ? 'Creating…' : 'Create chat'}</button></div>
       </div>
     </div>
   {/if}
 
   {#if deletePending}
     <div class="dialog-backdrop">
-      <div class="delete-dialog" role="dialog" aria-modal="true" aria-label="Delete worker chat">
+      <div class="delete-dialog" role="dialog" aria-modal="true" aria-label="Delete worker chat" use:focusDialog={{ onClose: () => deletePending = false }}>
         <h2>Delete worker chat?</h2><p>This removes its saved task history and worker activity.</p>
         {#if error}<p class="error" role="alert">{error}</p>{/if}
         <div class="dialog-actions"><button on:click={() => deletePending = false}>Cancel</button><button on:click={deleteRun}>Delete chat</button></div>
@@ -287,12 +305,12 @@
 </section>
 
 <style>
-  .workers { padding: 24px; height: 100%; overflow: auto; background: var(--bg); color: var(--text); }
+  .workers { padding: 0; height: 100%; overflow: auto; background: var(--bg); color: var(--text); }
   .heading,.runbar { display:flex; align-items:center; justify-content:space-between; gap:16px; }
   h1 { margin:0 0 4px; } p { margin: 4px 0 14px; }
   .heading p { color: var(--text-dim); }
   button, input, select, textarea { font:inherit; }
-  button { cursor:pointer; border:1px solid var(--border-bright); background:var(--bg-panel); color:var(--text); border-radius:6px; padding:7px 10px; }
+  button { cursor:pointer; border:1px solid var(--border-bright); background:var(--bg-panel); color:var(--text); border-radius:var(--radius-sm); padding:8px 12px; transition:background 140ms var(--ease), border-color 140ms var(--ease); }
   button:hover:not(:disabled) { background:var(--bg-raised); }
   button:disabled { opacity:.5; cursor:default; }
   button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); }
@@ -307,8 +325,8 @@
   .chat-heading h2 { flex:1; min-width:0; overflow-wrap:anywhere; margin:0; }
   .chat-heading input { flex:1; min-width:0; }
   .chat-meta { color:var(--text-dim); overflow-wrap:anywhere; }
-  .dialog-backdrop { position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(0,0,0,.55); }
-  .create-dialog, .delete-dialog { width:min(1080px,100%); max-height:calc(100vh - 32px); overflow:auto; padding:20px; border:1px solid var(--border-bright); border-radius:var(--radius); background:var(--bg-panel); color:var(--text); box-shadow:0 16px 48px rgba(0,0,0,.25); }
+  .dialog-backdrop { position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:16px; background:var(--overlay); animation:overlay-enter 140ms var(--ease); }
+  .create-dialog, .delete-dialog { width:min(1080px,100%); max-height:calc(100vh - 32px); overflow:auto; padding:20px; border:1px solid var(--border-bright); border-radius:var(--radius); background:var(--bg-panel); color:var(--text); box-shadow:var(--shadow-overlay); animation:surface-enter 180ms var(--ease); }
   .delete-dialog { width:min(420px,100%); }
   .dialog-heading, .dialog-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .dialog-heading h2 { margin:0; }
@@ -321,9 +339,9 @@
   fieldset { border:1px solid var(--border); border-radius:8px; min-width:0; padding:12px; }
   legend { font-weight:600; }
   label { display:block; font-size:.85rem; margin-bottom:10px; }
-  input, select, textarea { display:block; width:100%; box-sizing:border-box; margin-top:4px; padding:7px; border:1px solid var(--border-bright); border-radius:5px; color:var(--text); background:var(--bg-input); }
+  input, select, textarea { display:block; width:100%; box-sizing:border-box; margin-top:4px; padding:7px; border:1px solid var(--border-bright); border-radius:var(--radius-sm); color:var(--text); background:var(--bg-input); }
   input::placeholder, textarea::placeholder { color:var(--text-dim); }
-  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--accent); }
+  input:focus, select:focus, textarea:focus { outline:2px solid var(--focus); outline-offset:2px; border-color:var(--focus); }
   select option { background:var(--bg-panel); color:var(--text); }
   .check { display:flex; align-items:center; gap:8px; } .check input { width:auto; margin:0; }
   .composer { display:flex; gap:10px; align-items:end; margin:16px 0; }
@@ -331,12 +349,13 @@
   small { color:var(--text-dim); }
   .runbar { margin:8px 0; }
   .lanes { display:flex; gap:10px; min-height:320px; }
-  .lanes section { flex:1; min-width:0; border:1px solid var(--border); border-radius:8px; display:flex; flex-direction:column; background:var(--bg-panel); }
-  .lanes section.closed { flex:0 0 105px; }
+  .lanes section { flex:1; min-width:0; border:1px solid var(--border); border-radius:var(--radius); display:flex; flex-direction:column; background:var(--bg-panel); box-shadow:var(--shadow-sm); overflow:hidden; }
+  .lanes section.closed { flex:0 0 52px; }
   .lanehead { width:100%; display:flex; justify-content:space-between; border:0; border-bottom:1px solid var(--border); border-radius:8px 8px 0 0; }
   .closed .lanehead { writing-mode:vertical-rl; min-height:300px; align-items:center; }
   .messages { overflow:auto; max-height:55vh; padding:10px; }
-  article { padding:9px; margin-bottom:9px; border-radius:7px; background:var(--bg-raised); }
+  .earlier { width:100%; margin-bottom:10px; }
+  article { padding:12px; margin-bottom:9px; border-radius:7px; background:var(--bg-raised); }
   article.request { border-left:3px solid var(--accent); } article.response { border-left:3px solid var(--ok); }
   article.error { border-left:3px solid var(--err); }
   pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; margin:5px 0 0; }

@@ -48,6 +48,12 @@ func (v sessionView) session(model, tools string, status *core.NativeContextStat
 		filled := min(10, max(0, status.EstimatedInput*10/status.InputLimit))
 		bar := strings.Repeat("━", filled) + strings.Repeat("·", 10-filled)
 		label := fmt.Sprintf("  %s  last input ~%d/%d · output reserve %d", bar, status.EstimatedInput, status.InputLimit, status.OutputReserve)
+		if status.OutputAutomatic {
+			label = fmt.Sprintf("  %s  last input ~%d/%d · output auto", bar, status.EstimatedInput, status.InputLimit)
+			if status.LastOutputLimit > 0 {
+				label += fmt.Sprintf(" (last limit %d)", status.LastOutputLimit)
+			}
+		}
 		code := "2"
 		if status.EstimatedInput*100/status.InputLimit >= 80 {
 			code = "33"

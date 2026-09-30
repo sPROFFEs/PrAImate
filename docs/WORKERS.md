@@ -26,6 +26,11 @@ Follow-up reinjects bounded excerpts from the last three user/result pairs;
 children still receive only their delegated tasks. The coordinator does not
 restore third-party CLI session histories or roll back filesystem changes.
 
+The Desktop view shows the latest 80 activity entries per tier. **Show earlier
+activity** reveals more retained entries without expanding all three histories
+at once. Refreshes run sequentially, slow down while idle and pause requests
+while the window is hidden; active runs continue in the core.
+
 For local server routing, detected context windows and output reservations,
 see [PrAImate CLI](native-cli.md#context-and-output-budgets).
 

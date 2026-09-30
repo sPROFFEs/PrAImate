@@ -589,6 +589,8 @@
   }
 
   let userScrolledUp = false
+  let scrollFrame = 0
+  let scrollDisposed = false
 
   function onThreadScroll() {
     if (!threadEl) return
@@ -599,9 +601,13 @@
   async function scrollToBottom(force = false) {
     if (force) userScrolledUp = false
     await tick()
-    if (threadEl && (force || !userScrolledUp)) {
-      threadEl.scrollTop = threadEl.scrollHeight
-    }
+    // Coalesce layout work without making model dispatch wait for a paint
+    // (requestAnimationFrame can pause while the window is minimized).
+    if (scrollDisposed || scrollFrame) return
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = 0
+      if (threadEl && !userScrolledUp) threadEl.scrollTop = threadEl.scrollHeight
+    })
   }
 
   function fmtDate(s) {
@@ -668,6 +674,9 @@
   })
 
   onDestroy(() => {
+    cancelAnimationFrame(scrollFrame)
+    scrollDisposed = true
+    clearTimeout(searchTimer)
     unsubStream()
     unsubApproval()
     unsubDetached()
@@ -751,11 +760,14 @@
       {/if}
     {/if}
     {#if cfg.cli === 'praimate-cli'}
-      <div class="card-sub" style="margin-top:12px">Native context budget for this chat. Enter 0 to use host settings or detect the loaded server context. If detection is unavailable, the context falls back to 8192 tokens. Output reserve is chosen automatically.</div>
-      {#if cfg.contextStatus}<div class="card-sub">Effective: {cfg.contextStatus.window_tokens} context · {cfg.contextStatus.input_limit_tokens} available input · {cfg.contextStatus.output_reserve_tokens} reserved output · {cfg.contextStatus.source || 'configured'}</div>{/if}
+      <div class="card-sub" style="margin-top:12px">Use 0 for host defaults or automatic selection. Automatic context comes from the server (8192 tokens if unavailable). Automatic output uses the remaining space, up to 16384 tokens including reasoning. A nonzero output limit stays fixed.</div>
+      {#if cfg.contextStatus}
+        <div class="card-sub">Effective: {cfg.contextStatus.window_tokens} context · {cfg.contextStatus.input_limit_tokens} available input · {cfg.contextStatus.output_automatic ? 'automatic output' : `${cfg.contextStatus.output_reserve_tokens} output limit`} · {cfg.contextStatus.source || 'configured'}</div>
+        {#if cfg.contextStatus.last_output_limit_tokens}<div class="card-sub">Last request output limit: {cfg.contextStatus.last_output_limit_tokens} tokens, including reasoning.</div>{/if}
+      {/if}
       <div class="row" style="gap:10px; flex-wrap:wrap">
         <label class="lbl">Context window tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={cfg.contextTokens} /></label>
-        <label class="lbl">Output reserve tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={cfg.outputTokens} /></label>
+        <label class="lbl">Output limit tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={cfg.outputTokens} /></label>
       </div>
     {/if}
 
@@ -1063,10 +1075,10 @@
           {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
         {/if}
         {#if newCli === 'praimate-cli'}
-          <div class="card-sub" style="margin-top:12px">Native context budget. Enter 0 to use host settings or detect the loaded server context. If detection is unavailable, the context falls back to 8192 tokens. Output reserve is chosen automatically.</div>
+          <div class="card-sub" style="margin-top:12px">Use 0 for host defaults or automatic selection. Automatic context comes from the server (8192 tokens if unavailable). Automatic output uses the remaining space, up to 16384 tokens including reasoning. A nonzero output limit stays fixed.</div>
           <div class="row" style="gap:10px; flex-wrap:wrap">
             <label class="lbl">Context window tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={newContextTokens} /></label>
-            <label class="lbl">Output reserve tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={newOutputTokens} /></label>
+            <label class="lbl">Output limit tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={newOutputTokens} /></label>
           </div>
         {/if}
         <label class="lbl" for="new-chat-folder">Working folder <span class="card-sub">(optional — defaults to your home directory)</span></label>

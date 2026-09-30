@@ -60,7 +60,7 @@ func run(ctx context.Context, args []string) error {
 	fs.Var(&o.attachments, "attach", "Attach a file to the next chat message (repeatable; images need a vision model)")
 	fs.BoolVar(&o.showReasoning, "show-reasoning", false, "Display streamed model reasoning in text mode")
 	fs.IntVar(&o.contextTokens, "context-tokens", 0, "Context window: 0 uses host settings or server discovery (fallback: 8192)")
-	fs.IntVar(&o.outputTokens, "output-tokens", 0, "Reserved output tokens: 0 uses host settings or a window-based reserve")
+	fs.IntVar(&o.outputTokens, "output-tokens", 0, "Output limit: 0 uses host settings or adapts to remaining context (includes reasoning)")
 	fs.BoolVar(&o.resume, "continue", false, "Resume the latest native chat in this workspace")
 	fs.BoolVar(&o.passwordStdin, "db-password-stdin", false, "Read database password from the first stdin line")
 	fs.BoolVar(&o.version, "version", false, "Print version")
@@ -830,7 +830,7 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 			window, reserve := 0, 0
 			if arg != "auto" {
 				if len(fields) > 2 {
-					return errors.New("usage: /context auto | WINDOW [OUTPUT_RESERVE]")
+					return errors.New("usage: /context auto | WINDOW [OUTPUT_LIMIT]")
 				}
 				window, err = strconv.Atoi(fields[0])
 				if err != nil {
@@ -839,7 +839,7 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 				if len(fields) == 2 {
 					reserve, err = strconv.Atoi(fields[1])
 					if err != nil {
-						return errors.New("output reserve must be an integer")
+						return errors.New("output limit must be an integer")
 					}
 				}
 			}
@@ -853,7 +853,15 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 			return err
 		}
 		fmt.Fprintf(output, "Window: %d tokens\nInput limit: %d · output reserve: %d · safety: %d\nLast request estimate: ~%d tokens · calibration: %.2fx · compactions: %d\n", status.Window, status.InputLimit, status.OutputReserve, status.SafetyReserve, status.EstimatedInput, status.Calibration, status.Compactions)
-		fmt.Fprintf(output, "Source: %s\nChange this chat: /context auto or /context WINDOW [OUTPUT_RESERVE]\n", status.Source)
+		fmt.Fprintf(output, "Source: %s\nChange this chat: /context auto or /context WINDOW [OUTPUT_LIMIT]\n", status.Source)
+		if status.OutputAutomatic {
+			fmt.Fprintln(output, "Output mode: automatic — reserve is a minimum; each response can use remaining context, up to 16384 tokens, including reasoning.")
+		} else {
+			fmt.Fprintln(output, "Output mode: fixed by chat or host settings (includes reasoning).")
+		}
+		if status.LastOutputLimit > 0 {
+			fmt.Fprintf(output, "Last request output limit: %d tokens\n", status.LastOutputLimit)
+		}
 		if status.LastUsage != nil {
 			fmt.Fprintf(output, "Last endpoint usage: %d input / %d output tokens\n", status.LastUsage.PromptTokens, status.LastUsage.CompletionTokens)
 		} else {

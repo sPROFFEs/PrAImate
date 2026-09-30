@@ -117,7 +117,7 @@
           <span>
             <strong>Remember on this device</strong>
             <small>
-              Uses Windows Credential Manager or the Linux desktop Secret Service.
+              Uses Windows Credential Manager, macOS Keychain or the Linux desktop Secret Service.
               Leave off to require the password every time PrAImate starts.
             </small>
           </span>

@@ -7,11 +7,12 @@
 //	go build -tags desktop,production,webkit2_41 -o praimate-gui .
 //
 // On Windows the webkit2_41 tag is ignored; on Linux it selects
-// webkit2gtk-4.1 (modern distros no longer ship 4.0). macOS is not a
-// supported PrAImate platform.
+// webkit2gtk-4.1 (modern distros no longer ship 4.0). macOS builds natively.
 package main
 
 import (
+	"bytes"
+	"context"
 	"embed"
 	"fmt"
 	"os"
@@ -31,7 +32,7 @@ var assets embed.FS
 
 // appIcon is the window/taskbar icon. On Linux Wails sets it at
 // runtime via linux.Options.Icon; on Windows the icon comes from the
-// exe's embedded resource (rsrc_windows_amd64.syso, generated with
+// exe's embedded resources (rsrc_windows_*.syso, generated with
 // go-winres from this same PNG — see build.sh).
 //
 //go:embed frontend/src/assets/monke-icon.png
@@ -39,7 +40,7 @@ var appIcon []byte
 
 func main() {
 	if !supportedDesktopOS(runtime.GOOS) {
-		fmt.Fprintln(os.Stderr, "PrAImate supports Linux and Windows only")
+		fmt.Fprintln(os.Stderr, "PrAImate supports Linux, Windows and macOS")
 		os.Exit(1)
 	}
 
@@ -118,25 +119,35 @@ func main() {
 		title = "PrAImate Studio — " + editorFolder
 	}
 
+	windowIcon := appIcon
+	if runtime.GOOS == "linux" {
+		windowIcon = desktopWindowIcon(appIcon)
+	}
 	app := NewApp()
+	prepareDesktopIdentity()
 
 	err := wails.Run(&options.App{
-		Title:  title,
-		Width:  1280,
-		Height: 820,
+		Title:     title,
+		Width:     1280,
+		Height:    820,
+		MinWidth:  760,
+		MinHeight: 540,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 16, G: 18, B: 24, A: 255},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
-		OnBeforeClose:    app.beforeClose,
+		OnStartup: func(ctx context.Context) {
+			setDesktopIcon(appIcon)
+			app.startup(ctx)
+		},
+		OnShutdown:    app.shutdown,
+		OnBeforeClose: app.beforeClose,
 		Bind: []interface{}{
 			app,
 		},
 		Linux: &linux.Options{
 			ProgramName: "praimate",
-			Icon:        appIcon,
+			Icon:        windowIcon,
 		},
 	})
 	if err != nil {
@@ -153,15 +164,19 @@ func ensureLinuxDesktopIcon() {
 	if err != nil || home == "" {
 		return
 	}
+	dataHome := os.Getenv("XDG_DATA_HOME")
+	if !filepath.IsAbs(dataHome) {
+		dataHome = filepath.Join(home, ".local", "share")
+	}
 	iconDirs := []string{
-		filepath.Join(home, ".local", "share", "icons", "hicolor", "512x512", "apps"),
-		filepath.Join(home, ".local", "share", "pixmaps"),
-		filepath.Join(home, ".local", "share", "icons"),
+		filepath.Join(dataHome, "icons", "hicolor", "512x512", "apps"),
+		filepath.Join(dataHome, "pixmaps"),
+		filepath.Join(dataHome, "icons"),
 	}
 	for _, dir := range iconDirs {
 		_ = os.MkdirAll(dir, 0755)
 		target := filepath.Join(dir, "praimate.png")
-		if _, err := os.Stat(target); os.IsNotExist(err) {
+		if existing, err := os.ReadFile(target); err != nil || !bytes.Equal(existing, appIcon) {
 			_ = os.WriteFile(target, appIcon, 0644)
 		}
 	}
