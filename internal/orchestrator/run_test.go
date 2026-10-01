@@ -42,6 +42,36 @@ func testConfig(t *testing.T) Config {
 	return Config{Workspace: t.TempDir(), Profiles: profiles}
 }
 
+func TestDirectDelegationStartsAtSelectedTier(t *testing.T) {
+	for _, tier := range []Tier{Middle, Fast} {
+		t.Run(string(tier), func(t *testing.T) {
+			worker := &fakeWorker{responses: []string{`{"action":"final","content":"scoped result"}`}}
+			resolved := []Tier{}
+			runner := Runner{Resolve: func(p Profile) (workerruntime.Runtime, error) {
+				resolved = append(resolved, p.Tier)
+				return worker, nil
+			}}
+			result, err := runner.RunFromTier(context.Background(), testConfig(t), tier, "small scoped task")
+			if err != nil || result != "scoped result" || len(resolved) != 1 || resolved[0] != tier {
+				t.Fatalf("result %q err %v resolved %v", result, err, resolved)
+			}
+			if worker.requests[0].Task != "small scoped task" {
+				t.Fatal("unexpected task context")
+			}
+		})
+	}
+}
+
+func TestStoppedManagerRejectsNewExecutions(t *testing.T) {
+	m := NewManager(nil, context.Background())
+	if err := m.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.startWithTier("task", "", testConfig(t), Fast, nil); err == nil {
+		t.Fatal("stopped manager accepted execution")
+	}
+}
+
 func TestNestedDelegationAndContextIsolation(t *testing.T) {
 	workers := map[Tier]*fakeWorker{
 		Primary: {responses: []string{`{"action":"delegate","tier":"middle","task":"analyze the small issue"}`, `{"action":"final","content":"done"}`}},

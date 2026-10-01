@@ -29,6 +29,46 @@ Each Worker tier can select its own CLI and model. Saved local endpoint routing
 continues to use the backends that explicitly support it; adding these two CLIs
 does not add arbitrary local endpoint routing to them.
 
+### OpenCode compatibility
+
+OpenCode **1.18.34** (the stable release checked on October 1, 2026) is compatible
+with the updated adapter. The official Linux binary was tested against an
+isolated OpenAI-compatible HTTP fixture: a new conversation, native session
+resumption, loading a project skill, a stdio MCP call, a shell command that writes
+a temporary file, JSON usage events, and the per-launch usage plugin all passed. This exercises the
+adapter shared by chats and OpenCode Worker tiers; it does not test paid accounts
+or an entire multi-provider Worker run.
+
+The review found and fixed a launch bug: the process changed directory while
+inheriting the Desktop/Studio parent's `PWD`. OpenCode uses `PWD` to select the
+workspace, which could load a different project's configuration and cause an
+internal server error. The adapter now derives its environment after setting
+the working directory. The integration test deliberately starts with a different
+parent `PWD` and verifies both the first turn and resumption. This correction also
+applies to the shared PrAImate Code adapter; older published app binaries do not
+include it until a new application build is installed.
+
+`run --format json --thinking`, `--session`, and `--model provider/model` retain
+their contracts. Full mode's `--dangerously-skip-permissions` remains a supported
+alias for `--auto`; no runtime flag migration is required. Existing V1
+`opencode.json` provider and MCP configuration remains supported. PrAImate Code
+uses its separately bundled version and is not upgraded by this check.
+
+The installed-binary test is optional and uses temporary configuration, session,
+cache and skill directories, with model requests directed at localhost. Download
+and verify the official CLI separately, then run:
+
+```sh
+PRAIMATE_TEST_OPENCODE_BINARY=/absolute/path/to/opencode go test ./internal/core -run '^TestOpenCodeInstalledCompatibility$' -count=1 -v
+```
+
+The command fixture currently requires Linux or macOS. Without the environment
+variable, ordinary test runs skip this integration test. The JSON-RPC helper
+accepts zero and string request IDs, including OpenCode's initialization request.
+
+Reference: [OpenCode 1.18.34 release](https://github.com/anomalyco/opencode/releases/tag/v1.18.34)
+and its [run command implementation](https://github.com/anomalyco/opencode/blob/v1.18.34/packages/opencode/src/cli/cmd/run.ts).
+
 ### GitHub Copilot CLI
 
 - Install the official `@github/copilot` npm package from **CLIs**; Node/npm are prerequisites.

@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte'
   import { api } from '../lib/api.js'
+  import AssistantSettings from '../lib/AssistantSettings.svelte'
   import { showToast } from '../lib/stores.js'
   import {
     ACCENT_PRESETS,
@@ -381,6 +382,8 @@
 <p class="subtitle">Automation, privacy, backup, appearance, and updates.</p>
 
 {#if error}<div class="banner">{error}</div>{/if}
+
+<AssistantSettings />
 
 <h1 style="font-size:16px">Updates</h1>
 <div class="card">

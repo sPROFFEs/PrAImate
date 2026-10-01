@@ -42,17 +42,19 @@ func runManagedMCPTestHelper() {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		var request struct {
-			ID     int64          `json:"id"`
-			Method string         `json:"method"`
-			Params map[string]any `json:"params"`
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params map[string]any  `json:"params"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &request) != nil || request.ID == 0 {
+		// JSON-RPC permits zero and string IDs. Only an absent ID marks a
+		// notification; the MCP SDK used by OpenCode initializes with ID zero.
+		if json.Unmarshal(scanner.Bytes(), &request) != nil || len(request.ID) == 0 {
 			continue
 		}
 		var result any = map[string]any{}
 		switch request.Method {
 		case "initialize":
-			result = map[string]any{"protocolVersion": managedMCPProtocolVersion, "capabilities": map[string]any{}, "serverInfo": map[string]any{"name": "test", "version": "1"}}
+			result = map[string]any{"protocolVersion": managedMCPProtocolVersion, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "test", "version": "1"}}
 		case "tools/list":
 			result = map[string]any{"tools": []map[string]any{{"name": "echo", "inputSchema": map[string]any{"type": "object"}}}}
 		case "tools/call":

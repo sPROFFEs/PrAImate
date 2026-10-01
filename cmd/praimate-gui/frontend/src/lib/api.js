@@ -19,6 +19,23 @@ function call(method, ...args) {
 }
 
 export const api = {
+  assistantConfig: () => call('AssistantConfig'),
+  saveAssistantConfig: config => call('SaveAssistantConfig', JSON.stringify(config)),
+  assistantSnapshot: () => call('AssistantSnapshot'),
+  clearAssistantHistory: () => call('ClearAssistantHistory'),
+  sendAssistant: (message, context = {}) => call('SendAssistant', message, JSON.stringify(context)),
+  cancelAssistant: () => call('CancelAssistant'),
+  assistantHealth: () => call('AssistantHealth'),
+  transcribeVoice: (audio, context = {}) => call('TranscribeVoice', audio, JSON.stringify(context)),
+  cancelVoice: () => call('CancelVoice'),
+  beginVoiceCapture: () => call('BeginVoiceCapture'),
+  endVoiceCapture: id => call('EndVoiceCapture', id),
+  finishNativeVoiceCapture: id => call('FinishNativeVoiceCapture', id),
+	assistantArtifactCatalog: () => call('AssistantArtifactCatalog'),
+	installAssistantArtifact: (id) => call('InstallAssistantArtifact', id),
+	verifyAssistantArtifact: (id) => call('VerifyAssistantArtifact', id),
+	removeAssistantArtifact: (id) => call('RemoveAssistantArtifact', id),
+	cancelAssistantArtifactInstall: () => call('CancelAssistantArtifactInstall'),
   usageDashboard: (month = '') => call('UsageDashboard', month),
   workerConfig: () => call('WorkerConfig'),
   saveWorkerConfig: (config) => call('SaveWorkerConfig', JSON.stringify(config)),

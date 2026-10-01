@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { api, onApproval } from './lib/api.js'
-  import { activePage, pageRevision, prefetchCLIs, agentStudio } from './lib/stores.js'
+  import { activePage, pageRevision, prefetchCLIs, agentStudio, openChatId, openWorkerId } from './lib/stores.js'
   import { initTheme, themeMode, setThemeMode } from './lib/theme.js'
   import logo from './assets/monke-icon.png'
   import mascot from './assets/monke-mascot.png'
@@ -11,6 +11,45 @@
   import DatabaseUnlock from './lib/DatabaseUnlock.svelte'
   import Toast from './lib/Toast.svelte'
   import ConfirmModal from './lib/ConfirmModal.svelte'
+  import { assistantConfig, assistantTranscript, refreshAssistantConfig, matchesShortcut, beginCapture, cancelCapture } from './lib/voiceInput.js'
+  let assistantOpen = false, assistantComponent = null, assistantPhase = ''
+  let globalVoiceCapture = null, globalVoiceHeld = false, globalVoiceBusy = false, globalVoiceError = '', globalVoiceCode = '', globalVoiceGeneration = 0
+  async function openAssistant() {
+    assistantOpen = true
+    if (!assistantComponent) assistantComponent = (await import('./lib/AssistantPanel.svelte')).default
+  }
+  async function startGlobalVoice() {
+    if (globalVoiceHeld || globalVoiceBusy) return
+    globalVoiceHeld = true; globalVoiceGeneration++; globalVoiceError = ''
+    const generation = globalVoiceGeneration
+    try { const next = await beginCapture(); if (generation !== globalVoiceGeneration || !globalVoiceHeld) { next.cancel(); return }; globalVoiceCapture = next; next.onLimit = finishGlobalVoice }
+    catch(e) { if (generation === globalVoiceGeneration) { globalVoiceError = String(e); globalVoiceHeld = false } }
+  }
+  async function finishGlobalVoice() {
+    if (!globalVoiceHeld) return
+    globalVoiceHeld = false
+    if (!globalVoiceCapture) { cancelCapture(); return }
+    globalVoiceBusy = true
+    const generation = globalVoiceGeneration
+    try {
+      const recording = globalVoiceCapture; globalVoiceCapture = null
+      const audio = await recording.finish()
+      if (generation !== globalVoiceGeneration) return
+      const result = await api.transcribeVoice(audio, {page:$activePage,chat_id:$openChatId || '',agent_id:$agentStudio?.id || ''})
+      if (generation !== globalVoiceGeneration) return
+      await openAssistant()
+      if (generation !== globalVoiceGeneration) return
+      assistantTranscript.set({text:result.text,autoSend:!!$assistantConfig?.voice?.auto_send})
+    } catch(e) { globalVoiceError = String(e) } finally { globalVoiceBusy = false }
+  }
+  function cancelGlobalVoice() { globalVoiceGeneration++; globalVoiceHeld = false; globalVoiceCapture?.cancel(); globalVoiceCapture = null; cancelCapture(); if (globalVoiceBusy) api.cancelVoice().catch(() => {}) }
+  $: if (!$assistantConfig?.voice?.enabled && (globalVoiceHeld || globalVoiceBusy)) cancelGlobalVoice()
+  function globalVoiceKeyup(e) { if (globalVoiceHeld && (e.code || e.key) === globalVoiceCode) finishGlobalVoice() }
+  function globalVoiceBlur() { if (globalVoiceHeld) cancelGlobalVoice() }
+  async function toggleAssistant() {
+    assistantOpen = !assistantOpen
+    if (assistantOpen && !assistantComponent) assistantComponent = (await import('./lib/AssistantPanel.svelte')).default
+  }
 
   // Lucide-style outline icon paths (24x24 viewBox, stroke-based).
   const icons = {
@@ -123,6 +162,9 @@
   const cleanup = []
   onDestroy(() => {
     window.removeEventListener('keydown', handleKeydown)
+    window.removeEventListener('keyup', globalVoiceKeyup)
+    window.removeEventListener('blur', globalVoiceBlur)
+    if (globalVoiceHeld || globalVoiceBusy) cancelGlobalVoice()
     cleanup.forEach((dispose) => dispose?.())
   })
 
@@ -155,6 +197,7 @@
   }
 
   async function loadUnlockedApp() {
+    await refreshAssistantConfig().catch(() => {})
     try {
       editorMode = await api.editorMode()
     } catch {
@@ -194,6 +237,12 @@
   let zoomLevel = 1.0;
 
   function handleKeydown(e) {
+    if (databaseLock?.unlocked && $assistantConfig?.voice?.enabled && matchesShortcut(e,$assistantConfig.voice.shortcut)) {
+      if (!document.activeElement?.closest('[data-voice-composer]') && !document.querySelector('.picker-backdrop')) { e.preventDefault(); if (!e.repeat) { globalVoiceCode = e.code || e.key; startGlobalVoice() } }
+      return
+    }
+    if (databaseLock?.unlocked && !e.repeat && matchesShortcut(e, $assistantConfig?.shortcut)) { e.preventDefault(); toggleAssistant(); return }
+    if (e.key === 'Escape' && assistantOpen) { assistantOpen = false; return }
     if (e.ctrlKey || e.metaKey) {
       if (e.key === '=' || e.key === '+') {
         e.preventDefault()
@@ -213,6 +262,8 @@
 
   onMount(async () => {
     window.addEventListener('keydown', handleKeydown)
+    window.addEventListener('keyup', globalVoiceKeyup)
+    window.addEventListener('blur', globalVoiceBlur)
     cleanup.push(initTheme())
     try {
       detachedMode = await api.detachedMode()
@@ -227,9 +278,13 @@
       return
     }
     cleanup.push(onApproval((request) => {
-      if (request.chatId?.startsWith('worker-')) workerApprovals = [...workerApprovals, request]
+      if (request.chatId?.startsWith('worker-') || request.chatId?.startsWith('assistant-')) workerApprovals = [...workerApprovals, request]
     }))
     if (window.runtime?.EventsOn) {
+      cleanup.push(window.runtime.EventsOn('assistant:config', config => assistantConfig.set(config)))
+      cleanup.push(window.runtime.EventsOn('assistant:appearance', theme => setThemeMode(theme)))
+      cleanup.push(window.runtime.EventsOn('assistant:navigate', event => { agentStudio.set(event.agent_id ? {id:event.agent_id} : null); if (event.chat_id) openChatId.set(event.chat_id); activePage.set(event.page); pageRevision.update(value => value + 1); if (event.worker_id) openWorkerId.set(event.worker_id) }))
+      cleanup.push(window.runtime.EventsOn('assistant:event', event => { assistantPhase = event.phase; if (['completed','failed','cancelled'].includes(event.phase)) workerApprovals = workerApprovals.filter(request => !request.chatId?.startsWith('assistant-')) }))
       cleanup.push(window.runtime.EventsOn('praimate:close-blocked', (event) => { closeBlocked = event }))
     }
     // A genuinely fresh install chooses between a new workspace and an
@@ -287,6 +342,8 @@
   $: if (!detachedMode?.active && editorMode && !editorMode.active && $agentStudio) loadSpecial('agentStudio')
   $: if (!detachedMode?.active && editorMode && !editorMode.active && !firstRun?.needed && !$agentStudio) loadPage($activePage)
 </script>
+
+{#if assistantOpen && assistantComponent && databaseLock?.unlocked}<svelte:component this={assistantComponent} on:close={() => assistantOpen = false} />{/if}
 
 {#if !detachedMode}
   <div class="boot-screen">Preparing PrAImate…</div>
@@ -347,7 +404,7 @@
     {#if !collapsed}
       <div class="sessions-slot"><SessionPanel /></div>
     {/if}
-    <div class="mascot" style="background-image:url({mascot})" aria-hidden="true"></div>
+    <button class="mascot assistant-toggle" class:assistant-working={['loading','thinking','approval','executing'].includes(assistantPhase)} style="background-image:url({mascot})" aria-label="Open PrAImate assistant" title={assistantPhase && !['completed','cancelled','failed'].includes(assistantPhase) ? 'Assistant · '+assistantPhase : 'PrAImate Assistant'} on:click={toggleAssistant}></button>
     <div class="sidebar-footer">
       {#if health}
         {#if health.ok}
@@ -394,19 +451,22 @@
   <div class="boot-screen">Preparing PrAImate…</div>
 {/if}
 
+{#if globalVoiceHeld || globalVoiceBusy || globalVoiceError}
+  <div class="global-voice" role="status"><span>{globalVoiceError || (globalVoiceHeld ? 'Listening… Release the shortcut to transcribe.' : 'Transcribing locally…')}</span><button class="btn sm" on:click={() => { cancelGlobalVoice(); globalVoiceError = '' }}>Cancel</button></div>
+{/if}
 <Toast />
 <ConfirmModal />
 
 {#each workerApprovals as request (request.id)}
   <div class="picker-backdrop">
-    <div class="picker" role="dialog" aria-modal="true" aria-label="Worker approval" style="max-width:560px">
-      <div class="picker-head"><strong class="grow">Worker requests {request.tool}</strong></div>
+    <div class="picker" role="dialog" aria-modal="true" aria-label="Application action approval" style="max-width:560px">
+      <div class="picker-head"><strong class="grow">{request.chatId?.startsWith('assistant-') ? 'Assistant' : 'Worker'} requests {request.tool}</strong></div>
       <div class="picker-body" style="padding:16px;white-space:pre-wrap;overflow-wrap:anywhere">{request.detail}</div>
       {#if workerApprovalError}<p role="alert" style="padding:0 16px;color:var(--err)">{workerApprovalError}</p>{/if}
       <div class="picker-actions">
         <button on:click={() => answerWorkerApproval(request, false)}>Deny</button>
         <button on:click={() => answerWorkerApproval(request, true)}>Allow once</button>
-        <button on:click={() => answerWorkerApproval(request, true, true)}>Allow for this chat</button>
+        <button on:click={() => answerWorkerApproval(request, true, true)}>{request.chatId?.startsWith('assistant-') ? 'Allow for this session' : 'Allow for this chat'}</button>
       </div>
     </div>
   </div>
@@ -474,4 +534,13 @@
     gap: 8px;
     padding: 12px 16px;
   }
+
+  .global-voice { position:fixed; z-index:850; right:22px; top:22px; display:flex; align-items:center; gap:12px; max-width:calc(100vw - 44px); padding:12px 16px; background:var(--bg-panel, #202329); color:var(--text); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow-overlay); font-size:13px; }
+  .assistant-working { filter:drop-shadow(0 0 6px var(--accent)); }
+  .assistant-toggle { display:block; height:96px; pointer-events:auto; opacity:1; -webkit-mask-image:none; mask-image:none; cursor:pointer; background-color:transparent; background-position:center; border:none; padding:0; image-rendering:auto; filter:drop-shadow(0 2px 2px #0003); transition:transform .18s var(--ease),filter .18s var(--ease); }
+  .sidebar.collapsed .assistant-toggle { display:block; height:44px; margin:4px 0; }
+  .assistant-toggle:hover { transform:translateY(-2px); filter:drop-shadow(0 4px 5px #0004); }
+  .assistant-toggle.assistant-working { filter:drop-shadow(0 0 6px var(--accent)); }
+  @media(prefers-reduced-motion:reduce) { .assistant-toggle { transition:none; } .assistant-toggle:hover { transform:none; } }
+  .assistant-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:12px; }
 </style>

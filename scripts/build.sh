@@ -19,7 +19,7 @@
 # GUI coverage:
 #   - native Linux         — full cgo build (needs webkit2gtk-4.1
 #                            and GTK 3 development headers)
-#   - native macOS arm64  — Apple Silicon host and native Apple toolchain
+#   - native macOS        — Intel/Apple Silicon host and native Apple toolchain
 #   - windows-amd64/arm64  — cross-compilable: Wails v2's Windows
 #                            backend is pure Go syscalls (WebView2 loads
 #                            at runtime), so CGO_ENABLED=0 works
@@ -34,7 +34,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.2.14}"
+VERSION="${VERSION:-1.2.15}"
 EXTRA_LDFLAGS="${LDFLAGS:--s -w}"  # strip symbols by default — tiny binaries
 ARCHIVE=1
 WITH_CODE=0
@@ -85,7 +85,7 @@ build_one() {
   local ext=""
   if [ "$goos" = "windows" ]; then ext=".exe"; fi
   case "$triplet" in
-    linux-amd64|linux-arm64|windows-amd64|windows-arm64|darwin-arm64) ;;
+    linux-amd64|linux-arm64|windows-amd64|windows-arm64|darwin-arm64|darwin-amd64) ;;
     *)
       echo "unsupported GUI release target: $triplet" >&2
       return 2
@@ -168,7 +168,7 @@ build_one() {
   mkdir -p "$out/docs"
   cp docs/ACTIVATION.md docs/TARGETS.md docs/SCHEMA.md docs/QUICKSTART.md \
     docs/GUIDE.md docs/AGENT_GUIDE.md docs/CLI_AGENT_API.md \
-    docs/native-cli.md docs/WORKERS.md docs/RELEASE-GITHUB.md "$out/docs/"
+    docs/native-cli.md docs/WORKERS.md docs/assistant-voice.md docs/RELEASE-GITHUB.md "$out/docs/"
   mkdir -p "$out/docs/assets"
   cp docs/assets/monke-icon.png "$out/docs/assets/"
   mkdir -p "$out/examples"

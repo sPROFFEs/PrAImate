@@ -1,0 +1,183 @@
+{
+  "catalog_version": "2026.10.01.1",
+  "validation": {
+    "linux-amd64": [
+      "LFM2.5 structured JSON completion",
+      "Qwen3.5 structured JSON completion",
+      "Whisper Base official JFK sample transcription"
+    ],
+    "other_runtime_platforms": "Repacked upstream release binaries; not executed on this host",
+    "darwin-amd64": [
+      "Native build, ad-hoc signature and system-only dependency validation",
+      "Whisper Base official JFK sample transcription on GitHub macOS runner"
+    ],
+    "darwin-arm64": [
+      "Native build, ad-hoc signature and system-only dependency validation",
+      "Whisper Base official JFK sample transcription on GitHub macOS runner"
+    ]
+  },
+  "artifacts": {
+    "assistant/lfm2.5-350m/qad-q4_0/v1": {
+      "filename": "LFM2.5-350M-QAD-Q4_0.gguf",
+      "upstream_project": "LiquidAI/LFM2.5-350M-GGUF",
+      "upstream_version": "657e078c94084481950a2d555a941481f715536b",
+      "upstream_sha256": "3d10b6ab8fc91a919534b9558e266255aca0bbc7f6d015963599aa9e74e05b1d",
+      "license_name": "LFM-Open-License-1.0",
+      "license_url": "https://huggingface.co/LiquidAI/LFM2.5-350M-GGUF/raw/657e078c94084481950a2d555a941481f715536b/LICENSE"
+    },
+    "assistant/qwen3.5-0.8b/q4_0/v1": {
+      "filename": "Qwen3.5-0.8B-Q4_0.gguf",
+      "upstream_project": "ggml-org/Qwen3.5-0.8B-GGUF",
+      "upstream_version": "8fea620810c4afa23dd6443f999a48574c1611a3",
+      "upstream_sha256": "57d1997790d1744fba5b40a7317df71ea5e2acee28c47e78f0cce39c0703f8cf",
+      "license_name": "Apache-2.0",
+      "license_url": "https://raw.githubusercontent.com/QwenLM/Qwen3.5/main/LICENSE"
+    },
+    "runtime/llama.cpp/darwin-amd64/v1": {
+      "filename": "llama-cpp-darwin-amd64-b11321-v1.tar.gz",
+      "upstream_project": "ggml-org/llama.cpp",
+      "upstream_version": "b11321",
+      "upstream_sha256": "1e6e53f2a3dc3a412df69dd0f4495571ea1fece32397362eebc02ac89bc8a0ec",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b11321/LICENSE"
+    },
+    "runtime/llama.cpp/darwin-arm64/v1": {
+      "filename": "llama-cpp-darwin-arm64-b11321-v1.tar.gz",
+      "upstream_project": "ggml-org/llama.cpp",
+      "upstream_version": "b11321",
+      "upstream_sha256": "5f47ffa4de936853004e7403a09d87616022e5af16651d71fc66a96b261886fb",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b11321/LICENSE"
+    },
+    "runtime/llama.cpp/linux-amd64/v1": {
+      "filename": "llama-cpp-linux-amd64-b11321-v1.tar.gz",
+      "upstream_project": "ggml-org/llama.cpp",
+      "upstream_version": "b11321",
+      "upstream_sha256": "b53d1a8fc0e31752d0309172e711c7bc8c0c11f9f1d6607766a6ac880da6badc",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b11321/LICENSE"
+    },
+    "runtime/llama.cpp/linux-arm64/v1": {
+      "filename": "llama-cpp-linux-arm64-b11321-v1.tar.gz",
+      "upstream_project": "ggml-org/llama.cpp",
+      "upstream_version": "b11321",
+      "upstream_sha256": "965f548c3a2fe48df35e6a5dd3f81a0ecc1bc6b2b980bd02f7a61138a7c26a3e",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b11321/LICENSE"
+    },
+    "runtime/llama.cpp/windows-amd64/v1": {
+      "filename": "llama-cpp-windows-amd64-b11321-v1.tar.gz",
+      "upstream_project": "ggml-org/llama.cpp",
+      "upstream_version": "b11321",
+      "upstream_sha256": "8f8c0c6501b075f52deff59537c05acd57d8621a0a7935f29b7d7c4812892569",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b11321/LICENSE"
+    },
+    "runtime/llama.cpp/windows-arm64/v1": {
+      "filename": "llama-cpp-windows-arm64-b11321-v1.tar.gz",
+      "upstream_project": "ggml-org/llama.cpp",
+      "upstream_version": "b11321",
+      "upstream_sha256": "214c5cca6e500e5f4e4b4ce0986d4154f5ba2ef2dc5b615e666ee17885ab8f97",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/b11321/LICENSE"
+    },
+    "runtime/whisper.cpp/linux-amd64/v1": {
+      "filename": "whisper-cpp-linux-amd64-b5130-v1.tar.gz",
+      "upstream_project": "ggml-org/whisper.cpp",
+      "upstream_version": "b5130",
+      "upstream_sha256": "53e7fd8b5764edad916b8848dd0af6abb1ff1d3b86c899e79c78652412536c32",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/whisper.cpp/b5130/LICENSE"
+    },
+    "runtime/whisper.cpp/linux-arm64/v1": {
+      "filename": "whisper-cpp-linux-arm64-b5130-v1.tar.gz",
+      "upstream_project": "ggml-org/whisper.cpp",
+      "upstream_version": "b5130",
+      "upstream_sha256": "93532a0e3777f26f041ffa358ee77dd88b1a33a86847c1990745327ff335a5d6",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/whisper.cpp/b5130/LICENSE"
+    },
+    "runtime/whisper.cpp/windows-amd64/v1": {
+      "filename": "whisper-cpp-windows-amd64-b5130-v1.tar.gz",
+      "upstream_project": "ggml-org/whisper.cpp",
+      "upstream_version": "b5130",
+      "upstream_sha256": "f9ec6c52a2e949b62ab51fa21d0d497958f9e41c3010c157c4e42932d5316f3c",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/whisper.cpp/b5130/LICENSE"
+    },
+    "runtime/whisper.cpp/windows-arm64/v1": {
+      "filename": "whisper-cpp-windows-arm64-b5130-v1.tar.gz",
+      "upstream_project": "ggml-org/whisper.cpp",
+      "upstream_version": "b5130",
+      "upstream_sha256": "799543b926ab5b6c2d60cab269a2092e0ae8d27820e9e15429e59de3699546fc",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/whisper.cpp/b5130/LICENSE"
+    },
+    "speech/whisper-base/q5_1/v1": {
+      "filename": "ggml-base-q5_1.bin",
+      "upstream_project": "ggerganov/whisper.cpp",
+      "upstream_version": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "upstream_sha256": "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/openai/whisper/main/LICENSE"
+    },
+    "speech/whisper-small/q5_1/v1": {
+      "filename": "ggml-small-q5_1.bin",
+      "upstream_project": "ggerganov/whisper.cpp",
+      "upstream_version": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "upstream_sha256": "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/openai/whisper/main/LICENSE"
+    },
+    "speech/whisper-tiny/q5_1/v1": {
+      "filename": "ggml-tiny-q5_1.bin",
+      "upstream_project": "ggerganov/whisper.cpp",
+      "upstream_version": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "upstream_sha256": "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/openai/whisper/main/LICENSE"
+    },
+    "runtime/whisper.cpp/darwin-amd64/v1": {
+      "filename": "whisper-cpp-darwin-amd64-b5130-v1.tar.gz",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/whisper.cpp/b5130/LICENSE",
+      "upstream_project": "ggml-org/whisper.cpp",
+      "upstream_version": "b5130",
+      "upstream_sha256": "368eb0598fb98e34b9103ca5d5c2d6656ab3c5e943ccfd3fdb621ced891535ef",
+      "build": {
+        "upstream_commit": "927cfce34f31707e17f2bff35c349632fb9e2c3a",
+        "source_archive_format": "git archive --format=tar HEAD",
+        "source_archive_sha256": "368eb0598fb98e34b9103ca5d5c2d6656ab3c5e943ccfd3fdb621ced891535ef",
+        "minimum_macos": "12.0",
+        "architecture": "amd64",
+        "static": true,
+        "cpu_only": true,
+        "native_isa": false,
+        "code_signature": "ad-hoc",
+        "validated_ci_run": "https://github.com/sPROFFEs/PrAImate/actions/runs/36925764458",
+        "tested_executable_sha256": "fe1e10c2623c182ede2e85bbbc9db93bd729c3ef3ea1104e851c0edce26932f1"
+      }
+    },
+    "runtime/whisper.cpp/darwin-arm64/v1": {
+      "filename": "whisper-cpp-darwin-arm64-b5130-v1.tar.gz",
+      "license_name": "MIT",
+      "license_url": "https://raw.githubusercontent.com/ggml-org/whisper.cpp/b5130/LICENSE",
+      "upstream_project": "ggml-org/whisper.cpp",
+      "upstream_version": "b5130",
+      "upstream_sha256": "368eb0598fb98e34b9103ca5d5c2d6656ab3c5e943ccfd3fdb621ced891535ef",
+      "build": {
+        "upstream_commit": "927cfce34f31707e17f2bff35c349632fb9e2c3a",
+        "source_archive_format": "git archive --format=tar HEAD",
+        "source_archive_sha256": "368eb0598fb98e34b9103ca5d5c2d6656ab3c5e943ccfd3fdb621ced891535ef",
+        "minimum_macos": "12.0",
+        "architecture": "arm64",
+        "static": true,
+        "cpu_only": true,
+        "native_isa": false,
+        "code_signature": "ad-hoc",
+        "validated_ci_run": "https://github.com/sPROFFEs/PrAImate/actions/runs/36925764458",
+        "tested_executable_sha256": "7ad08553d8189b1f0f0eba615ab5c382ed623eb16a1ee4067124ba8dedc38301"
+      }
+    }
+  }
+}

@@ -22,6 +22,8 @@ var desktopServers struct {
 	endpoint, token string
 	window          *DesktopWindowHooks
 	workers         *orchestrator.Manager
+	assistant       *AssistantHooks
+	assistantCore   *core.Core
 }
 
 // SetDesktopWorkerManager shares live worker chats between Wails and Studio.
@@ -41,7 +43,7 @@ func SetDesktopWindowHooks(c *core.Core, hooks *DesktopWindowHooks) {
 	desktopServers.Lock()
 	defer desktopServers.Unlock()
 	desktopServers.window = hooks
-	if desktopServers.server != nil && desktopServers.core == c {
+	if desktopServers.server != nil && desktopServers.server.core == c {
 		desktopServers.server.setDesktopWindowHooks(hooks)
 	}
 }
@@ -49,10 +51,13 @@ func SetDesktopWindowHooks(c *core.Core, hooks *DesktopWindowHooks) {
 func desktopEndpoint(c *core.Core) (string, string, error) {
 	desktopServers.Lock()
 	defer desktopServers.Unlock()
-	if desktopServers.server != nil && desktopServers.core == c {
+	if desktopServers.server != nil && desktopServers.server.core == c {
 		return desktopServers.endpoint, desktopServers.token, nil
 	}
 	srv := NewServer(c)
+	if desktopServers.assistantCore == c {
+		srv.assistant = desktopServers.assistant
+	}
 	if desktopServers.workers != nil && desktopServers.core == c {
 		srv.workers = desktopServers.workers
 	}
@@ -126,7 +131,7 @@ func launchConfiguration(opts LaunchOptions, workspace string) string {
 
 func extensionFiles() map[string]string {
 	return map[string]string{"package.json": ExtensionPackageJSON, "extension.js": ExtensionJS, "rpc.js": ExtensionRPCJS, "terminal.js": ExtensionTerminalJS,
-		"resources/chat.html": ExtensionChatHTML, "resources/monke.svg": ExtensionSVG}
+		"resources/chat.html": ExtensionChatHTML, "resources/assistant.js": ExtensionAssistantJS, "resources/monke-mascot.png": ExtensionMascot, "resources/monke.svg": ExtensionSVG}
 }
 func extensionCurrent(dir string) bool {
 	for name, want := range extensionFiles() {

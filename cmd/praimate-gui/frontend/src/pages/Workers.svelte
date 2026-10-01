@@ -1,5 +1,7 @@
 <script>
+  import VoiceButton from '../lib/VoiceButton.svelte'
   import { onMount, onDestroy } from 'svelte'
+  import { openWorkerId } from '../lib/stores.js'
   import { api } from '../lib/api.js'
   import { createPoller } from '../lib/poller.js'
   import { focusDialog } from '../lib/focusDialog.js'
@@ -21,7 +23,7 @@
   let clis = []
   let modelSuggestions = {}
   let runs = []
-  let selected = ''
+  let selected = $openWorkerId || ''
   let snapshot = null
   let task = ''
   let newTask = ''
@@ -46,6 +48,7 @@
       const nextRuns = (await api.workerRuns()) || []
       if (disposed) return
       runs = nextRuns
+      if ($openWorkerId && runs.some(run => run.id === $openWorkerId)) { selected = $openWorkerId; openWorkerId.set(null) }
       if (!runs.some((run) => run.id === selected)) selected = runs[0]?.id || ''
       const id = selected
       const summary = runs.find((run) => run.id === id)
@@ -209,7 +212,7 @@
         </div>
         <p class="chat-meta">{snapshot.workspace} · Started {new Date(snapshot.startedAt).toLocaleString()}</p>
         <div class="runbar"><span>{snapshot.status} · {snapshot.currentTask || snapshot.task}</span>{#if snapshot.status === 'running'}<button on:click={cancel}>Stop</button>{/if}</div>
-        {#if snapshot.turns?.length}<div class="turns">{#each snapshot.turns as turn}<p><strong>You:</strong> {turn.task}<br /><strong>Reasoner:</strong> {turn.result || turn.error}</p>{/each}</div>{/if}
+        {#if snapshot.turns?.length}<div class="turns">{#each snapshot.turns as turn}<p><strong>You:</strong> {turn.task}<br /><strong>{snapshot.entryTier === 'fast' ? 'Fast worker' : snapshot.entryTier === 'middle' ? 'Middle worker' : 'Reasoner'}:</strong> {turn.result || turn.error}</p>{/each}</div>{/if}
         <div class="lanes">
           {#each tiers as tier}
             <section class:closed={!open[tier.id]}>
@@ -233,7 +236,8 @@
         </div>
         {#if snapshot.result}<p class="result"><strong>Result</strong><br />{snapshot.result}</p>{/if}
         {#if snapshot.error}<p class="error" role="alert">{snapshot.error}</p>{/if}
-        <div class="composer">
+        <div class="composer" data-voice-composer>
+          <VoiceButton disabled={snapshot.status === 'running'} context={{page:'workers', worker_id:snapshot.id}} on:transcript={event => { task = [task,event.detail.text].filter(Boolean).join(' '); if (event.detail.autoSend) continueRun() }} />
           <textarea aria-label="Follow-up task" bind:value={task} rows="3" placeholder="Ask the reasoner to continue this chat…" disabled={snapshot.status === 'running'}></textarea>
           <button class="primary" disabled={submitting || snapshot.status === 'running' || !task.trim()} on:click={continueRun}>{submitting ? 'Sending…' : 'Continue chat'}</button>
         </div>
@@ -249,7 +253,8 @@
         <header class="dialog-heading"><h2>New worker chat</h2><button aria-label="Close" on:click={() => showCreate = false}>×</button></header>
         <p>Choose a workspace and configure the three workers for this chat. These profiles remain attached to its saved history.</p>
         {#if error}<p class="error" role="alert">{error}</p>{/if}
-        <label>Task for the reasoner <textarea bind:value={newTask} rows="3" placeholder="Describe the task to complete…"></textarea></label>
+        <div data-voice-composer><VoiceButton context={{page:'workers'}} on:transcript={event => { newTask = [newTask,event.detail.text].filter(Boolean).join(' ') }} />
+        <label>Task for the reasoner <textarea bind:value={newTask} rows="3" placeholder="Describe the task to complete…"></textarea></label></div>
         <div class="settings">
       <label class="workspace">Workspace
         <span><input bind:value={config.workspace} placeholder="/absolute/path/to/project" /><button on:click={chooseWorkspace}>Choose</button></span>

@@ -108,6 +108,8 @@ html, body {
 .brand img {
   width: 38px;
   height: 38px;
+  object-fit: contain;
+  image-rendering: auto;
   border-radius: 9px;
   display: block;
   flex-shrink: 0;

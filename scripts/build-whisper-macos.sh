@@ -37,6 +37,7 @@ cmake -S "$SOURCE" -B "$OUT/build" \
 cmake --build "$OUT/build" --config Release --target whisper-server --parallel 3
 cp "$OUT/build/bin/whisper-server" "$OUT/package/whisper-server"
 cp "$SOURCE/LICENSE" "$OUT/package/LICENSE"
+cp "$(dirname "$0")/whisper-runtime-notices.txt" "$OUT/package/THIRD-PARTY-NOTICES.txt"
 chmod 755 "$OUT/package/whisper-server"
 codesign --force --sign - "$OUT/package/whisper-server"
 codesign --verify --strict "$OUT/package/whisper-server"
@@ -69,7 +70,7 @@ artifact = {
     'filename': filename, 'size': len(payload), 'sha256': hashlib.sha256(payload).hexdigest(),
     'format': 'tar.gz', 'entry_point': 'whisper-server', 'license_name': 'MIT',
     'license_url': 'https://raw.githubusercontent.com/ggml-org/whisper.cpp/b5130/LICENSE',
-    'license_text': (out / 'package' / 'LICENSE').read_text(),
+    'license_text': (out / 'package' / 'LICENSE').read_text() + '\n\n' + (out / 'package' / 'THIRD-PARTY-NOTICES.txt').read_text(),
     'upstream_project': 'ggml-org/whisper.cpp', 'upstream_version': 'b5130',
     'upstream_sha256': source_sha,
 }

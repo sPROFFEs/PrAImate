@@ -1,4 +1,5 @@
 <script>
+  import VoiceButton from '../lib/VoiceButton.svelte'
   import { onMount, onDestroy, tick } from 'svelte'
   import { api, onChatStream, onApproval } from '../lib/api.js'
   import { activePage, pageRevision, openChatId, pendingTerm, showSkillDeliveryToast, showConfirm } from '../lib/stores.js'
@@ -480,7 +481,7 @@
   }
 
   function handleApproval(req) {
-    if (req.chatId?.startsWith('worker-')) return // App owns worker approvals across pages.
+    if (req.chatId?.startsWith('worker-') || req.chatId?.startsWith('assistant-')) return // App owns worker approvals across pages.
     // The detached child is subscribed before DetachSession resolves. Do not
     // fail-close an approval that belongs to that active renderer.
     if (detachedChats.has(req.chatId)) return
@@ -991,7 +992,7 @@
       {/each}
     </div>
   {/if}
-  <div class="composer">
+  <div class="composer" data-voice-composer>
     <button class="btn composer-action" on:click={attach} disabled={sending} title="Attach images, PDFs or documents" aria-label="Add files">📎 <span>Add files</span></button>
     <textarea
       class="field"
@@ -1000,6 +1001,7 @@
       bind:value={draft}
       on:keydown={onKey}
       disabled={sending}></textarea>
+    <VoiceButton disabled={sending || approvals.length > 0} context={{chat_id: selected?.ID || '', page:'chats'}} on:transcript={event => { draft = [draft,event.detail.text].filter(Boolean).join(' '); if (event.detail.autoSend) send() }} />
     <button class="btn composer-action" on:click={() => send('/compact')} disabled={sending || approvals.length > 0} title="Compact saved conversation context" aria-label="Compact context">◫ <span>Compact</span></button>
     <button class="btn composer-action" on:click={detachChat} disabled={approvals.length > 0} title="Move this chat into its own window">↗ <span>Detach</span></button>
     {#if sending}

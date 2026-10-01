@@ -351,8 +351,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the supported release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.14
-scripts/build.sh --version=1.2.14 --with-code --with-graphify
+scripts/build.sh --version=1.2.15
+scripts/build.sh --version=1.2.15 --with-code --with-graphify
 ```
 
 Build PrAImate Code from the vendored OpenCode source:
@@ -372,6 +372,7 @@ asset matrix and checksum process.
 |---|---|
 | [Full guide](docs/GUIDE.md) | Installation, every GUI page, storage, privacy, agents, skills, MCP, local LLMs, sessions, backup, and deletion. |
 | [PrAImate CLI](docs/native-cli.md) | Terminal commands, local model context, tools, skills, sessions and attachments. |
+| [Assistant and Voice](docs/assistant-voice.md) | Optional desktop assistant, permissions, Worker delegation, local dictation and SHA-256 verified model distribution. |
 | [Workers](docs/WORKERS.md) | Three-tier profiles, delegation, saved runs, execution limits and verification boundaries. |
 | [Agent creation manual](docs/AGENT_GUIDE.md) | Create, configure, test, package, and share agents; complete `praimate.agent/v1` YAML reference. |
 | [Workpath quickstart](docs/QUICKSTART.md) | Create and compile a workpath with `wpc`. |

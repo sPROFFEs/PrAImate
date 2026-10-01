@@ -24,6 +24,7 @@ import (
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/sPROFFEs/PrAImate/internal/assistant"
 	"github.com/sPROFFEs/PrAImate/internal/backup"
 	"github.com/sPROFFEs/PrAImate/internal/core"
 	"github.com/sPROFFEs/PrAImate/internal/installer"
@@ -33,6 +34,7 @@ import (
 	"github.com/sPROFFEs/PrAImate/internal/store"
 	"github.com/sPROFFEs/PrAImate/internal/studio"
 	"github.com/sPROFFEs/PrAImate/internal/version"
+	"github.com/sPROFFEs/PrAImate/internal/voice"
 )
 
 // App carries the shared Core plus the Wails context used for dialogs
@@ -58,13 +60,26 @@ type App struct {
 	// chatCancels maps chatID → cancel func for the in-flight streamed
 	// turn, so the Stop button can interrupt it. Guarded by chatCancelMu
 	// (binding calls run on independent goroutines).
-	chatCancelMu    sync.Mutex
-	chatCancels     map[string]context.CancelFunc
-	chatCancelIDs   map[string]uint64
-	chatCancelSeq   uint64
-	managedCancelMu sync.Mutex
-	managedCancels  map[string]context.CancelFunc
-	workers         *orchestrator.Manager
+	chatCancelMu           sync.Mutex
+	chatCancels            map[string]context.CancelFunc
+	chatCancelIDs          map[string]uint64
+	chatCancelSeq          uint64
+	managedCancelMu        sync.Mutex
+	managedCancels         map[string]context.CancelFunc
+	workers                *orchestrator.Manager
+	assistantMu            sync.Mutex
+	assistantRunMu         sync.Mutex
+	assistantTasksMu       sync.Mutex
+	assistantClosed        bool
+	assistantHealthCancel  context.CancelFunc
+	assistantService       *assistant.Service
+	assistantProvider      assistant.Provider
+	assistantFingerprint   string
+	assistantUsage         *core.UsageRecorder
+	voiceService           *voice.Service
+	voiceCancel            context.CancelFunc
+	voiceCaptureTimer      *time.Timer
+	voiceCaptureGeneration uint64
 
 	// ragCancels maps agent IDs to active graphify extractions so the RAG
 	// controls can stop only their own child process. Guarded by ragCancelMu.
@@ -240,7 +255,11 @@ func (a *App) initializeUnlockedStore(ctx context.Context, st *store.Store) erro
 	a.st = st
 	a.core = c
 	a.workers = orchestrator.NewManager(c, ctx)
+	if config, err := a.AssistantConfig(); err == nil && config.Enabled && config.StartWithApp {
+		go func() { _ = a.AssistantHealth() }()
+	}
 	studio.SetDesktopWorkerManager(c, a.workers)
+	a.connectStudioAssistant()
 	studio.SetDesktopWindowHooks(c, &studio.DesktopWindowHooks{
 		Hide: func() {
 			a.studioWindowMu.Lock()
@@ -274,6 +293,14 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.detachedClient != nil {
 		a.detachedClient.close()
 		return
+	}
+	stopAssistantCtx, stopAssistantCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	_ = a.stopAssistantServices(stopAssistantCtx)
+	stopAssistantCancel()
+	if a.core != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = a.core.StopManagedArtifactInstalls(stopCtx)
+		cancel()
 	}
 	a.resetMu.Lock()
 	resetting := a.dataReset

@@ -2,7 +2,7 @@
   "name": "praimate-studio",
   "displayName": "PrAImate Studio",
   "description": "Native PrAImate Core IDE integration for Code-OSS / VSCodium",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "publisher": "PrAImate",
   "engines": {
     "vscode": "^1.75.0"
@@ -191,6 +191,11 @@
         "command": "praimate.toggleDesktopWindow",
         "title": "PrAImate: Hide or Show Desktop Window",
         "category": "PrAImate"
+      },
+      {
+        "command": "praimate.openAssistant",
+        "title": "PrAImate: Open Application Assistant",
+        "category": "PrAImate"
       }
     ],
     "menus": {
@@ -216,7 +221,15 @@
           "group": "praimate@5"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "praimate.openAssistant",
+        "key": "ctrl+shift+space",
+        "mac": "cmd+shift+space",
+        "when": "webviewId == praimate.chatView"
+      }
+    ]
   },
   "capabilities": {
     "untrustedWorkspaces": {

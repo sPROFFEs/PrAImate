@@ -14,16 +14,16 @@ Keep these defaults aligned:
 
 The [release workflow](https://github.com/sPROFFEs/PrAImate/blob/main/.github/workflows/release.yml) runs on a pushed `v*`
 tag or manual dispatch. It builds Linux amd64, Windows amd64/arm64 and macOS
-Apple Silicon on separate native runners, merges their artifacts, generates
+Intel and Apple Silicon on separate native runners, merges their artifacts, generates
 `SHA256SUMS`, and creates or updates the matching GitHub release. A push to
 `main` alone does not publish a release.
 
 For example, after reviewing and committing the version and source changes:
 
 ```bash
-git tag -a v1.2.14 -m "PrAImate 1.2.14"
+git tag -a v1.2.15 -m "PrAImate 1.2.15"
 git push origin main
-git push origin v1.2.14
+git push origin v1.2.15
 ```
 
 Tags use a `v` prefix in this workflow; the stamped application version does
@@ -40,19 +40,21 @@ On Linux amd64:
 
 ```bash
 PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH" \
-  bash scripts/build.sh --version=1.2.14 --with-code --with-graphify
+  bash scripts/build.sh --version=1.2.15 --with-code --with-graphify
 ```
 
 This builds Linux amd64 and cross-compiles the Windows GUI bundles. Optional
 PrAImate Code and Graphify builds run only for the native host target; Windows
 GUI cross-compilation does not produce those standalone Windows tools. Build
-Linux arm64 bundles on a native arm64 host. Build macOS Apple Silicon on a Mac:
+Linux arm64 bundles on a native arm64 host. Build macOS on a Mac of the matching architecture:
 
 ```bash
-bash scripts/build.sh darwin-arm64 --version=1.2.14 --with-code --with-graphify
+bash scripts/build.sh darwin-arm64 --version=1.2.15 --with-code --with-graphify
+# On an Intel Mac:
+bash scripts/build.sh darwin-amd64 --version=1.2.15 --with-code --with-graphify
 ```
 
-On Windows, `scripts/build.ps1 -Version 1.2.14` builds the Windows GUI bundles.
+On Windows, `scripts/build.ps1 -Version 1.2.15` builds the Windows GUI bundles.
 The automated workflow uses Bash and builds optional tools on native runners.
 Review the actual output: missing Bun or uv can skip optional assets, and an
 arm64 target on an amd64 Windows runner cannot build native Graphify.
@@ -67,7 +69,7 @@ PRAIMATE_CODE_TARGET=windows-amd64 BASELINE=1 OUT=dist/windows-amd64 \
 ```
 
 Supported targets are `linux-amd64`, `linux-arm64`, `windows-amd64`,
-`windows-arm64` and `darwin-arm64`. amd64 releases should include the baseline
+`windows-arm64`, `darwin-arm64` and `darwin-amd64`. amd64 releases should include the baseline
 variant for CPUs without AVX2. Graphify is built natively by
 `scripts/build-graphify.sh`; platforms without a matching asset use the managed
 installer's uv fallback.
@@ -79,6 +81,7 @@ installer's uv fallback.
 | `praimate-linux-amd64.tar.gz` | Linux installer and updater |
 | `praimate-windows-{amd64,arm64}.zip` | Windows installer and updater |
 | `praimate-darwin-arm64.tar.gz` | macOS Apple Silicon installer and updater |
+| `praimate-darwin-amd64.tar.gz` | macOS Intel installer and updater |
 | `praimate-cli-<os>-<arch>[.exe]` | Standalone native terminal frontend |
 | `praimate-code-<os>-<arch>[.exe]` | Managed PrAImate Code installer |
 | `praimate-code-<os>-amd64-baseline[.exe]` | PrAImate Code on amd64 CPUs without AVX2 |

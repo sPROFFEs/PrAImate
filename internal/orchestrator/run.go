@@ -105,6 +105,15 @@ func (r Runner) emit(tier Tier, kind, text string, usage workerruntime.Usage) {
 }
 
 func (r Runner) Run(ctx context.Context, config Config, task string) (string, error) {
+	return r.RunFromTier(ctx, config, Primary, task)
+}
+
+// RunFromTier lets application delegation start at the cheapest suitable tier.
+// Child delegation follows the same hierarchy and action limits as normal runs.
+func (r Runner) RunFromTier(ctx context.Context, config Config, tier Tier, task string) (string, error) {
+	if tier != Primary && tier != Middle && tier != Fast {
+		return "", errors.New("unknown worker entry tier")
+	}
 	if err := config.Validate(); err != nil {
 		return "", err
 	}
@@ -117,7 +126,7 @@ func (r Runner) Run(ctx context.Context, config Config, task string) (string, er
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	remaining := maxRunWorkerRequests
-	return r.runTier(ctx, config, Primary, task, &remaining)
+	return r.runTier(ctx, config, tier, task, &remaining)
 }
 
 type decision struct {

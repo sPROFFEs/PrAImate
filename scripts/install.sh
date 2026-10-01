@@ -762,6 +762,7 @@ DESK
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>$icon_name</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSMicrophoneUsageDescription</key><string>PrAImate uses the microphone only while you hold Dictate to transcribe speech locally.</string>
 </dict></plist>
 PLIST
       if [[ -d "$HOME/Desktop" && ! -e "$HOME/Desktop/PrAImate.app" ]]; then

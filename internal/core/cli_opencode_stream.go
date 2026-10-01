@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 )
@@ -57,7 +56,10 @@ func (a *execAdapter) runOpenCodeJSON(ctx context.Context, message, cwd, session
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	cmd.Env = mergeEnv(os.Environ(), env)
+	// Environ updates PWD after Dir is set. OpenCode resolves its workspace
+	// from PWD, so inheriting the GUI's launch directory selects a different
+	// project/configuration even though the process cwd is correct.
+	cmd.Env = mergeEnv(cmd.Environ(), env)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("%s stream: stdout pipe: %w", a.name, err)

@@ -45,6 +45,8 @@ type Server struct {
 	window        *DesktopWindowHooks
 	workers       *orchestrator.Manager
 	workerOwner   *Server
+	assistant     *AssistantHooks
+	voiceLease    string
 	terminalUsage map[string]*core.TerminalUsage
 }
 
@@ -188,7 +190,15 @@ func (s *Server) restoreDesktopWindowWhenIdle(delay time.Duration) {
 func (s *Server) Close() error {
 	s.cancel()
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	lease := s.voiceLease
+	s.voiceLease = ""
+	defer func() {
+		s.mu.Unlock()
+		if lease != "" {
+			raw, _ := json.Marshal(map[string]string{"id": lease})
+			_, _ = s.assistantCall(context.Background(), "voice.end", raw)
+		}
+	}()
 	if s.running != nil {
 		s.running()
 	}
@@ -224,6 +234,7 @@ func (s *Server) ServeStdio(r io.Reader, w io.Writer) error {
 	scanner.Buffer(make([]byte, 64*1024), 10*1024*1024)
 	var workers sync.WaitGroup
 	probes := make(chan struct{}, 4)
+	assistantWork := make(chan struct{}, 8)
 	defer workers.Wait()
 	defer s.cancel()
 	for scanner.Scan() {
@@ -253,6 +264,24 @@ func (s *Server) ServeStdio(r io.Reader, w io.Writer) error {
 				response := s.dispatchContext(ctx, req)
 				s.endRun()
 				s.write(response)
+			}(req)
+		} else if req.ID != nil && (strings.HasPrefix(req.Method, "assistant.") || strings.HasPrefix(req.Method, "voice.")) {
+			// Model work/downloads must leave the connection free for Stop and approvals.
+			if req.Method == "assistant.cancel" || req.Method == "assistant.approve" || req.Method == "assistant.artifacts.cancel" || req.Method == "voice.cancel" || req.Method == "voice.end" {
+				s.write(s.dispatch(req))
+				continue
+			}
+			select {
+			case assistantWork <- struct{}{}:
+			default:
+				s.write(RPCResponse{JSONRPC: "2.0", ID: req.ID, Error: &RPCError{Code: -32000, Message: "Assistant requests are busy; wait for the current operation"}})
+				continue
+			}
+			workers.Add(1)
+			go func(req RPCRequest) {
+				defer workers.Done()
+				defer func() { <-assistantWork }()
+				s.write(s.dispatch(req))
 			}(req)
 		} else if req.ID != nil && (req.Method == "clis.list" || req.Method == "models.list" || req.Method == "tools.detect" || req.Method == "mcp.probe" || req.Method == "local.hosts.test") {
 			// Version/model probes can take seconds. They must not block Stop,
@@ -319,6 +348,9 @@ func capabilities() ServerCapabilities {
 	return ServerCapabilities{Agents: true, Workflows: true, Skills: true, MCP: true, LocalModels: true, Approvals: true, Streaming: true, Runs: true}
 }
 func (s *Server) execute(ctx context.Context, method string, body []byte) (any, error) {
+	if strings.HasPrefix(method, "assistant.") || strings.HasPrefix(method, "voice.") {
+		return s.assistantCall(ctx, method, body)
+	}
 	switch method {
 	case "system.initialize":
 		if s.isRunning() {

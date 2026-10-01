@@ -170,6 +170,7 @@ function connect() {
   }
 }
 function incoming(msg) {
+	if (msg.method.startsWith('assistant.')) provider.post({type:'assistantEvent',method:msg.method,value:msg.params});
   if (msg.method === 'run.event') provider.stream(msg.params);
   if (msg.method === 'install.output') output.appendLine(msg.params?.line || '');
   if (msg.method === 'desktop.window.changed') { currentStatus.desktopWindow = msg.params || {available:false,hidden:false}; provider.notifyStatus(); }
@@ -215,9 +216,22 @@ class ChatView {
   resolveWebviewView(view) {
     this.views.add(view);
     view.webview.options = { enableScripts:true, localResourceRoots:[context.extensionUri] };
-    view.webview.html = fs.readFileSync(path.join(context.extensionPath,'resources','chat.html'),'utf8');
+    const mascot = view.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri,'resources','monke-mascot.png'));
+    view.webview.html = fs.readFileSync(path.join(context.extensionPath,'resources','chat.html'),'utf8')
+      .replace('__RESOURCE_SOURCE__',view.webview.cspSource).replace('__MASCOT_URI__',String(mascot))
+      .replace('/*__ASSISTANT_SCRIPT__*/',fs.readFileSync(path.join(context.extensionPath,'resources','assistant.js'),'utf8'));
     view.webview.onDidReceiveMessage(data => {
       const handlers = {
+        assistantRPC:async () => {
+          const allowed = new Set(['assistant.available','assistant.config','assistant.configure','assistant.snapshot','assistant.send','assistant.cancel','assistant.clear','assistant.health','assistant.approve','assistant.artifacts','assistant.artifacts.install','assistant.artifacts.verify','assistant.artifacts.remove','assistant.artifacts.cancel','voice.begin','voice.end','voice.finish','voice.transcribe','voice.cancel']);
+          if (!allowed.has(data.method)) throw new Error('Unknown Assistant operation');
+          if (['assistant.clear','assistant.artifacts.remove','assistant.artifacts.install'].includes(data.method)) {
+            const message = data.method === 'assistant.clear' ? 'Clear the shared Assistant conversation and activity? Prepared tasks and worker history are kept.' : data.method.endsWith('install') ? 'Download and verify this package and its runtime from PrAImate GitHub Releases?' : 'Remove this local model package?';
+            if (await vscode.window.showWarningMessage(message,{modal:true},'Continue') !== 'Continue') throw new Error('Operation cancelled');
+          }
+          try { const result = await call(data.method,data.params || {}); view.webview.postMessage({type:'assistantReply',id:data.requestId,result}); }
+          catch(error) { view.webview.postMessage({type:'assistantReply',id:data.requestId,error:error.message}); throw error; }
+        },
         ready:() => { this.readyViews.add(view); this.notifyStatus(); this.render(); if(this.requestedPage) view.webview.postMessage({type:'navigate',page:this.requestedPage}); },
         send:() => this.send(data.text, data.useContext),
         updateConfig:() => configure(data.config),
@@ -791,6 +805,7 @@ function activate(ctx) {
     },
     focusChat:() => vscode.commands.executeCommand('praimate.chatView.focus'),
     focusWorkers:async () => { await vscode.commands.executeCommand('praimate.chatView.focus'); provider.navigate('workers'); },
+    openAssistant:async () => { await vscode.commands.executeCommand('praimate.chatView.focus'); provider.navigate('assistant'); },
     reconnect:connect,refresh:() => { refresh(); refreshModels().catch(report); },
     newChat:() => provider.newChat(),stop:() => call('runs.cancel'),
     configure:configurePicker,selectSkills,selectMCP,localRoute,

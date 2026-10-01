@@ -124,7 +124,9 @@ func main() {
 		windowIcon = desktopWindowIcon(appIcon)
 	}
 	app := NewApp()
-	prepareDesktopIdentity()
+	if runtime.GOOS=="linux"{runtime.LockOSThread()}
+ prepareDesktopIdentity()
+ prepareVoiceEnvironment()
 
 	err := wails.Run(&options.App{
 		Title:     title,
@@ -138,8 +140,10 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 16, G: 18, B: 24, A: 255},
 		OnStartup: func(ctx context.Context) {
 			setDesktopIcon(appIcon)
+ prepareVoiceCapture()
 			app.startup(ctx)
 		},
+		OnDomReady:    func(context.Context) { prepareVoiceCapture() },
 		OnShutdown:    app.shutdown,
 		OnBeforeClose: app.beforeClose,
 		Bind: []interface{}{

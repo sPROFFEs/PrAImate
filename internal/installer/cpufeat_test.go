@@ -16,6 +16,8 @@ func TestPraimateCodeAssetNameFor(t *testing.T) {
 		{"windows", "amd64", true, "praimate-code-windows-amd64-baseline.exe"},
 		{"linux", "amd64", true, "praimate-code-linux-amd64-baseline"},
 		{"darwin", "arm64", false, "praimate-code-darwin-arm64"},
+		{"darwin", "amd64", false, "praimate-code-darwin-amd64"},
+		{"darwin", "amd64", true, "praimate-code-darwin-amd64-baseline"},
 		// baseline variants only exist for x64 — arm64 never gets the suffix
 		{"darwin", "arm64", true, "praimate-code-darwin-arm64"},
 	}

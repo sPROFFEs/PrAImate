@@ -1,4 +1,5 @@
 <script>
+  import VoiceButton from '../lib/VoiceButton.svelte'
   // Agent authoring studio — an IDE-like view for creating/editing agents.
   //   left   : vertical split — agent file tree (top, agent.yaml +
   //            knowledge folder + RAG index) and knowledge/RAG controls
@@ -738,7 +739,7 @@
     stream = stream; scrollChat()
   }
   function handleApproval(req) {
-    if (req.chatId?.startsWith('worker-')) return // App owns worker approvals across pages.
+    if (req.chatId?.startsWith('worker-') || req.chatId?.startsWith('assistant-')) return // App owns worker approvals across pages.
     const isManagedResume = managedRunBusy && req.chatId === selectedRun?.id
     if (req.chatId !== helperChatId && !isManagedResume) { api.resolveApproval(req.id, false, false).catch(() => {}); return }
     approvals = [...approvals, req]
@@ -1374,8 +1375,9 @@
         </div>
       {/each}
     </div>
-    <div class="composer">
+    <div class="composer" data-voice-composer>
       <textarea class="field" rows="2" placeholder="Ask the assistant to help build this agent…" bind:value={draft} on:keydown={onKey} disabled={sending}></textarea>
+      <VoiceButton disabled={sending || approvals.length > 0} context={{page:'agents',agent_id:agentId || ''}} on:transcript={event => { draft = [draft,event.detail.text].filter(Boolean).join(' '); if (event.detail.autoSend) send() }} />
       <button class="btn" on:click={() => sendMsg('/compact')} disabled={sending || !helperChatId} title="Compact saved helper chat context">◫ Compact</button>
       {#if sending}<button class="btn danger" on:click={stopChat} title="Interrupt assistant turn">■ Stop</button>{:else}<button class="btn primary" on:click={send} disabled={!draft.trim() || !helperChatId}>Send</button>{/if}
     </div>

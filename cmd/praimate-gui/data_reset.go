@@ -81,6 +81,20 @@ func (a *App) DeleteAllStoredData(projectsRoot, phrase string) error {
 	a.resetMu.Unlock()
 
 	// Stop anything that can write state back while deletion runs.
+	stopCtxAssistant, cancelAssistant := context.WithTimeout(context.Background(), 10*time.Second)
+	assistantErr := a.stopAssistantServices(stopCtxAssistant)
+	cancelAssistant()
+	if assistantErr != nil {
+		return fmt.Errorf("stop Assistant before deleting data: %w", assistantErr)
+	}
+	if a.core != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := a.core.StopManagedArtifactInstalls(stopCtx)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("stop model installation before deleting data: %w", err)
+		}
+	}
 	backup.SetStateSyncer(nil)
 	a.stopBackgroundWork()
 	if a.terms != nil {

@@ -1,0 +1,233 @@
+# Assistant and Voice
+
+The application assistant and voice input are optional, separate features.
+The assistant operates PrAImate through typed service actions. Voice transcribes
+locally and inserts ordinary text into a prompt. Installing a model must never
+enable either feature or grant application permissions.
+
+## Implementation status
+
+The desktop GUI implements the shared artifact infrastructure:
+
+- Bootstrap catalog: LFM2.5 350M QAD Q4_0, Qwen3.5 0.8B Q4_0,
+  Whisper Tiny/Base/Small Q5_1, llama.cpp and whisper.cpp runtimes.
+- Explicit installation, cancellation, resumable downloads, offline validation
+  and removal through Core APIs and Settings → Assistant & Voice.
+- Release SHA256SUMS verification and exact package size/SHA-256 checks.
+- Safe ZIP/tar.gz runtime extraction; executable files are checked against the
+  release package again when verified.
+- Staging before promotion, previous-install preservation on failed updates,
+  and crash fallback between replacement renames.
+- Offline publishing utility; no model payloads in source history.
+
+It also implements an optional local application assistant and independent voice
+input. Both are disabled by default. The desktop GUI and Studio's VS Code/VSCodium
+extension expose the same service; the terminal CLI has no assistant panel.
+
+## VS Code / VSCodium
+
+Open Studio from PrAImate Desktop. The extension's **Assistant** section, monkey
+button and **PrAImate: Open Application Assistant** command share the desktop
+conversation, encrypted activity, preferences, approvals and model processes.
+The desktop window may remain hidden. The extension supports model installation,
+verification and removal, permission configuration, task results and navigation
+to delegated Workers. Errors remain in the originating section.
+
+Hold **Dictate** in Assistant, Chat or Workers to transcribe into that composer.
+Release to finish; blur, cancellation or editor disconnect release the recording.
+Linux editor recording uses `parec` or `arecord`; macOS and Windows use native
+audio capture. No audio is written to disk. If Studio uses a standalone
+`praimate serve` process, the extension explains that Assistant & Voice require
+the shared desktop service; reconnect through the desktop launch.
+
+## Assistant
+
+Open **Settings → Assistant & Voice** to enable Assistant and explicitly select
+Efficient (LFM2.5 350M), Quality (Qwen3.5 0.8B), or an existing OpenAI-compatible
+local profile. Managed profiles require both their model and matching platform
+runtime. Existing profiles use their configured endpoint and authentication.
+Installing packages does not select a model or enable the assistant.
+
+Click the monkey or press **Mod+Shift+Space** to open its separate conversation.
+The shortcut is configurable; Mod means Ctrl on Linux/Windows and Cmd on macOS.
+The panel displays action status, actual result previews and delegated worker
+executions. Assistant messages, task checkpoints, audit activity and prepared
+tasks are saved in the application's encrypted store. Clearing assistant history
+retains prepared tasks and Worker history.
+
+The model emits strictly validated JSON intentions. It discovers small action
+schemas progressively and receives bounded result previews and recent context.
+Typed host actions handle conversation search/read/create/clone/rename/archive/
+send/model selection/deletion, agent definitions and MCP bindings, worker model
+selection and execution, prepared tasks, skill drafts/imports and immutable
+versions, MCP registration/testing, appearance and navigation. Existing skill
+approval and digest checks remain in force; importing or publishing a skill
+does not approve or activate it. Credentials are never included in action results.
+
+Read Only, Standard, Full and Custom policies are independent of Agent/Worker
+permissions. **System commands, network and project filesystem access are denied
+in every preset** until explicitly configured. Ask actions use approval cards;
+permissions are checked again after approval. Approved system commands reuse the
+managed command broker. This is not an operating-system sandbox: commands granted
+system access have the underlying process's access.
+
+Runtime settings control context/output, sampling, CPU/GPU and bounded turns,
+actions, failures, delegations and command duration. Managed llama-server binds
+to loopback with an ephemeral API key. It loads on demand, optionally starts with
+the app, and can unload after inactivity. Complex work can start at the configured
+Reasoner, Middle or Fast Worker tier without changing its CLI/model profile.
+Background Worker receipts are inspected rather than treated as completed work.
+Interrupted action checkpoints are retained and never automatically replayed;
+inspect the target before retrying an action that may already have completed.
+
+## Voice Input
+
+Voice can be enabled without Assistant. Choose Whisper Tiny, Base or Small and
+install the selected model plus whisper.cpp runtime. Hold **Dictate** in Chat,
+Assistant, Workers or Agent Studio, or hold **Mod+Shift+M**. Outside a composer,
+the global shortcut opens the assistant panel with an editable transcript.
+Auto-send is off by default; enable it explicitly to submit dictated text.
+Dictation in the new Worker configuration dialog only fills its task field.
+
+Audio recording is push-to-talk and limited to two minutes. Audio stays in RAM,
+is converted to mono 16 kHz PCM WAV and is sent only to the owned loopback
+whisper-server. Temporary contextual vocabulary uses active entity names and
+installed Agent/Skill/MCP names. No audio files are retained. Cancel, focus loss,
+feature disable and shutdown release microphone access. Capture leases prevent
+late cleanup from cancelling a newer recording.
+
+The Linux desktop GUI uses WebKitGTK audio-only permission handling for the app's
+secure origin; Linux Studio uses a native system recorder. macOS uses native
+AVAudioEngine capture and the installed app bundle's microphone usage description;
+Windows uses native WinMM capture in both surfaces.
+Operating-system permission and a working microphone are still required. There
+is no continuous listening, wake word, cloud transcription or text-to-speech.
+
+## GitHub distribution
+
+The user's hosting choice supersedes the original `models.praimate.dev` proposal.
+Production artifacts belong to **GitHub Release assets in `sPROFFEs/PrAImate`**.
+The client resolves:
+
+```
+https://github.com/sPROFFEs/PrAImate/releases/download/models-v1/manifest.json
+https://github.com/sPROFFEs/PrAImate/releases/download/models-v1/SHA256SUMS
+```
+
+Payload filenames are resolved relative to that release from the checksum-verified
+manifest. There is no client fallback to upstream model hosting. GitHub's normal
+asset redirects to its CDN are allowed; integrity remains checked end to end.
+
+The model release must be marked **prerelease** and **not latest**. Application
+installers and the updater use `/releases/latest`; they must continue finding a
+normal `v1.x` application release. The existing CI only builds tags beginning
+with `v`, so the `models-v1` tag does not trigger application builds.
+
+Do not delete the model release when cleaning up old application releases.
+Do not replace published payload bytes in place. Publish replacements with new
+artifact IDs and distinct asset filenames. A previously installed immutable ID
+whose published hash changes is rejected. Model IDs in the bootstrap catalog are
+pinned; adoption of a new model version is explicit.
+
+## Publishing the model catalog
+
+Publish `manifest.json`, `SHA256SUMS`, and model/runtime payloads together in
+`models-v1`. No signing keys or build-time public-key configuration are needed.
+Trust is placed in GitHub's HTTPS transport and the repository's release
+maintainers. SHA-256 detects changed/incomplete files relative to the release;
+it does not independently authenticate a publisher who can replace the checksums.
+
+1. Verify upstream redistribution licenses, pin exact versions, and record
+   original hashes and provenance. Prepare runtime archives with their required
+   libraries, dereferenced links, and relative executable entry points.
+2. Build `./cmd/praimate-model-manifest`.
+3. Prepare a manifest template with the schema below. The utility computes
+   release payload sizes and hashes; upstream provenance remains the publisher's
+   responsibility.
+4. Run with `--input TEMPLATE --assets DIRECTORY --out OUTPUT`. It produces
+   `manifest.json` and a standard `SHA256SUMS` covering the manifest and every
+   payload. The client requires matching entries before installing anything.
+5. After compatibility verification, publish the catalog, checksums and payloads
+   as release assets using `--prerelease --latest=false`. Publishing is a
+   separate operator action; the utility does not modify GitHub or CI.
+
+Manifest template structure (placeholders must be replaced before publication):
+
+```json
+{
+  "schema": 1,
+  "catalog_version": "2026.10.1",
+  "artifacts": {
+    "assistant/lfm2.5-350m/qad-q4_0/v1": {
+      "filename": "lfm2.5-350m-qad-q4_0-v1.gguf",
+      "format": "file",
+      "license_name": "VERIFIED_LICENSE",
+      "license_url": "https://UPSTREAM_LICENSE_PAGE",
+      "upstream_project": "VERIFIED_UPSTREAM_PROJECT",
+      "upstream_version": "PINNED_REVISION",
+      "upstream_sha256": "ORIGINAL_64_HEX_CHARACTERS"
+    }
+  }
+}
+```
+
+Runtime entries use `format: zip` or `tar.gz`, plus `entry_point`, for example
+`bin/llama-server`. Their IDs follow
+`runtime/llama.cpp/OS-ARCH/v1` and `runtime/whisper.cpp/OS-ARCH/v1`.
+Models and speech packages have no entry point and are never executed.
+
+## Storage and verification
+
+Data lives under the application root's `artifacts` directory. `downloads`
+contains resumable `.part` files named by expected hash. `installed` contains
+one isolated slot per artifact ID, its verified payload, and the release checksum receipt.
+Runtime archives also contain extracted `files`. These files are not database
+records; assistant conversations and audit activity belong to the
+existing encrypted application store.
+
+The catalog's approximate sizes describe the profiles, not download integrity.
+Only the release manifest and matching SHA256SUMS supply package sizes and hashes.
+Catalog inspection and verification of installed packages do not require the
+distribution service. A failed download cannot replace a working install.
+
+## Delivery checks still required
+
+The [models-v1 catalogue](https://github.com/sPROFFEs/PrAImate/releases/tag/models-v1)
+contains the five model payloads, generated manifest, SHA256SUMS, full licenses
+and pinned runtimes. [Provenance](models-v1-provenance.json) records exact source
+revisions and upstream hashes. llama.cpp b11321 packages cover Linux, Windows and
+macOS (amd64 and arm64); whisper.cpp b5130 covers the same six platform/architecture
+pairs. The macOS speech packages are native, statically linked CPU builds for
+macOS 12+, with ad-hoc signatures and bundled dependency license notices. Both
+Mac architectures passed real sample transcription on their native CI runners.
+The service selects CPU inference on every platform.
+
+LFM uses the LFM Open License v1.0, including its commercial-use conditions;
+Qwen uses Apache 2.0 and Whisper uses MIT. License texts are included in the
+release and retained in installed manifest receipts.
+
+Automated tests cover JSON intentions, approvals and policy revocation,
+checkpointing, encrypted persistence, direct Worker tier delegation, real MCP
+HTTP handshakes, artifact integrity/recovery and WAV/capture cancellation.
+On Linux amd64, both real assistant models completed constrained JSON requests.
+Whisper Base transcribed the official sample audio on Linux amd64, macOS Intel
+and Apple Silicon. Managed llama.cpp uses
+a JSON schema to require the complete decision structure. Microphone hardware,
+macOS capture and Windows capture still need to be exercised on physical target
+systems. The application integration ships in v1.2.15; older application assets
+do not contain it.
+
+## Building macOS speech packages
+
+The manually dispatched `Build macOS Voice Runtimes` workflow builds Intel and
+Apple Silicon packages from whisper.cpp commit
+`927cfce34f31707e17f2bff35c349632fb9e2c3a` (`b5130`). It checks code signatures,
+rejects non-system dynamic dependencies, and transcribes the official sample
+with the checksum-verified Base model. Only passing packages are uploaded as
+Actions artifacts; the workflow does not write to a GitHub release.
+
+An operator verifies their package hashes and provenance, adds the new immutable
+IDs to the model manifest, and publishes payloads before the updated manifest
+and SHA256SUMS. Existing model/runtime payloads retain their original hashes.
+SHA256SUMS and the manifest are catalog metadata and are updated together when
+adding platforms.

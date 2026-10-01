@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src __RESOURCE_SOURCE__; script-src 'unsafe-inline'; style-src 'unsafe-inline';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 *{box-sizing:border-box}body{margin:0;height:100vh;display:flex;flex-direction:column;font:13px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground);background:var(--vscode-sideBar-background)}
@@ -23,14 +23,23 @@ body{--panel-border:var(--vscode-widget-border,#8884);--panel-bg:var(--vscode-ed
 header{padding:14px 16px;gap:10px}header strong{font-size:15px;letter-spacing:.02em}button{border-radius:8px;min-height:30px;transition:background .14s,border-color .14s,box-shadow .14s}button:active:not(:disabled){transform:translateY(1px)}.primary:hover{background:var(--vscode-button-hoverBackground)}input,select,textarea{border-radius:8px;transition:border-color .14s}nav{gap:5px;padding:10px 12px}nav button[aria-current=page]{border-color:transparent;box-shadow:inset 0 0 0 1px var(--vscode-focusBorder)}h1{font-size:21px;letter-spacing:-.025em}.card,.msg,.worker-lanes section,.worker-profiles fieldset{border-radius:12px}.card,.worker-lanes section{background:var(--panel-bg)}.card{padding:16px;box-shadow:0 2px 8px #00000008}.card:hover{border-color:var(--vscode-focusBorder)}.msg{padding:14px}.msg.assistant{border:1px solid var(--panel-border);background:var(--panel-bg)}.role{font-weight:600;letter-spacing:.07em}.composer{padding:12px;border:1px solid var(--panel-border);border-radius:14px;background:var(--panel-bg);box-shadow:0 4px 18px #0000000a}.composer:focus-within{border-color:var(--vscode-focusBorder)}#prompt-input{border-color:transparent;background:transparent;min-height:80px}#notice{flex:none;margin:8px 0;border:1px solid var(--vscode-inputValidation-errorBorder,var(--vscode-errorForeground));border-radius:9px;background:var(--vscode-inputValidation-errorBackground);white-space:pre-wrap;max-width:100%}.worker-create-card{border-radius:16px;box-shadow:0 20px 70px #0005;padding:20px}.worker-event{padding:12px}.worker-lanes{gap:12px}.worker-lanes>section>button{margin:8px;max-width:calc(100% - 16px)}.usage-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,155px),1fr));gap:12px;margin:18px 0}.usage-value{font-size:28px;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:-.04em;margin:8px 0}.usage-bar{height:6px;border-radius:6px;background:var(--vscode-button-background);margin:8px 0 16px;min-width:2px}.usage-months{display:flex;align-items:end;gap:12px;min-height:120px;margin-top:16px}.usage-months>div{flex:1;min-width:0;text-align:center}.usage-months .usage-bar{margin:auto auto 6px;width:70%;border-radius:6px 6px 2px 2px}.usage-months small{font-size:10px}.usage-label{display:flex;gap:8px;justify-content:space-between;overflow-wrap:anywhere}.usage-label span:last-child{flex:none;color:var(--vscode-descriptionForeground)}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}button:active:not(:disabled){transform:none}}
 @media(forced-colors:active){button,.card,.msg,.composer{border:1px solid ButtonText}.usage-bar{background:Highlight}}
+#assistant-page{background:var(--vscode-sideBar-background,#202329)}#assistant-messages{max-height:55vh;overflow:auto;display:flex;flex-direction:column;gap:12px;margin:16px 0}#assistant-messages p,#assistant-steps p,#assistant-approvals p{white-space:pre-wrap;overflow-wrap:anywhere}#assistant-settings{padding:16px;margin:12px 0;border:1px solid var(--panel-border);border-radius:14px;background:var(--vscode-editor-background,#202329)}#assistant-settings summary{font-weight:600;cursor:pointer;margin:12px 0}#assistant-settings .field{margin:10px 0}#assistant-error{padding:12px;border:1px solid var(--vscode-inputValidation-errorBorder);border-radius:10px;background:var(--vscode-inputValidation-errorBackground,var(--vscode-editor-background,#202329));white-space:pre-wrap}#assistant-steps .card,#assistant-approvals .card{margin-bottom:10px}#assistant-phase{overflow-wrap:anywhere}
 </style>
 </head>
 <body>
-<header><strong>PrAImate</strong><span id="conn-badge" class="badge">Connecting…</span><button id="core-window-btn" hidden>Hide PrAImate</button><button id="expand-btn" title="Open in editor area" aria-label="Open in editor area">↗</button></header>
+<header><button id="assistant-monkey" title="Open Application Assistant" aria-label="Open Application Assistant" style="padding:0;border:0;background:transparent"><img src="__MASCOT_URI__" alt="" width="36" height="40" style="display:block;object-fit:contain;image-rendering:auto"></button><strong>PrAImate</strong><span id="conn-badge" class="badge">Connecting…</span><button id="core-window-btn" hidden>Hide PrAImate</button><button id="expand-btn" title="Open in editor area" aria-label="Open in editor area">↗</button></header>
 <section id="connection" aria-live="polite"><p id="connection-message">Connecting to PrAImate Core…</p><div class="toolbar"><button id="reconnect-btn">Reconnect</button><button id="output-btn">Output</button><button id="reset-btn" title="Reset session selection; stored chats are kept">Reset session</button></div></section>
 <div id="notice" class="error" role="alert" hidden></div>
 <nav id="navigation" aria-label="PrAImate sections"></nav>
 <main>
+<section id="assistant-page" class="page" hidden>
+  <div class="toolbar"><h1 class="grow">Application Assistant</h1><button id="assistant-settings-toggle">Preferences</button><button id="assistant-refresh">Refresh</button></div>
+  <p class="hint">Operate PrAImate through your optional local assistant. Conversation, models and permissions are shared with the desktop app.</p>
+  <div id="assistant-error" role="alert" class="error" hidden></div>
+  <div id="assistant-settings" hidden></div>
+  <div id="assistant-approvals"></div><div id="assistant-messages" aria-live="polite"></div><div id="assistant-steps"></div>
+  <div class="composer"><textarea id="assistant-prompt" rows="3" aria-label="Application assistant message" placeholder="Ask PrAImate to find a chat, configure an agent or delegate a task…"></textarea><div class="toolbar" id="assistant-composer"><span id="assistant-phase" class="hint grow"></span><button id="assistant-stop">Stop</button><button id="assistant-send" class="primary">Send</button></div></div>
+</section>
 <section id="overview-page" class="page" hidden><div class="toolbar"><h1 class="grow">Overview</h1><input id="usage-month" type="month" aria-label="Usage month" style="width:auto"><button id="usage-refresh">Refresh</button></div><p class="hint">Your usage, stored in the encrypted PrAImate profile database.</p><div id="usage-content" aria-live="polite"></div></section>
 <section id="chat-page" class="page">
   <div class="toolbar"><button id="new-btn">New chat</button><span class="grow"></span><button id="chat-terminal-btn" title="Choose an installed native CLI; its own permissions and configuration apply">CLI terminal…</button><button id="settings-btn">Session settings</button></div>
@@ -67,7 +76,7 @@ header{padding:14px 16px;gap:10px}header strong{font-size:15px;letter-spacing:.0
 </main>
 <script>
 const vscode = acquireVsCodeApi(), $ = id => document.getElementById(id);
-const pages = {overview:'Overview',chat:'Chat',workers:'Workers',history:'History',agents:'Agents',workflows:'Workflows',skills:'Skills',mcp:'MCP',runs:'Runs',settings:'Settings'};
+const pages = {overview:'Overview',assistant:'Assistant',chat:'Chat',workers:'Workers',history:'History',agents:'Agents',workflows:'Workflows',skills:'Skills',mcp:'MCP',runs:'Runs',settings:'Settings'};
 const descriptions = {
   history:'Conversations in this workspace. Resume, rename or delete a conversation.',
   agents:'Create, edit, import, export and choose personas. Agent YAML also owns workflow definitions.',
@@ -79,13 +88,15 @@ const descriptions = {
 const saved = vscode.getState?.() || {}, pending = new Map();
 let page = pages[saved.page] ? saved.page : 'chat', status = {}, collections = {}, dirty = false, configSignature = '', requestID = 0;
 const messagesDiv = $('messages'), promptInput = $('prompt-input'); promptInput.value = saved.draft || '';
-function persist() { vscode.setState?.({page,draft:promptInput.value}); }
-function post(type,data = {},done) { const requestId = ++requestID; pending.set(requestId,{done,page,chatId:status.chatId,workerId:workerSelected}); vscode.postMessage({type,...data,requestId}); }
+function persist() { vscode.setState?.({...vscode.getState?.(),page,draft:promptInput.value}); }
+function post(type,data = {},done) { const requestId = ++requestID; pending.set(requestId,{done,page,chatId:status.chatId,workerId:workerSelected}); vscode.postMessage({type,...data,requestId}); return requestId; }
 function button(label,fn,disabled = false) { const b = document.createElement('button'); b.textContent = label; b.disabled = disabled; b.addEventListener('click',fn); return b; }
 function element(tag,text,className = '') { const e = document.createElement(tag); e.textContent = text; e.className = className; return e; }
-function notice(text) { const target=$(pages[page] && ['chat','workers','settings','overview'].includes(page) ? page+'-page' : 'catalog-page'); target.prepend($('notice')); $('notice').textContent = text; $('notice').hidden = !text; }
+function notice(text) { const target=$(pages[page] && ['chat','workers','settings','overview','assistant'].includes(page) ? page+'-page' : 'catalog-page'); target.prepend($('notice')); $('notice').textContent = text; $('notice').hidden = !text; }
 function navigate(next) {
   page = next; persist(); notice(''); $('overview-page').hidden = page !== 'overview'; $('chat-page').hidden = page !== 'chat'; $('workers-page').hidden = page !== 'workers'; $('settings-page').hidden = page !== 'settings'; $('catalog-page').hidden = page === 'chat' || page === 'workers' || page === 'settings' || page === 'overview';
+  $('assistant-page').hidden = page !== 'assistant';
+  if(page === 'assistant') { $('catalog-page').hidden = true; window.dispatchEvent(new Event('assistant-open')); }
   for(const b of $('navigation').children) b.setAttribute('aria-current',b.dataset.page === page ? 'page' : 'false');
   if(descriptions[page]) { $('search').value = ''; loadCollection(); }
   if(page === 'overview' && status.connected) loadUsage();
@@ -362,6 +373,7 @@ function renderUsage(data){
 }
 
 post('ready'); navigate(page);
+/*__ASSISTANT_SCRIPT__*/
 </script>
 </body>
 </html>

@@ -17,6 +17,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/sPROFFEs/PrAImate/internal/artifacts"
 	"github.com/sPROFFEs/PrAImate/internal/launcher"
 	"github.com/sPROFFEs/PrAImate/internal/store"
 )
@@ -39,9 +40,15 @@ type Core struct {
 	// degrades to the safe default. See SetApprovalProvider.
 	approvalProvider func(chatID string) *ApprovalConfig
 
-	managedMu     sync.Mutex
-	managedActive map[string]bool
-	nativeLimits  nativeLimitCache
+	managedMu        sync.Mutex
+	managedActive    map[string]bool
+	nativeLimits     nativeLimitCache
+	artifactMu       sync.Mutex
+	artifacts        *artifacts.Service
+	artifactCancel   context.CancelFunc
+	artifactProgress *artifacts.Progress
+	artifactDone     chan struct{}
+	artifactClosed   bool
 }
 
 // ApprovalConfig tells a CLI adapter how to spawn the approval shim —

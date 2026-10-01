@@ -21,7 +21,7 @@ param(
         "windows-amd64",
         "windows-arm64"
     ),
-    [string] $Version = "1.2.14",
+    [string] $Version = "1.2.15",
     [string] $LdFlags = "-s -w",
     [switch] $NoArchive
 )
@@ -85,7 +85,7 @@ function Build-One($triplet) {
     Copy-Item -Recurse -Force "samples" (Join-Path $out "samples")
     $docsOut = Join-Path $out "docs"
     if (-not (Test-Path $docsOut)) { New-Item -ItemType Directory -Path $docsOut | Out-Null }
-    Copy-Item "docs/ACTIVATION.md","docs/TARGETS.md","docs/SCHEMA.md","docs/QUICKSTART.md","docs/GUIDE.md","docs/AGENT_GUIDE.md","docs/CLI_AGENT_API.md","docs/native-cli.md","docs/WORKERS.md","docs/RELEASE-GITHUB.md" $docsOut
+    Copy-Item "docs/ACTIVATION.md","docs/TARGETS.md","docs/SCHEMA.md","docs/QUICKSTART.md","docs/GUIDE.md","docs/AGENT_GUIDE.md","docs/CLI_AGENT_API.md","docs/native-cli.md","docs/WORKERS.md","docs/assistant-voice.md","docs/RELEASE-GITHUB.md" $docsOut
     $docAssetsOut = Join-Path $docsOut "assets"
     if (-not (Test-Path $docAssetsOut)) { New-Item -ItemType Directory -Path $docAssetsOut | Out-Null }
     Copy-Item "docs/assets/monke-icon.png" $docAssetsOut

@@ -10,6 +10,7 @@ export const activePage = writable('dashboard')
 // the active page (setting the same activePage value alone does not remount).
 export const pageRevision = writable(0)
 export const openChatId = writable(null)
+export const openWorkerId = writable(null)
 
 // App-wide operation feedback. Agent launches navigate away from the Agents
 // page immediately, so page-local notices disappear before the user can read

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 1.2.14)'
+        description: 'Release version (e.g. 1.2.15)'
         required: false
         type: string
       draft:
@@ -40,6 +40,8 @@ jobs:
             os: windows-latest
           - target: darwin-arm64
             os: macos-14
+          - target: darwin-amd64
+            os: macos-15-intel
 
     steps:
       - name: Checkout code
@@ -93,7 +95,7 @@ jobs:
             echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           else
             # Extract from version.go
-            V=$(grep 'Current = ' internal/version/version.go | cut -d'"' -f2 || echo "1.2.14")
+            V=$(grep 'Current = ' internal/version/version.go | cut -d'"' -f2 || echo "1.2.15")
             echo "VERSION=$V" >> "$GITHUB_OUTPUT"
           fi
 
@@ -137,7 +139,7 @@ jobs:
           elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
           else
-            V=$(grep 'Current = ' internal/version/version.go | cut -d'"' -f2 || echo "1.2.14")
+            V=$(grep 'Current = ' internal/version/version.go | cut -d'"' -f2 || echo "1.2.15")
             TAG="v$V"
           fi
           echo "TAG=$TAG" >> "$GITHUB_OUTPUT"

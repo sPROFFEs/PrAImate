@@ -195,21 +195,21 @@ test('private launch descriptor overrides stale environment and preserves edits 
   } finally {h.close();}
 });
 
-function webviewHarness() {
+function webviewHarness(withAssistant = false) {
   const html = fs.readFileSync(path.join(__dirname,'resources/chat.html'),'utf8');
-  const script = /<script>([\s\S]*?)<\/script>/.exec(html)[1];
+  const script = /<script>([\s\S]*?)<\/script>/.exec(html)[1].replace('/*__ASSISTANT_SCRIPT__*/',withAssistant ? fs.readFileSync(path.join(__dirname,'resources/assistant.js'),'utf8') : '');
   const elements = new Map();
   const element = tag => ({tag,dataset:{},listeners:{},value:'',checked:true,disabled:false,children:[],innerHTML:'',textContent:'',className:'',
     style:{},append(...v){this.children.push(...v);},prepend(v){this.children.unshift(v);},classList:{add(){},remove(){}},get options(){return this.children;},
-    scrollHeight:0,scrollTop:0,clientHeight:0,setAttribute(name,value){this[name]=value;},
+    focus(){},dispatchEvent(e){this.fire(e.type,e);},scrollHeight:0,scrollTop:0,clientHeight:0,setAttribute(name,value){this[name]=value;},
     addEventListener(name,fn){this.listeners[name]=fn;},appendChild(v){this.children.push(v);},replaceChildren(...v){this.children=v;this.innerHTML='';},
-    fire(name,event={}){this.listeners[name]?.(event);}});
+    fire(name,event={}){(this.listeners[name] || this['on'+name])?.(event);}});
   const document = {getElementById:id => {if(!elements.has(id)) elements.set(id,element());return elements.get(id);},createElement:element};
   const posted = [], listeners = {};
-  const sandbox = {document,window:{addEventListener:(name,fn)=>listeners[name]=fn},Option:function(text,value){this.text=text;this.value=value;},
-    acquireVsCodeApi:()=>({postMessage:m=>posted.push(m)}),navigator:{clipboard:{writeText:async()=>{}}},setInterval:()=>0};
+  const sandbox = {document,window:{addEventListener:(name,fn)=>(listeners[name] ||= []).push(fn),dispatchEvent:e=>(listeners[e.type] || []).forEach(fn=>fn(e))},Option:function(text,value){this.text=text;this.value=value;},
+    acquireVsCodeApi:()=>({postMessage:m=>posted.push(m)}),navigator:{clipboard:{writeText:async()=>{}}},setInterval:()=>0,setTimeout:()=>0,clearTimeout:()=>{},Event:class{constructor(type){this.type=type;}}};
   vm.createContext(sandbox);vm.runInContext(script,sandbox);
-  return {elements,posted,send:data=>listeners.message({data}),eval:code=>vm.runInContext(code,sandbox)};
+  return {elements,posted,send:data=>(listeners.message || []).forEach(fn=>fn({data})),eval:code=>vm.runInContext(code,sandbox)};
 }
 test('webview renders escaped prose and code using text nodes and clears old history', () => {
   const h = webviewHarness(); assert.equal(h.posted[0].type,'ready');
@@ -348,4 +348,29 @@ test('overview requests the selected month and renders usage labels as text', ()
     assert.equal(h.requests.filter(r=>r.method==='terminals.closed').length,2);
     assert.match(h.errors.at(-1),/cannot create terminal/);
   } finally {h.close();}
+});
+
+
+test('Application Assistant webview shares config, escapes replies and keeps errors scoped', async () => {
+  const h=webviewHarness(true);
+  h.eval("status.connected=true; navigate('assistant')");
+  const reply=async(method,result)=>{const req=h.posted.findLast(m=>m.type==='assistantRPC'&&m.method===method);assert.ok(req,method);h.send({type:'assistantReply',id:req.requestId,result});await new Promise(r=>setImmediate(r));};
+  await reply('assistant.available',true);
+  await reply('assistant.config',{enabled:true,model_id:'existing',endpoint:'http://localhost:8080',model:'fixture',context:2048,output:512,permissions:{read:'allow'},voice:{enabled:false,model_id:'whisper-base'}});
+  await reply('assistant.snapshot',{messages:[{role:'assistant',text:'<img src=x onerror=alert(1)>'}],task:{status:'completed',steps:[]}});
+  const messages=h.elements.get('assistant-messages');
+  assert.equal(messages.children[0].children[1].textContent,'<img src=x onerror=alert(1)>');
+  assert.equal(messages.children[0].children[1].innerHTML,'');
+  h.elements.get('assistant-prompt').value='Find my worker';
+  h.elements.get('assistant-send').fire('click');
+  const send=h.posted.findLast(m=>m.method==='assistant.send');assert.equal(send.params.message,'Find my worker');
+  h.send({type:'assistantReply',id:send.requestId,error:'fixture failure'});
+  await new Promise(r=>setImmediate(r));
+  await reply('assistant.snapshot',{messages:[],task:{status:'failed',steps:[]}});
+  assert.equal(h.elements.get('assistant-error').textContent,'fixture failure');
+  h.eval("navigate('overview')");assert.equal(h.elements.get('assistant-page').hidden,true);
+});
+
+test('Application Assistant command has its own section',async()=>{
+ const h=extensionHarness('linux');try{await h.commands.get('praimate.openAssistant')();assert.equal(h.provider().requestedPage,'assistant');}finally{h.close();}
 });

@@ -20,5 +20,11 @@ var ExtensionTerminalJS string
 //go:embed extension/resources/chat.html
 var ExtensionChatHTML string
 
+//go:embed extension/resources/assistant.js
+var ExtensionAssistantJS string
+
+//go:embed extension/resources/monke-mascot.png
+var ExtensionMascot string
+
 //go:embed extension/resources/monke.svg
 var ExtensionSVG string

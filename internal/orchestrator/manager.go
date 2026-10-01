@@ -17,6 +17,7 @@ import (
 // Run is a snapshot of one orchestrated task. The manager owns cancellation
 // and event recording; adapters never receive another worker's chat history.
 type Run struct {
+	EntryTier      Tier      `json:"entryTier,omitempty"`
 	ID             string    `json:"id"`
 	Title          string    `json:"title"`
 	Task           string    `json:"task"`
@@ -47,6 +48,7 @@ type Manager struct {
 	mu      sync.Mutex
 	runs    map[string]*Run
 	loadErr error
+	closed  bool
 }
 
 func NewManager(c *core.Core, ctx context.Context) *Manager {
@@ -148,7 +150,27 @@ func (m *Manager) StartWithConfigAndApproval(task string, config Config, approva
 	return m.startWithConfig(task, "", config, approvalProvider)
 }
 
+// StartAtTier creates a saved execution without changing configured profiles.
+func (m *Manager) StartAtTier(task string, tier Tier, approvalProvider func(string) *core.ApprovalConfig) (string, error) {
+	if m.core == nil {
+		return "", errors.New("database is unavailable")
+	}
+	if m.loadErr != nil {
+		return "", m.loadErr
+	}
+	if tier != Primary && tier != Middle && tier != Fast {
+		return "", errors.New("unknown worker entry tier")
+	}
+	config, err := LoadConfig(m.ctx, m.core)
+	if err != nil {
+		return "", err
+	}
+	return m.startWithTier(task, "", config, tier, approvalProvider)
+}
 func (m *Manager) startWithConfig(task, workspace string, config Config, approvalProvider func(string) *core.ApprovalConfig) (string, error) {
+	return m.startWithTier(task, workspace, config, Primary, approvalProvider)
+}
+func (m *Manager) startWithTier(task, workspace string, config Config, tier Tier, approvalProvider func(string) *core.ApprovalConfig) (string, error) {
 	if workspace != "" {
 		config.Workspace = workspace
 	}
@@ -171,6 +193,11 @@ func (m *Manager) startWithConfig(task, workspace string, config Config, approva
 	}
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		cancel()
+		return "", errors.New("worker manager is shutting down")
+	}
 	active := 0
 	for _, previous := range m.runs {
 		if previous.cancel != nil {
@@ -198,7 +225,7 @@ func (m *Manager) startWithConfig(task, workspace string, config Config, approva
 		return "", err
 	}
 	now := time.Now().UTC()
-	run := &Run{ID: id, Title: title, Task: task, Workspace: config.Workspace, CurrentTask: task, Status: "running", StartedAt: now, UpdatedAt: now, Profiles: append([]Profile(nil), config.Profiles...), Events: []Event{}, Turns: []Turn{}, cancel: cancel, config: config, lastCheckpoint: now}
+	run := &Run{EntryTier: tier, ID: id, Title: title, Task: task, Workspace: config.Workspace, CurrentTask: task, Status: "running", StartedAt: now, UpdatedAt: now, Profiles: append([]Profile(nil), config.Profiles...), Events: []Event{}, Turns: []Turn{}, cancel: cancel, config: config, lastCheckpoint: now}
 	m.runs[id] = run
 	saved, err := json.Marshal(run)
 	if err == nil {
@@ -229,6 +256,10 @@ func (m *Manager) ContinueWithApproval(id, task string, approvalProvider func(st
 	}
 	m.mu.Lock()
 	run := m.runs[id]
+	if m.closed {
+		m.mu.Unlock()
+		return errors.New("worker manager is shutting down")
+	}
 	if run == nil {
 		m.mu.Unlock()
 		return errors.New("worker run not found")
@@ -334,7 +365,13 @@ func (m *Manager) execute(ctx context.Context, cancel context.CancelFunc, id str
 			}
 			m.mu.Unlock()
 		}}
-		result, runErr := runner.Run(ctx, config, input)
+		m.mu.Lock()
+		tier := Primary
+		if run := m.runs[id]; run != nil && run.EntryTier != "" {
+			tier = run.EntryTier
+		}
+		m.mu.Unlock()
+		result, runErr := runner.RunFromTier(ctx, config, tier, input)
 		m.mu.Lock()
 		if run := m.runs[id]; run != nil {
 			run.cancel = nil
@@ -449,4 +486,37 @@ func (m *Manager) Cancel(id string) error {
 		cancel()
 	}
 	return nil
+}
+
+// Stop cancels active executions and waits for their final database checkpoints.
+func (m *Manager) Stop(ctx context.Context) error {
+	m.mu.Lock()
+	m.closed = true
+	for _, run := range m.runs {
+		if run.cancel != nil {
+			run.cancel()
+		}
+	}
+	m.mu.Unlock()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		m.mu.Lock()
+		active := false
+		for _, run := range m.runs {
+			if run.cancel != nil {
+				active = true
+				break
+			}
+		}
+		m.mu.Unlock()
+		if !active {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
