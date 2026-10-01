@@ -1,0 +1,54 @@
+name: Build macOS Voice Runtimes
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Whisper darwin-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            os: macos-14
+          - arch: amd64
+            os: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned whisper.cpp
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/whisper.cpp
+          ref: 927cfce34f31707e17f2bff35c349632fb9e2c3a
+          path: whisper-source
+          persist-credentials: false
+      - name: Build portable static runtime
+        run: bash scripts/build-whisper-macos.sh whisper-source "$RUNNER_TEMP/voice-runtime" "${{ matrix.arch }}"
+      - name: Download verified transcription fixture
+        run: |
+          curl -fL --retry 3 --max-time 180 \
+            https://github.com/sPROFFEs/PrAImate/releases/download/models-v1/ggml-base-q5_1.bin \
+            -o "$RUNNER_TEMP/ggml-base-q5_1.bin"
+          printf '%s  %s\n' 422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898 \
+            "$RUNNER_TEMP/ggml-base-q5_1.bin" | shasum -a 256 -c -
+      - name: Test packaged server with real audio
+        run: |
+          python3 scripts/smoke-whisper-runtime.py \
+            --runtime "$RUNNER_TEMP/voice-runtime/package/whisper-server" \
+            --model "$RUNNER_TEMP/ggml-base-q5_1.bin" \
+            --audio whisper-source/samples/jfk.wav
+      - name: Upload verified packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-darwin-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/voice-runtime/*.tar.gz
+            ${{ runner.temp }}/voice-runtime/*.json
+          if-no-files-found: error
+          retention-days: 14
