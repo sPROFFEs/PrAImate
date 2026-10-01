@@ -2,6 +2,8 @@ package studio
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,6 +20,7 @@ type terminalCLI struct {
 }
 
 type terminalPlan struct {
+	UsageID string            `json:"usageId,omitempty"`
 	CLI     string            `json:"cli"`
 	Command string            `json:"command"`
 	Args    []string          `json:"args"`
@@ -88,5 +91,28 @@ func (s *Server) prepareTerminal(body []byte) (*terminalPlan, error) {
 	}
 	// Export only PATH, not Desktop's credential-bearing environment. This lets
 	// installed CLI wrappers find node/bun and other managed runtime tools.
-	return &terminalPlan{CLI: cli, Command: command, Args: args, Cwd: config.Workspace, Env: map[string]string{"PATH": os.Getenv("PATH")}}, nil
+	plan := &terminalPlan{CLI: cli, Command: command, Args: args, Cwd: config.Workspace, Env: map[string]string{"PATH": os.Getenv("PATH")}}
+	usage, err := s.core.BeginTerminalUsage(s.ctx, cli, model, plan.Env)
+	if err != nil {
+		return nil, fmt.Errorf("prepare terminal usage: %w", err)
+	}
+	if usage != nil {
+		var id [16]byte
+		if _, err := rand.Read(id[:]); err != nil {
+			usage.Close()
+			return nil, err
+		}
+		plan.UsageID = hex.EncodeToString(id[:])
+		plan.Args = append(plan.Args, usage.Args...)
+		for key, value := range usage.Env {
+			plan.Env[key] = value
+		}
+		s.mu.Lock()
+		if s.terminalUsage == nil {
+			s.terminalUsage = map[string]*core.TerminalUsage{}
+		}
+		s.terminalUsage[plan.UsageID] = usage
+		s.mu.Unlock()
+	}
+	return plan, nil
 }

@@ -42,8 +42,10 @@ require an additional MCP server. Primary may delegate to Middle or
 Fast, and Middle may delegate to Fast. A child receives its scoped task and
 instructions; its result goes back to its caller as bounded evidence.
 
-Supported external adapters include Codex, Claude Code, OpenClaude, OpenCode and
-PrAImate Code. Selecting `praimate-cli` resolves the saved core host/model route. Third-party CLI adapters run with their existing
+Supported external adapters include Codex, Claude Code, OpenClaude, GitHub Copilot,
+OpenCode and PrAImate Code. Antigravity is available for native chats and terminals,
+but not managed Workers: its plan mode does not enforce a read-only tool policy.
+Selecting `praimate-cli` resolves the saved core host/model route. Third-party CLI adapters run with their existing
 safe permissions. Workspace reads, edits and commands requested through the
 JSON protocol execute through the PrAImate host and its configured approvals.
 Native workers use the core model transport and validate their input/output
@@ -64,8 +66,9 @@ gets one correction opportunity; consecutive failures stop that invocation.
 Child failures return to the parent with a warning about possible prior effects.
 At most three worker chats can run concurrently, including continued chats.
 
-These bounds control work but do not prove token savings. Third-party CLIs do
-not currently provide normalized token usage to the worker runtime. Integration
+These bounds control work but do not prove token savings. Supported CLI adapters
+forward provider-reported token usage to the worker runtime and encrypted usage
+dashboard. Missing reports remain unavailable. Integration
 tests verify routing, context isolation, host operations and persistence using
 controlled model responses. Live model quality and task-specific savings still
 require testing with the selected CLI/model combination.

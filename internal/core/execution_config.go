@@ -40,6 +40,7 @@ type CLICapabilities struct {
 	MCP             bool     `json:"mcp"`
 	LocalRouting    bool     `json:"localRouting"`
 	ManagedApproval bool     `json:"managedApproval"`
+	ManagedWorker   bool     `json:"managedWorker"`
 	ToolLevels      []string `json:"toolLevels"`
 }
 
@@ -116,6 +117,7 @@ type EffectiveExecutionConfig struct {
 
 func CapabilitiesForCLI(cli string) CLICapabilities {
 	cap := CLICapabilities{CLI: cli, ToolLevels: []string{""}}
+	cap.ManagedWorker = cli == "claude" || cli == "openclaude" || cli == "codex" || cli == "copilot" || cli == "opencode" || cli == "praimate-code" || cli == "praimate-cli"
 	switch cli {
 	case "claude":
 		cap.Streaming = true
@@ -135,6 +137,12 @@ func CapabilitiesForCLI(cli string) CLICapabilities {
 		cap.Resume = true
 		cap.MCP = true
 		cap.ToolLevels = []string{"", "edits", "full"}
+	case "copilot":
+		cap.Streaming, cap.Resume, cap.MCP = true, true, true
+		cap.ToolLevels = []string{"", "edits", "full"}
+	case "antigravity":
+		cap.Streaming, cap.Resume = true, true
+		cap.ToolLevels = []string{"", "plan", "edits", "full"}
 	case "opencode", "praimate-code":
 		cap.Streaming = true
 		cap.Resume = true
@@ -253,6 +261,9 @@ func (c *Core) ResolveExecutionConfig(ctx context.Context, req ExecutionRequest)
 		Approval: req.Approval, Capabilities: cap,
 		mcpServers:  append([]string(nil), req.MCPServers...),
 		explicitMCP: req.ExplicitMCP, allEnabledMCP: req.AllEnabledMCP,
+	}
+	if req.CLI == "antigravity" && req.Surface != SurfaceTerminal {
+		out.Issues = append(out.Issues, PreflightIssue{Severity: "warning", Code: "native_permissions", Message: "Antigravity applies its own permission rules. Its default and plan modes do not enforce PrAImate read-only restrictions; managed Workers are unavailable for this CLI."})
 	}
 	if out.Tools != "" && !slices.Contains(cap.ToolLevels, out.Tools) {
 		out.Issues = append(out.Issues, PreflightIssue{

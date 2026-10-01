@@ -26,6 +26,7 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 	if requested != nil {
 		route = *requested
 	}
+	explicitContext, explicitOutput := route.ContextTokens != 0, route.OutputTokens != 0
 	if route.ContextTokens != 0 {
 		route.ContextSource = "chat override"
 	}
@@ -135,11 +136,18 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 	if route.Model == "" {
 		return nil, errors.New("PrAImate CLI requires a model: select one in Local LLM settings or pass --model")
 	}
-	if route.ContextTokens == 0 {
-		route.ContextTokens, route.ContextSource = c.nativeLimits.lookup(ctx, route)
+	if !explicitContext {
+		window, source := c.nativeLimits.lookup(ctx, route)
+		if strings.Contains(source, "server window unknown") && route.ContextTokens > 0 {
+			route.ContextSource = "host hint; server window unknown"
+		} else {
+			route.ContextTokens, route.ContextSource = window, source
+		}
 	}
-	route.OutputAutomatic = route.OutputTokens == 0
-	if route.OutputAutomatic {
+	// Host values are planning hints. Only an explicit per-chat/CLI limit
+	// opts out of automatic generation and serving-window discovery.
+	route.OutputAutomatic = !explicitOutput
+	if route.OutputAutomatic && (route.OutputTokens == 0 || route.OutputTokens >= route.ContextTokens/2) {
 		route.OutputTokens = autoOutputTokens(route.ContextTokens, 0)
 	}
 	if route.OutputTokens < 1 || route.ContextTokens < 2048 || route.ContextTokens > 2_000_000 || route.OutputTokens >= route.ContextTokens {
@@ -183,7 +191,7 @@ func (c *Core) ResolveNativeWorkerRoute(ctx context.Context, endpoint, model str
 }
 
 // SetNativeChatLimits overrides the context and output windows for one native
-// chat. Zero inherits the selected host's values (or the core defaults).
+// chat. Zero enables automatic backend discovery/output; host values are planning hints.
 func (c *Core) SetNativeChatLimits(ctx context.Context, chatID string, contextTokens, outputTokens int) error {
 	if contextTokens < 0 || contextTokens > 2_000_000 || (contextTokens > 0 && contextTokens < 2048) {
 		return errors.New("native context window must be 0 or 2048 to 2000000 tokens")

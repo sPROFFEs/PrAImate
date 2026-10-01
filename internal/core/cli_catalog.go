@@ -25,6 +25,8 @@ type CLIInfo struct {
 // modelHints documents each CLI's --model format. Empty string means
 // the CLI has no model flag (the model input is disabled in the UI).
 var modelHints = map[string]string{
+	"copilot":       "model id from Copilot /model, e.g. gpt-5.4 or claude-sonnet-4.6",
+	"antigravity":   "model slug from agy models",
 	"claude":        "alias (sonnet, opus, haiku) or full model id",
 	"openclaude":    "alias (sonnet, opus, haiku) or full model id",
 	"codex":         "model id, e.g. gpt-5.1-codex",
@@ -37,6 +39,7 @@ var modelHints = map[string]string{
 // a list command. They are SUGGESTIONS — the input stays free text, so
 // new models work without a PrAImate release.
 var staticModelSuggestions = map[string][]string{
+	"copilot":      {"gpt-5.4", "claude-sonnet-4.6", "claude-haiku-4.5"},
 	"claude":       {"sonnet", "opus", "haiku", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"},
 	"openclaude":   {"sonnet", "opus", "haiku", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"},
 	"codex":        {"gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1", "o4-mini"},

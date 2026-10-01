@@ -135,6 +135,8 @@ type claudeStreamLine struct {
 		} `json:"delta"`
 	} `json:"event"`
 	Message *struct {
+		ID      string               `json:"id"`
+		Usage   map[string]any       `json:"usage"`
 		Content []claudeContentBlock `json:"content"`
 		Model   string               `json:"model"`
 	} `json:"message"`
@@ -166,6 +168,16 @@ func parseClaudeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 		sessionID string
 		sawDelta  bool
 	)
+	// Retain reported usage when cancellation/crashes omit the final aggregate.
+	partialUsage := map[string]*NativeUsage{}
+	finalUsage := false
+	defer func() {
+		if !finalUsage {
+			for id, usage := range partialUsage {
+				emit(StreamEvent{Type: "usage", ID: id, Usage: usage, OK: true})
+			}
+		}
+	}()
 	for {
 		raw, err := br.ReadBytes('\n')
 		if len(bytes.TrimSpace(raw)) > 0 {
@@ -183,6 +195,9 @@ func parseClaudeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 					}
 				case "assistant":
 					if line.Message != nil {
+						if usage := claudeUsage(line.Message.Usage); usage != nil && line.Message.ID != "" {
+							partialUsage[line.Message.ID] = usage
+						}
 						if line.Message.Model != "" {
 							emit(StreamEvent{Type: "model", Model: line.Message.Model})
 						}
@@ -209,7 +224,8 @@ func parseClaudeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 						}
 					}
 				case "result":
-					if usage := reportedUsage(line.Usage, "input_tokens", "output_tokens"); usage != nil {
+					if usage := claudeUsage(line.Usage); usage != nil {
+						finalUsage = true
 						emit(StreamEvent{Type: "usage", Usage: usage, OK: true})
 					}
 					return &Reply{

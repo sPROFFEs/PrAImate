@@ -26,10 +26,12 @@ var ErrProbeTimeout = errors.New("--version probe timed out")
 type AgentID string
 
 const (
-	AgentClaude     AgentID = "claude"
-	AgentOpenClaude AgentID = "openclaude"
-	AgentCodex      AgentID = "codex"
-	AgentOpenCode   AgentID = "opencode"
+	AgentClaude      AgentID = "claude"
+	AgentOpenClaude  AgentID = "openclaude"
+	AgentCodex       AgentID = "codex"
+	AgentCopilot     AgentID = "copilot"
+	AgentAntigravity AgentID = "antigravity"
+	AgentOpenCode    AgentID = "opencode"
 	// Retained only to read legacy persisted settings; neither ID is in
 	// KnownAgents and neither can be installed or selected.
 	AgentGemini       AgentID = "gemini"
@@ -123,6 +125,8 @@ func KnownAgents() []Agent {
 			WpcTarget:   "codex",
 			InstallHint: "bundled native Go CLI agent (0 external runtime dependencies)",
 		},
+		{ID: AgentCopilot, Label: "GitHub Copilot CLI", Binary: "copilot", WpcTarget: "codex", InstallHint: "npm install -g @github/copilot"},
+		{ID: AgentAntigravity, Label: "Antigravity CLI", Binary: "agy", WpcTarget: "codex", InstallHint: "curl -fsSL https://antigravity.google/cli/install.sh | bash  |  Windows: irm https://antigravity.google/cli/install.ps1 | iex"},
 	}
 }
 
@@ -223,7 +227,15 @@ func knownInstallPaths(id AgentID, binary string) []string {
 			filepath.Join(home, ".claude", "local"),
 			filepath.Join(home, ".local", "bin"),
 		)
-	case AgentCodex:
+	case AgentAntigravity:
+		dirs = append(dirs, filepath.Join(home, ".local", "bin"))
+		if runtime.GOOS == "windows" {
+			dirs = append(dirs, filepath.Join(os.Getenv("LOCALAPPDATA"), "agy", "bin"))
+		}
+	case AgentCodex, AgentCopilot:
+		if id == AgentCopilot {
+			dirs = append(dirs, CopilotNativeBinDirs()...)
+		}
 		// npm/pnpm globals — covered by ImportPnpmPathIfPresent at
 		// startup, but keep an explicit fallback for npm's location.
 		if runtime.GOOS == "windows" {
@@ -271,6 +283,31 @@ func knownInstallPaths(id AgentID, binary string) []string {
 		}
 	}
 	return paths
+}
+
+// npm installs a small JS launcher and a platform package. On Windows prefer
+// the native binary so headless launches do not depend on cmd.exe quoting.
+func CopilotNativeBinDirs() []string {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	arch := runtime.GOARCH
+	if arch == "amd64" {
+		arch = "x64"
+	}
+	var roots []string
+	if shim, err := exec.LookPath("copilot"); err == nil {
+		roots = append(roots, filepath.Dir(shim))
+	}
+	if appdata := os.Getenv("APPDATA"); appdata != "" {
+		roots = append(roots, filepath.Join(appdata, "npm"))
+	}
+	var dirs []string
+	for _, root := range roots {
+		pkg := "copilot-win32-" + arch
+		dirs = append(dirs, filepath.Join(root, "node_modules", "@github", pkg), filepath.Join(root, "node_modules", "@github", "copilot", "node_modules", "@github", pkg))
+	}
+	return dirs
 }
 
 // probeVersion runs `<bin> --version` with a generous timeout. Returns

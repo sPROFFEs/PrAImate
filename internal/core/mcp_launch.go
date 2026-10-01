@@ -136,6 +136,8 @@ func writeMCPConfigForRun(cli, cwd string, servers []MCPServer) (map[string]stri
 	env := map[string]string{}
 	var err error
 	switch cli {
+	case "copilot":
+		return copilotMCPConfig(servers)
 	case "claude", "openclaude":
 		err = writeClaudeMCPConfig(cwd, servers, env)
 	case "codex":
@@ -160,6 +162,8 @@ func writeSelectedMCPConfigForRun(cli, cwd string, servers []MCPServer) (map[str
 	env := map[string]string{}
 	var err error
 	switch cli {
+	case "copilot":
+		return copilotMCPConfig(servers)
 	case "claude", "openclaude":
 		err = writeClaudeMCPConfig(cwd, servers, env)
 	case "codex":

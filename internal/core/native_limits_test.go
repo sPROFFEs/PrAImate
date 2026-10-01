@@ -17,6 +17,7 @@ func TestNativeLoadedContextDiscovery(t *testing.T) {
 		{"studio-smallest-instance", "file", "/api/v1/models", `{"models":[{"key":"file","loaded_instances":[{"id":"a","config":{"context_length":8192}},{"id":"b","config":{"context_length":4096}}]}]}`, 4096},
 		{"studio-unloaded", "file", "/api/v1/models", `{"models":[{"key":"file","max_context_length":131072,"loaded_instances":[]}]}`, 0},
 		{"llama", "local", "/props", `{"default_generation_settings":{"n_ctx":32768}}`, 32768},
+		{"vllm", "local", "/v1/models", `{"data":[{"id":"other","max_model_len":4096},{"id":"local","max_model_len":65536}]}`, 65536},
 		{"invalid", "local", "/props", `{"default_generation_settings":{"n_ctx":-1}}`, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -65,8 +66,8 @@ func TestNativeLimitCacheAndExplicitOverrides(t *testing.T) {
 		t.Fatalf("explicit 8192 overridden: %+v %v", route, err)
 	}
 	route, err = c.resolveNativeRoute(ctx, &ChatLocalEndpoint{Endpoint: "http://local.test/v1", Model: "qwen3"}, "")
-	if err != nil || route.ContextTokens != 32768 || requests != 1 {
-		t.Fatalf("host override ignored: %+v %v", route, err)
+	if err != nil || route.ContextTokens != 4096 || requests != 1 {
+		t.Fatalf("loaded backend window did not supersede the host hint: %+v %v", route, err)
 	}
 }
 

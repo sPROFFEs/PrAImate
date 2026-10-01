@@ -28,7 +28,7 @@ func (c CLI) Capabilities() Capabilities {
 	if c.Adapter == nil {
 		return Capabilities{}
 	}
-	editSupported := c.Adapter.Name() == "codex" || c.Adapter.Name() == "claude" || c.Adapter.Name() == "openclaude"
+	editSupported := c.Adapter.Name() == "codex" || c.Adapter.Name() == "claude" || c.Adapter.Name() == "openclaude" || c.Adapter.Name() == "copilot"
 	return Capabilities{ReadOnly: managed && !c.AllowEdits, CanEdit: managed && c.AllowEdits && editSupported}
 }
 

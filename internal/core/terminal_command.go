@@ -12,7 +12,7 @@ import (
 func InteractiveCLICommand(cli, model string) (string, []string, error) {
 	flag := "--model"
 	switch cli {
-	case "claude", "openclaude", "opencode", "praimate-code", "praimate-cli":
+	case "claude", "openclaude", "opencode", "praimate-code", "praimate-cli", "copilot", "antigravity":
 	case "codex":
 		flag = "-m"
 	case "":
@@ -27,7 +27,11 @@ func InteractiveCLICommand(cli, model string) (string, []string, error) {
 	if model != "" {
 		args = append(args, flag, model)
 	}
-	return cli, args, nil
+	binary := cli
+	if cli == "antigravity" {
+		binary = "agy"
+	}
+	return binary, args, nil
 }
 
 // ResolveInteractiveCLIBinary locates the same executable as the production
@@ -44,12 +48,17 @@ func ResolveInteractiveCLIBinary(cli string) (string, error) {
 		return adapter.resolve()
 	case *execAdapter:
 		return adapter.resolveBin()
+	case *additionalCLIAdapter:
+		return adapter.resolveBin()
 	}
 	if cli == "praimate-code" {
 		return NewPraimateCodeAdapter().resolveBin()
 	}
 	if cli == "praimate-cli" {
 		return resolvePraimateCLIBinary(nativeExecutableDir(), praimateManagedBinDir())
+	}
+	if cli == "antigravity" {
+		return NewAntigravityAdapter().resolveBin()
 	}
 	return exec.LookPath(cli)
 }

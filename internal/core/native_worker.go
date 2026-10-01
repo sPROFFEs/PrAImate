@@ -27,10 +27,14 @@ func ExecuteNativeWorkerStream(ctx context.Context, route ChatLocalEndpoint, sys
 	messages := []nativeMessage{{Role: "system", Content: systemPrompt}, {Role: "user", Content: task}}
 	if route.ContextTokens == 0 {
 		route.ContextTokens = autoContextWindow(route.Model, 0)
+		route.ContextSource = "fallback; server window unknown"
 	}
 	status := nativeContextBudget(route, NativeContextStatus{})
+	adaptive := &nativeSession{Messages: messages, Context: status}
+	adaptNativeInputBudget(adaptive, 0)
+	status = adaptive.Context
 	input := nativeMessageTokens(messages)
-	if !validNativeWindow(route.ContextTokens) || status.InputLimit < 256 || input > status.InputLimit {
+	if (status.WindowKnown && !validNativeWindow(route.ContextTokens)) || status.InputLimit < 256 || input > status.InputLimit {
 		return nil, fmt.Errorf("worker context budget exceeded: ~%d input tokens, %d available (%d window, %d output reserve); narrow the delegated task or adjust the host limits", input, status.InputLimit, route.ContextTokens, route.OutputTokens)
 	}
 	status.EstimatedInput = input

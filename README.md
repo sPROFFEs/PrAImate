@@ -151,9 +151,13 @@ Underlying CLIs may still keep native logs or sessions.
 | **Settings** | Updates, source builds, appearance, Git backup, and storage/privacy controls. |
 | **About** | Version, platform, encryption status, paths, compatibility, and the full privacy disclosure. |
 
-Usage tracking starts with this update. Chat/Studio turns and Worker model calls
-are counted separately; missing provider token reports are shown as unavailable,
-not estimated. Standalone third-party terminals are not measured. Months use UTC.
+Usage tracking starts with this update. Chat/Studio turns, Worker model calls and
+reported terminal API calls are counted separately; missing provider token reports
+are not estimated. Terminals launched by PrAImate support local usage collection
+for Codex, Claude Code/OpenClaude, Copilot and OpenCode/PrAImate Code. PrAImate CLI
+already records through Core. Antigravity interactive terminals and terminals
+started outside PrAImate are not measured. Older CLI versions may omit reports.
+Months use UTC. See [CLI integrations and usage](docs/cli-integrations.md).
 The VS Code extension's **Overview** reads the same encrypted profile metrics.
 Metrics contain CLI/model labels, timestamps, counts and durations, without
 prompts, responses, file contents or credentials. No separate telemetry file or

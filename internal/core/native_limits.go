@@ -25,6 +25,16 @@ type nativeLimitCache struct {
 	http    *http.Client
 }
 
+func (c *nativeLimitCache) remember(route ChatLocalEndpoint, window int, source string) {
+	key := sha256.Sum256([]byte(route.Endpoint + "\x00" + route.Model + "\x00" + route.APIKey))
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil || len(c.entries) >= 128 {
+		c.entries = make(map[[32]byte]nativeLimitEntry)
+	}
+	c.entries[key] = nativeLimitEntry{window, source, time.Now().Add(time.Minute)}
+}
+
 func (c *nativeLimitCache) lookup(ctx context.Context, route ChatLocalEndpoint) (int, string) {
 	key := sha256.Sum256([]byte(route.Endpoint + "\x00" + route.Model + "\x00" + route.APIKey))
 	c.mu.Lock()
@@ -136,5 +146,21 @@ func (p nativeProvider) discoverContext(ctx context.Context) (int, string) {
 	if get("/props", &props) && validNativeWindow(props.Settings.Context) {
 		return props.Settings.Context, "llama.cpp server"
 	}
+	// vLLM exposes the serving max_model_len on its OpenAI model cards.
+	// Do not infer a trained maximum from model names or config files.
+	var cards struct {
+		Data []struct {
+			ID     string `json:"id"`
+			Window int    `json:"max_model_len"`
+		} `json:"data"`
+	}
+	if get("/v1/models", &cards) {
+		for _, model := range cards.Data {
+			if model.ID == p.route.Model && validNativeWindow(model.Window) {
+				return model.Window, "OpenAI model serving metadata"
+			}
+		}
+	}
+
 	return 0, ""
 }

@@ -17,7 +17,7 @@ func terminalExecutables(t *testing.T) string {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code", "praimate-cli"} {
+	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code", "praimate-cli", "copilot", "agy"} {
 		if runtime.GOOS == "windows" {
 			cli += ".exe"
 		}
@@ -35,7 +35,7 @@ func TestTerminalPlanUsesSelectedCLIAndModelWithoutMutatingSession(t *testing.T)
 	dir := terminalExecutables(t)
 	s.session.Model = "selected-model"
 	t.Setenv("PRAIMATE_STUDIO_TOKEN", "test-secret-not-for-terminal")
-	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code", "praimate-cli"} {
+	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code", "praimate-cli", "copilot", "antigravity"} {
 		before := s.sessionSnapshot()
 		plan := rpcOK(t, s, "terminals.prepare", map[string]string{"cli": cli}).(*terminalPlan)
 		if filepath.Dir(plan.Command) != dir || plan.Cwd != before.Workspace || plan.CLI != cli {
@@ -53,11 +53,23 @@ func TestTerminalPlanUsesSelectedCLIAndModelWithoutMutatingSession(t *testing.T)
 			if err != nil || chat.CLIAgent != cli || chat.WorkspacePath != before.Workspace {
 				t.Fatalf("native chat: %+v %v", chat, err)
 			}
-		} else if len(plan.Args) != 0 {
+		} else if cli != "codex" && len(plan.Args) != 0 {
 			t.Fatal("model leaked into another CLI")
 		}
-		if len(plan.Env) != 1 || plan.Env["PATH"] != dir {
+		if plan.Env["PATH"] != dir || plan.Env["PRAIMATE_STUDIO_TOKEN"] != "" {
 			t.Fatal("terminal exposed unexpected environment")
+		}
+		if cli != "praimate-cli" && cli != "antigravity" && plan.UsageID == "" {
+			t.Fatal("missing terminal usage receiver")
+		}
+		if plan.UsageID != "" {
+			if len(s.terminalUsage) != 1 {
+				t.Fatal("receiver leaked between launches")
+			}
+			rpcOK(t, s, "terminals.closed", map[string]string{"usageId": plan.UsageID})
+			if len(s.terminalUsage) != 0 {
+				t.Fatal("terminal receiver not closed")
+			}
 		}
 		if !reflect.DeepEqual(before, s.sessionSnapshot()) {
 			t.Fatal("opening a terminal changed the chat configuration")

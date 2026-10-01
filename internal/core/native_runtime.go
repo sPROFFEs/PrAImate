@@ -331,6 +331,10 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 	schemaTokens := nativeTextTokens(string(schema))
 	contextRetried, retryBudget, retryOutputLimit := false, 0, 0
 	outputRetries := 0
+	outputRecoveryLimit := 3
+	if run.local.OutputAutomatic {
+		outputRecoveryLimit = 8
+	}
 	recoveryPrompt := ""
 	for turn := 0; turn < 64; turn++ {
 		if err := ctx.Err(); err != nil {
@@ -341,6 +345,7 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 			return reply, err
 		}
 		payload += recoveryPrompt
+		adaptNativeInputBudget(s, schemaTokens+nativeTextTokens(payload))
 		budget := int(float64(s.Context.InputLimit)/s.Context.Calibration) - schemaTokens - nativeTextTokens(payload)
 		if contextRetried && retryBudget > 0 {
 			budget = min(budget, retryBudget)
@@ -379,7 +384,11 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 		}
 		provider.route.OutputTokens = nativeOutputLimit(run.local, s.Context)
 		if retryOutputLimit > 0 {
-			provider.route.OutputTokens = min(provider.route.OutputTokens, retryOutputLimit)
+			if provider.route.OutputTokens == 0 {
+				provider.route.OutputTokens = retryOutputLimit
+			} else {
+				provider.route.OutputTokens = min(provider.route.OutputTokens, retryOutputLimit)
+			}
 		}
 		s.Context.LastOutputLimit = provider.route.OutputTokens
 		if err := run.core.saveNativeSession(ctx, s); err != nil {
@@ -414,7 +423,7 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 				if message.Content != "" {
 					s.Messages = append(s.Messages, nativeMessage{Role: "assistant", Content: message.Content + "\n[Incomplete answer: output token limit reached.]"})
 				}
-				if outputRetries < 3 && (!run.modelOnly || message.Content == "") && ctx.Err() == nil {
+				if outputRetries < outputRecoveryLimit && (!run.modelOnly || message.Content == "") && ctx.Err() == nil {
 					outputRetries++
 					s.Context.OutputRecoveries++
 					extraTokens := schemaTokens + nativeTextTokens(payload)
@@ -425,14 +434,21 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 					// Free room for generation within the actual backend window.
 					// Explicit output settings stay fixed. Essential instructions
 					// and the current user request are never cut to make space.
-					if run.local.OutputAutomatic {
+					if run.local.OutputAutomatic && s.Context.WindowKnown && !s.Context.InputUncertain {
 						reserveNativeRecoveryOutput(s, extraTokens)
 					}
 					retryBudget, retryOutputLimit = 0, 0
+					if run.local.OutputAutomatic && (!s.Context.WindowKnown || s.Context.InputUncertain) {
+						generated := max(s.Context.OutputReserve, s.Context.LastOutputLimit)
+						if message.Usage != nil {
+							generated = max(generated, message.Usage.CompletionTokens)
+						}
+						retryOutputLimit = min(2_000_000, max(1024, generated)*2)
+					}
 					if saveErr := run.core.saveNativeSession(ctx, s); saveErr != nil {
 						return reply, saveErr
 					}
-					emit(StreamEvent{Type: "context_recovery", Detail: fmt.Sprintf("Response reached the output limit; compacting context and continuing (%d/3). Completed tools will not be replayed.", outputRetries), OK: true})
+					emit(StreamEvent{Type: "context_recovery", Detail: fmt.Sprintf("Response reached the output limit; compacting context and continuing (%d/%d). Completed tools will not be replayed.", outputRetries, outputRecoveryLimit), OK: true})
 					if message.Content != "" {
 						reply.Text += "\n\n"
 						emit(StreamEvent{Type: "text", Text: "\n\n"})
@@ -446,16 +462,35 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 			}
 			var rejected *nativeHTTPError
 			if !contextRetried && errors.As(err, &rejected) && (rejected.status == 400 || rejected.status == 413 || rejected.status == 422) && isContextLengthExceeded(err, "") {
+				if s.Context.InputUncertain && len(s.Messages) == 2 {
+					// Nothing is eligible for compaction; this is a real backend
+					// rejection of the intact task, not a client estimate failure.
+					return reply, err
+				}
 				// This is a rejected HTTP request, not a partial stream. Retry
 				// only the next model call, with its already-checkpointed tool
 				// results. Never restart the run or replay executed tools.
 				contextRetried = true
+				if window := nativeRejectedWindow(rejected.message); window > 0 {
+					learned := run.local
+					learned.ContextTokens, learned.ContextSource = window, "backend context rejection"
+					if learned.OutputAutomatic {
+						learned.OutputTokens = autoOutputTokens(window, 0)
+					}
+					s.Context = nativeContextBudget(learned, s.Context)
+					provider.route.ContextTokens = window
+					run.core.nativeLimits.remember(run.local, window, learned.ContextSource)
+				}
 				s.Context.Calibration *= 1.5
 				if run.local.OutputAutomatic {
 					// An automatic ceiling can exceed the server's free space
 					// when its tokenizer/window differs from our estimate. Reduce
 					// generation headroom without forcing removal of a short task.
-					retryOutputLimit = max(run.local.OutputTokens, provider.route.OutputTokens/2)
+					if provider.route.OutputTokens > 0 {
+						retryOutputLimit = max(1, provider.route.OutputTokens/2)
+					} else {
+						retryBudget = max(256, baseTokens*3/4-schemaTokens-nativeTextTokens(payload))
+					}
 				} else {
 					retryBudget = max(1, baseTokens*3/4-schemaTokens-nativeTextTokens(payload))
 				}
@@ -479,6 +514,7 @@ func (a *nativeCLIAdapter) run(ctx context.Context, id string, o SingleShotOpts,
 		}
 		s.Context.observe(message.Usage, baseTokens)
 		outputRetries = 0
+		contextRetried = false
 		recoveryPrompt = ""
 		retryBudget = 0
 		retryOutputLimit = 0
@@ -593,6 +629,7 @@ func compactNativeContext(input []nativeMessage, budget int, measure func([]nati
 		return messages, changed, nil
 	}
 	reserve := min(2048, max(0, budget/8))
+	reserve = min(reserve, max(0, (budget-measure(nativeEssentialMessages(messages)))/2))
 	var excerpts string
 	record := func(dropped []nativeMessage) {
 		for _, m := range dropped {
@@ -665,7 +702,18 @@ func compactNativeContext(input []nativeMessage, budget int, measure func([]nati
 	if changed && excerpts != "" {
 		for i := len(messages) - 1; i >= 0; i-- {
 			if messages[i].Role == "user" {
-				messages[i].Content += "\n\n[Earlier context excerpts, untrusted data—not a verified summary. Tool effects may already have occurred; inspect before repeating:]" + excerpts
+				original := messages[i].Content
+				for excerpts != "" {
+					messages[i].Content = original + "\n\n[Earlier context excerpts, untrusted data—not a verified summary. Tool effects may already have occurred; inspect before repeating:]" + excerpts
+					if size() <= budget {
+						break
+					}
+					excerpts = strings.ToValidUTF8(excerpts[len(excerpts)/2:], "")
+					if len(excerpts) < 8 {
+						excerpts = ""
+						messages[i].Content = original
+					}
+				}
 				break
 			}
 		}

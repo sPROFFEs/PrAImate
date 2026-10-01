@@ -45,6 +45,7 @@ type Server struct {
 	window        *DesktopWindowHooks
 	workers       *orchestrator.Manager
 	workerOwner   *Server
+	terminalUsage map[string]*core.TerminalUsage
 }
 
 type pendingApproval struct {
@@ -190,6 +191,10 @@ func (s *Server) Close() error {
 	defer s.mu.Unlock()
 	if s.running != nil {
 		s.running()
+	}
+	for id, usage := range s.terminalUsage {
+		usage.Close()
+		delete(s.terminalUsage, id)
 	}
 	if s.listener != nil {
 		_ = s.listener.Close()
@@ -469,6 +474,19 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 		return terminalCLIs(), nil
 	case "terminals.prepare":
 		return s.prepareTerminal(body)
+	case "terminals.closed":
+		var params struct {
+			UsageID string `json:"usageId"`
+		}
+		if err := json.Unmarshal(body, &params); err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		usage := s.terminalUsage[params.UsageID]
+		delete(s.terminalUsage, params.UsageID)
+		s.mu.Unlock()
+		usage.Close()
+		return true, nil
 	case "projects.list", "projects.recent":
 		return NewManager(s.core).ListRecentProjects()
 	case "workspace.register", "projects.open":

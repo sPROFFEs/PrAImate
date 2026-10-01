@@ -379,6 +379,12 @@ func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel 
 	if err != nil {
 		return "", err
 	}
+	if cli == "antigravity" || cli == "copilot" {
+		name, err = core.ResolveInteractiveCLIBinary(cli)
+		if err != nil {
+			return "", err
+		}
+	}
 	nativeResume := false
 	if resume {
 		var supported bool
@@ -458,10 +464,26 @@ func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel 
 		return "", err
 	}
 	env := appendEnvMap(nil, effective.Env)
+	extra, configCleanup, err := core.PrepareInteractiveCLIConfig(cli, effective.Env)
+	if err != nil {
+		return "", err
+	}
+	args = append(args, extra...)
+	usage, err := c.BeginTerminalUsage(a.ctx, cli, model, effective.Env)
+	if err != nil {
+		configCleanup()
+		return "", fmt.Errorf("prepare terminal usage: %w", err)
+	}
+	if usage != nil {
+		args = append(args, usage.Args...)
+		env = appendEnvMap(env, usage.Env)
+	}
 	if nativeSkills != nil {
 		env = appendEnvMap(env, nativeSkills.Env)
 	}
 	cleanup := func() {
+		configCleanup()
+		usage.Close()
 		if legacyCleanup != nil {
 			legacyCleanup()
 		}

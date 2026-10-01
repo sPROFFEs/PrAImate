@@ -51,7 +51,7 @@
   let guidedPreview = null
   let guidedForm = {
     name: '', purpose: '', knowledge: '', preset: 'simple',
-    supports: ['claude', 'openclaude', 'codex', 'opencode', 'praimate-code', 'praimate-cli'],
+    supports: ['claude', 'openclaude', 'codex', 'opencode', 'praimate-code', 'praimate-cli', 'copilot'],
     capabilities: { read_project: true, analyze_code: true, use_git: false, execute_commands: false, modify_files: false, network: false, external_services: false },
   }
   let runtimeConfigured = false

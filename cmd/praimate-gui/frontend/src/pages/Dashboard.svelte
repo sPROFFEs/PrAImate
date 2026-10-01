@@ -81,7 +81,7 @@
 
   <div class="metrics">
     <article class="metric featured"><span>Reported tokens</span><strong title={fmt(totals.tokens)}>{loading && !data ? '—' : short(totals.tokens)}</strong><small><span class="input-dot"></span>{short(totals.inputTokens)} input <span class="output-dot"></span>{short(totals.outputTokens)} output</small></article>
-    <article class="metric"><span>Runs</span><strong>{loading && !data ? '—' : fmt(totals.runs)}</strong><small>Chat turns and worker requests</small></article>
+    <article class="metric"><span>Runs</span><strong>{loading && !data ? '—' : fmt(totals.runs)}</strong><small>Chat turns, worker requests and terminal calls</small></article>
     <article class="metric"><span>Average tokens / run</span><strong>{totals.reportedRuns ? short(totals.averageTokensPerRun) : '—'}</strong><small>Across runs reporting usage</small></article>
     <article class="metric"><span>Active days</span><strong>{loading && !data ? '—' : fmt(totals.activeDays)}</strong><small>{short(totals.averageTokensPerDay)} reported tokens / calendar day</small></article>
   </div>
@@ -119,7 +119,7 @@
       <div class="ranking-list">{#each (data?.models || []).slice(0,6) as item, index}<div class="ranking-row"><span class="model-mark" aria-hidden="true">◇</span><div class="ranking-info"><div class="ranking-title"><strong title={item.name}>{item.name}</strong><span>{fmt(item.runs)} <small>{item.runs === 1 ? 'run' : 'runs'}</small></span></div><div class="meter muted"><span style={`width:${totals.runs ? item.runs / totals.runs * 100 : 0}%`}></span></div></div></div>{:else}<p class="no-ranking">Your selected models will appear as you work.</p>{/each}</div>
     </article>
   </div>
-  <footer class="coverage"><span class="coverage-mark" aria-hidden="true">i</span><p><strong>Usage coverage.</strong> Token usage was reported for {fmt(totals.reportedRuns)} of {fmt(totals.runs)} runs. Missing reports are not estimated. Includes Chat, Studio and Workers; standalone third-party terminals do not expose token usage. Dates use UTC.</p></footer>
+  <footer class="coverage"><span class="coverage-mark" aria-hidden="true">i</span><p><strong>Usage coverage.</strong> Token usage was reported for {fmt(totals.reportedRuns)} of {fmt(totals.runs)} runs. Missing reports are not estimated. Includes Chat, Studio, Workers and supported terminals launched by PrAImate. Terminal calls are recorded as separate runs. Antigravity terminal usage and external terminals are not measured; older CLI versions may omit reports. Dates use UTC.</p></footer>
 </section>
 
 <style>

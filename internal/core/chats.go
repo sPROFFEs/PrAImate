@@ -133,7 +133,7 @@ type ChatLocalEndpoint struct {
 	ContextTokens   int    `json:"context_tokens,omitempty"`
 	OutputTokens    int    `json:"output_tokens,omitempty"`
 	ContextSource   string `json:"-"` // resolved metadata, never a persisted override
-	OutputAutomatic bool   `json:"-"` // resolved mode; explicit chat/host limits remain fixed
+	OutputAutomatic bool   `json:"-"` // resolved mode; explicit per-chat limits remain fixed
 }
 
 // Message is one stored turn. Role is "user" | "assistant" | "tool" |

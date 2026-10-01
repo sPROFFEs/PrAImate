@@ -110,7 +110,7 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "  --list-agents              List all agents stored in database")
 		fmt.Fprintln(os.Stderr, "\nAgent Execution Options (`praimate agent run`):")
 		fmt.Fprintln(os.Stderr, "  --agent <id>               Target agent ID (required)")
-		fmt.Fprintln(os.Stderr, "  --cli <name>               CLI to use (claude, openclaude, codex, opencode, praimate-code)")
+		fmt.Fprintln(os.Stderr, "  --cli <name>               CLI: claude, openclaude, codex, copilot, antigravity, opencode, praimate-code, praimate-cli")
 		fmt.Fprintln(os.Stderr, "  --folder <path>            Working directory for agent execution")
 		fmt.Fprintln(os.Stderr, "  --prompt <text>            Single-turn prompt to execute")
 		fmt.Fprintln(os.Stderr, "  --prompt-file <path>       Read prompt from file or stdin ('-')")

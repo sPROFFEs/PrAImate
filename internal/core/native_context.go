@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -20,6 +21,8 @@ type NativeContextStatus struct {
 	Model            string       `json:"model"`
 	Source           string       `json:"source,omitempty"`
 	Window           int          `json:"window_tokens"`
+	WindowKnown      bool         `json:"window_known"`
+	InputUncertain   bool         `json:"input_estimate_uncertain"`
 	OutputReserve    int          `json:"output_reserve_tokens"`
 	SafetyReserve    int          `json:"safety_reserve_tokens"`
 	InputLimit       int          `json:"input_limit_tokens"`
@@ -80,10 +83,21 @@ func nativeContextBudget(route ChatLocalEndpoint, previous NativeContextStatus) 
 	if previous.Model != route.Model {
 		previous = NativeContextStatus{Model: route.Model}
 	}
-	previous.Window, previous.OutputReserve = route.ContextTokens, route.OutputTokens
+	unknown := strings.Contains(route.ContextSource, "server window unknown")
+	window := route.ContextTokens
+	if previous.Source == "backend context rejection" && previous.Window > 0 && previous.Window < window {
+		window = previous.Window
+		route.ContextSource = previous.Source
+		unknown = false
+	}
+	if unknown && previous.Model == route.Model {
+		window = max(window, previous.Window)
+	}
+	previous.Window, previous.OutputReserve = window, route.OutputTokens
+	previous.WindowKnown = !unknown
 	previous.Source = route.ContextSource
 	previous.OutputAutomatic = route.OutputAutomatic
-	previous.SafetyReserve = max(256, route.ContextTokens/20)
+	previous.SafetyReserve = max(256, window/20)
 	previous.InputLimit = previous.Window - previous.OutputReserve - previous.SafetyReserve
 	if previous.Calibration < 1 || math.IsNaN(previous.Calibration) || math.IsInf(previous.Calibration, 0) {
 		previous.Calibration = 1
@@ -98,6 +112,9 @@ func nativeContextBudget(route ChatLocalEndpoint, previous NativeContextStatus) 
 func nativeOutputLimit(route ChatLocalEndpoint, status NativeContextStatus) int {
 	if !route.OutputAutomatic {
 		return route.OutputTokens
+	}
+	if !status.WindowKnown || status.InputUncertain {
+		return 0 // omit max_tokens; the backend owns its generation default
 	}
 	available := status.Window - status.SafetyReserve - status.EstimatedInput
 	return max(1, available)
@@ -121,7 +138,14 @@ func nativeContextEvent(kind string, status NativeContextStatus) StreamEvent {
 	_ = json.Unmarshal(raw, &fields)
 	detail := fmt.Sprintf("Context ~%d/%d input tokens; %d output + %d safety reserved", status.EstimatedInput, status.InputLimit, status.OutputReserve, status.SafetyReserve)
 	if status.OutputAutomatic {
-		detail += fmt.Sprintf("; automatic output limit %d (includes reasoning)", status.LastOutputLimit)
+		if status.LastOutputLimit > 0 {
+			detail += fmt.Sprintf("; automatic output limit %d (includes reasoning)", status.LastOutputLimit)
+		} else {
+			detail += "; backend-selected output (includes reasoning)"
+		}
+	}
+	if !status.WindowKnown {
+		detail = "Adaptive planning threshold; backend window unknown. " + detail
 	}
 	if kind == "usage" && status.LastUsage != nil {
 		detail = fmt.Sprintf("Endpoint usage: %d input / %d output tokens", status.LastUsage.PromptTokens, status.LastUsage.CompletionTokens)

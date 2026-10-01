@@ -122,6 +122,10 @@ func TestCLIWorkerEditModeUsesManagedAdapterOnly(t *testing.T) {
 	if err != nil || adapter.seen.Tools != "edits" {
 		t.Fatalf("edit mode error=%v tools=%q", err, adapter.seen.Tools)
 	}
+	adapter.name = "copilot"
+	if _, err := (CLI{Adapter: adapter, AllowEdits: true}).Execute(context.Background(), Request{Task: "edit", WorkspaceRoot: t.TempDir()}); err != nil || adapter.seen.Tools != "edits" {
+		t.Fatalf("Copilot edit mode: %v", err)
+	}
 	adapter.name = "praimate-code"
 	if _, err := (CLI{Adapter: adapter, AllowEdits: true}).Execute(context.Background(), Request{Task: "edit", WorkspaceRoot: t.TempDir()}); err == nil {
 		t.Fatal("accepted unsupported CLI edit mode")
@@ -140,7 +144,7 @@ func TestOpenCodeWorkersKeepCLISafeWhileUsingHostTools(t *testing.T) {
 
 func TestPraimateCLIWorkerResolvesModelThroughCore(t *testing.T) {
 	t.Setenv("PRAIMATE_HOME", t.TempDir())
-	limits := make(chan int, 2)
+	limits := make(chan *int, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			http.NotFound(w, r)
@@ -148,7 +152,7 @@ func TestPraimateCLIWorkerResolvesModelThroughCore(t *testing.T) {
 		}
 		var payload struct {
 			Model     string `json:"model"`
-			MaxTokens int    `json:"max_tokens"`
+			MaxTokens *int   `json:"max_tokens"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Model != "tiny-model" {
 			t.Errorf("model=%q error=%v", payload.Model, err)
@@ -174,15 +178,15 @@ func TestPraimateCLIWorkerResolvesModelThroughCore(t *testing.T) {
 	if err != nil || result.Content != `{"action":"final","content":"done"}` {
 		t.Fatalf("result=%+v error=%v", result, err)
 	}
-	if limit := <-limits; limit <= 1024 || limit >= 8192 {
-		t.Fatalf("automatic worker limit=%d", limit)
+	if limit := <-limits; limit != nil {
+		t.Fatalf("automatic worker imposed a ceiling for an unknown backend window: %d", *limit)
 	}
 	req.Limits.MaxOutputTokens = 333
 	if _, err := (PraimateCLI{Core: c}).Execute(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	if limit := <-limits; limit != 333 {
-		t.Fatalf("explicit worker limit=%d", limit)
+	if limit := <-limits; limit == nil || *limit != 333 {
+		t.Fatalf("explicit worker limit=%v", limit)
 	}
 }
 

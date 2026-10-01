@@ -59,8 +59,8 @@ func run(ctx context.Context, args []string) error {
 	fs.StringVar(&o.inputs, "inputs", "{}", "Workflow inputs as a JSON object")
 	fs.Var(&o.attachments, "attach", "Attach a file to the next chat message (repeatable; images need a vision model)")
 	fs.BoolVar(&o.showReasoning, "show-reasoning", false, "Display streamed model reasoning in text mode")
-	fs.IntVar(&o.contextTokens, "context-tokens", 0, "Context window: 0 uses host settings or server discovery (fallback: 8192)")
-	fs.IntVar(&o.outputTokens, "output-tokens", 0, "Output limit: 0 uses host settings or adapts to remaining context (includes reasoning)")
+	fs.IntVar(&o.contextTokens, "context-tokens", 0, "Context window: 0 adapts automatically using backend metadata and host hints")
+	fs.IntVar(&o.outputTokens, "output-tokens", 0, "Output limit: 0 adapts automatically to the backend (includes reasoning)")
 	fs.BoolVar(&o.resume, "continue", false, "Resume the latest native chat in this workspace")
 	fs.BoolVar(&o.passwordStdin, "db-password-stdin", false, "Read database password from the first stdin line")
 	fs.BoolVar(&o.version, "version", false, "Print version")
@@ -852,12 +852,17 @@ func command(ctx context.Context, c *core.Core, id, line string, output io.Write
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(output, "Window: %d tokens\nInput limit: %d · output reserve: %d · safety: %d\nLast request estimate: ~%d tokens · calibration: %.2fx · compactions: %d\n", status.Window, status.InputLimit, status.OutputReserve, status.SafetyReserve, status.EstimatedInput, status.Calibration, status.Compactions)
+		if status.WindowKnown {
+			fmt.Fprintf(output, "Window: %d tokens\n", status.Window)
+		} else {
+			fmt.Fprintf(output, "Backend window: unknown · planning threshold: %d tokens (adaptive, not an input limit)\n", status.Window)
+		}
+		fmt.Fprintf(output, "Input budget: %d · output reserve: %d · safety: %d\nLast request estimate: ~%d tokens · calibration: %.2fx · compactions: %d\n", status.InputLimit, status.OutputReserve, status.SafetyReserve, status.EstimatedInput, status.Calibration, status.Compactions)
 		fmt.Fprintf(output, "Source: %s\nChange this chat: /context auto or /context WINDOW [OUTPUT_LIMIT]\n", status.Source)
 		if status.OutputAutomatic {
-			fmt.Fprintln(output, "Output mode: automatic — reserve is a minimum; each response can use remaining backend context, including reasoning.")
+			fmt.Fprintln(output, "Output mode: automatic — adapts to backend context and reasoning; with an unknown window the backend selects the initial generation limit.")
 		} else {
-			fmt.Fprintln(output, "Output mode: fixed by chat or host settings (includes reasoning).")
+			fmt.Fprintln(output, "Output mode: fixed by this chat (includes reasoning).")
 		}
 		if status.LastOutputLimit > 0 {
 			fmt.Fprintf(output, "Last request output limit: %d tokens\n", status.LastOutputLimit)

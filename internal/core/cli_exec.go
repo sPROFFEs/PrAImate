@@ -279,6 +279,8 @@ func RegisterAllCLIAdapters() {
 	RegisterCLIAdapter(NewClaudeAdapter())
 	RegisterCLIAdapter(NewOpenClaudeAdapter())
 	RegisterCLIAdapter(NewCodexAdapter())
+	RegisterCLIAdapter(NewCopilotAdapter())
+	RegisterCLIAdapter(NewAntigravityAdapter())
 	RegisterCLIAdapter(NewOpenCodeAdapter())
 	RegisterCLIAdapter(NewPraimateCodeAdapter())
 	RegisterCLIAdapter(NewPraimateCLIAdapter())

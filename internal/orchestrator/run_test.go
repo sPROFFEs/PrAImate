@@ -202,7 +202,7 @@ func TestSameCLIProfilesKeepIndependentModels(t *testing.T) {
 
 func TestBuiltInWorkerAdaptersAreResolvable(t *testing.T) {
 	core.RegisterAllCLIAdapters()
-	for _, cli := range []string{"codex", "claude", "openclaude", "opencode", "praimate-code"} {
+	for _, cli := range []string{"codex", "claude", "openclaude", "opencode", "praimate-code", "copilot"} {
 		worker, err := ResolveRuntime(Profile{Runtime: "cli", CLI: cli})
 		if err != nil || !worker.Capabilities().ReadOnly {
 			t.Fatalf("CLI %s: worker=%v error=%v", cli, worker, err)

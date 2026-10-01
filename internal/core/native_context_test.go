@@ -102,15 +102,15 @@ func TestNativeOutputAllocationRespectsContextAndExplicitLimits(t *testing.T) {
 	}
 }
 
-func TestNativeExplicitHostOutputIsNotAutomatic(t *testing.T) {
+func TestNativeHostOutputIsAnAutomaticReserveHint(t *testing.T) {
 	c := nativeTestCore(t)
 	ctx := context.Background()
 	if _, err := c.SaveLocalHost(ctx, LocalHost{ID: "fixed", Endpoint: "http://local.test/v1", ContextTokens: 8192, OutputTokens: 1024}); err != nil {
 		t.Fatal(err)
 	}
 	route, err := c.resolveNativeRoute(ctx, &ChatLocalEndpoint{Endpoint: "http://local.test/v1", Model: "m"}, "")
-	if err != nil || route.OutputAutomatic || route.OutputTokens != 1024 {
-		t.Fatalf("host override lost: %+v %v", route, err)
+	if err != nil || !route.OutputAutomatic || route.OutputTokens != 1024 {
+		t.Fatalf("host reserve hint did not use automatic output: %+v %v", route, err)
 	}
 }
 

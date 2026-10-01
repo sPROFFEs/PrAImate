@@ -21,6 +21,12 @@ selects the actual adapter that executes the agent and must be one of the
 agent's supported CLIs. If omitted, PrAImate uses the first supported CLI;
 automation should normally specify it to avoid depending on agent ordering.
 
+Supported backend IDs include `praimate-cli`, `praimate-code`, `opencode`,
+`claude`, `openclaude`, `codex`, `copilot` and `antigravity` (executable `agy`).
+See [CLI integrations](cli-integrations.md) for model selection, installation,
+usage coverage and backend-specific restrictions. Antigravity supports native
+execution but is unavailable for managed Workers.
+
 For long or sensitive prompts, prefer a protected file so the prompt does not
 appear in the process list:
 
@@ -85,11 +91,16 @@ must be `key=value`; malformed and duplicate keys fail with exit status 2.
 
 ## Skills and MCP in headless agent runs
 
-When an agent or workflow declares skills or MCP servers in its definition (`agent.yaml` / `skills.lock.json`):
+For backends that support PrAImate's MCP injection, when an agent or workflow
+declares skills or MCP servers in its definition (`agent.yaml` / `skills.lock.json`):
 
 1. **Automatic Skills MCP Bridge:** PrAImate spins up an embedded internal Skills MCP server on a dynamic loopback port for the lifetime of the run.
 2. **Dynamic Tool Execution:** The CLI receives the standard tools `list_available_skills`, `load_skill`, and `read_skill_resource`. The agent inspects available procedures and calls `load_skill(name)` on demand rather than bloating the initial prompt.
 3. **User MCP Servers:** Declared MCP servers (`mcp_servers`) are resolved from encrypted settings and injected into the CLI's environment and configuration automatically.
+
+Antigravity currently uses its own MCP configuration and does not receive this
+bridge. Copilot's Safe/Edits tool allowlists exclude MCP tools; Full mode is
+required to use injected MCP tools.
 
 ## Database unlock
 

@@ -118,10 +118,12 @@ const (
 type AgentID string
 
 const (
-	AgentClaude     AgentID = "claude"
-	AgentOpenClaude AgentID = "openclaude"
-	AgentCodex      AgentID = "codex"
-	AgentOpenCode   AgentID = "opencode"
+	AgentClaude      AgentID = "claude"
+	AgentOpenClaude  AgentID = "openclaude"
+	AgentCodex       AgentID = "codex"
+	AgentCopilot     AgentID = "copilot"
+	AgentAntigravity AgentID = "antigravity"
+	AgentOpenCode    AgentID = "opencode"
 )
 
 // Action is "install" or "update". Update reuses most install commands,
@@ -1004,6 +1006,16 @@ func allMethods(agent AgentID, action Action, current OS) []Method {
 	openclaudeDisplayCmd := "npm install --no-fund --no-audit --ignore-scripts " + openclaudePkg
 
 	switch agent {
+	case AgentCopilot:
+		return []Method{{ID: "npm", Label: "Official npm package", Command: npmPkg("@github/copilot"), Recommended: true, Prereqs: []string{"node", "npm"}}}
+	case AgentAntigravity:
+		if current == OSWindows {
+			return []Method{{ID: "powershell", Label: "Official Antigravity installer", Command: "irm https://antigravity.google/cli/install.ps1 | iex", Shell: ShellPowerShell, Recommended: true}}
+		}
+		if current == OSLinux || current == OSWSL || current == OSMacOS {
+			return []Method{{ID: "curl", Label: "Official Antigravity installer", Command: "curl -fsSL https://antigravity.google/cli/install.sh | bash", Shell: ShellBash, Recommended: true}}
+		}
+		return nil
 	case AgentID("praimate-cli"):
 		return praimateCLIMethods(current)
 	case AgentID("praimate-code"):

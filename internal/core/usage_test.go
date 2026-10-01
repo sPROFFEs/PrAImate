@@ -117,7 +117,7 @@ func TestUsageStreamParsersNormalizeProviderTotals(t *testing.T) {
 	}{
 		{"codex", `{"type":"turn.completed","usage":{"input_tokens":120,"cached_input_tokens":50,"output_tokens":40}}`, func(s string, e StreamHandler) { parseCodexStream(strings.NewReader(s), e) }},
 		{"claude", `{"type":"result","result":"ok","usage":{"input_tokens":120,"output_tokens":40}}`, func(s string, e StreamHandler) { _, _ = parseClaudeStream(strings.NewReader(s), e) }},
-		{"opencode", `{"type":"step_finish","part":{"id":"report","type":"step-finish","tokens":{"input":120,"output":40,"reasoning":30}}}`, func(s string, e StreamHandler) { _, _ = parseOpenCodeStream(strings.NewReader(s), e) }},
+		{"opencode", `{"type":"step_finish","part":{"id":"report","type":"step-finish","tokens":{"input":120,"output":10,"reasoning":30}}}`, func(s string, e StreamHandler) { _, _ = parseOpenCodeStream(strings.NewReader(s), e) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var u UsageAccumulator
@@ -130,5 +130,21 @@ func TestUsageStreamParsersNormalizeProviderTotals(t *testing.T) {
 	}
 	if reportedUsage(map[string]any{"input": float64(5)}, "input", "output") != nil {
 		t.Fatal("invented missing output usage")
+	}
+}
+
+func TestClaudeUsageIncludesCacheAndSurvivesMissingResult(t *testing.T) {
+	message := `{"type":"assistant","message":{"id":"m1","model":"test","usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":30,"cache_creation_input_tokens":40},"content":[]}}`
+	for _, final := range []bool{false, true} {
+		body := message + "\n" + message + "\n"
+		if final {
+			body += `{"type":"result","result":"ok","usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":30,"cache_creation_input_tokens":40}}`
+		}
+		var u UsageAccumulator
+		_, _ = parseClaudeStream(strings.NewReader(body), u.Observe)
+		in, out, calls, _ := u.Snapshot()
+		if in != 80 || out != 20 || calls != 1 {
+			t.Fatalf("final=%v got %d/%d/%d", final, in, out, calls)
+		}
 	}
 }

@@ -267,7 +267,7 @@
                 <select bind:value={config.profiles[index].cli} on:change={() => cliChanged(p)}>
                   <option value="">Select CLI</option>
                   {#if p.cli && !clis.some((cli) => cli.id === p.cli)}<option value={p.cli}>{p.cli}</option>{/if}
-                  {#each clis as cli}<option value={cli.id} disabled={!cli.available}>{cli.label}{cli.available ? '' : ' (unavailable)'}</option>{/each}
+                  {#each clis as cli}<option value={cli.id} disabled={!cli.available || cli.capabilities?.managedWorker === false}>{cli.label}{cli.capabilities?.managedWorker === false ? ' (managed workers unsupported)' : cli.available ? '' : ' (unavailable)'}</option>{/each}
                 </select>
               </label>
               <label class="check"><input type="checkbox" bind:checked={config.profiles[index].allowEdits} /> Allow workspace edits</label>

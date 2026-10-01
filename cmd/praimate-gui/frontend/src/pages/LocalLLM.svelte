@@ -314,16 +314,16 @@
 
   <div class="row" style="margin-top:12px">
     <div class="grow">
-      <label class="lbl" for="local-llm-context-tokens">Context window tokens</label>
+      <label class="lbl" for="local-llm-context-tokens">Context planning hint</label>
       <input id="local-llm-context-tokens" class="field" type="number" bind:value={activeHost.contextTokens} placeholder="e.g. 32768" />
     </div>
     <div class="grow">
-      <label class="lbl" for="local-llm-output-tokens">Output limit tokens</label>
+      <label class="lbl" for="local-llm-output-tokens">Output reserve hint</label>
       <input id="local-llm-output-tokens" class="field" type="number" bind:value={activeHost.outputTokens} placeholder="e.g. 8192" />
     </div>
   </div>
 
-  <p class="card-sub">For PrAImate CLI, 0 enables automatic context discovery and output budgeting. A nonzero output limit includes reasoning and stays fixed unless overridden in the chat.</p>
+  <p class="card-sub">PrAImate CLI uses these values as planning hints. Loaded backend metadata takes priority; output adapts to include reasoning. Use per-chat limits to set a fixed ceiling.</p>
 
   <div class="row" style="margin-top:16px">
     <button class="btn action-btn" on:click={test} disabled={testing || !activeHost.endpoint}>{testing ? 'Probing…' : 'Test connection'}</button>

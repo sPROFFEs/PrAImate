@@ -189,7 +189,7 @@ func (p *nativeProvider) turn(ctx context.Context, messages []nativeMessage, too
 		Messages      []wireMessage   `json:"messages"`
 		Tools         []nativeTool    `json:"tools,omitempty"`
 		Stream        bool            `json:"stream"`
-		MaxTokens     int             `json:"max_tokens"`
+		MaxTokens     int             `json:"max_tokens,omitempty"`
 		StreamOptions map[string]bool `json:"stream_options,omitempty"`
 	}{p.route.Model, wire, tools, true, p.route.OutputTokens, nil}
 	if !p.withoutUsage {
@@ -345,7 +345,10 @@ func (p *nativeProvider) turn(ctx context.Context, messages []nativeMessage, too
 		return result, errors.New("model stream ended before completion")
 	}
 	if finish == "length" {
-		detail := fmt.Sprintf("requested limit: %d output tokens", p.route.OutputTokens)
+		detail := "backend default generation limit"
+		if p.route.OutputTokens > 0 {
+			detail = fmt.Sprintf("requested limit: %d output tokens", p.route.OutputTokens)
+		}
 		if result.Reasoning != "" {
 			detail += "; reasoning consumes this budget too"
 			if strings.TrimSpace(result.Content) == "" {

@@ -41,7 +41,7 @@ function extensionHarness(platform, trusted = true, descriptor = null) {
   const cwd = platform === 'win32' ? 'C:\\Users\\Test User\\Project' : '/tmp/project with spaces';
   const executable = platform === 'win32' ? 'C:\\Program Files\\PrAImate\\praimate.exe' : '/opt/PrAImate/praimate';
   const disposable = {dispose(){}};
-  let choiceID, available = ['claude','openclaude','codex','opencode','praimate-code'];
+  let choiceID, closeTerminal, terminalError, available = ['claude','openclaude','codex','opencode','praimate-code','copilot','antigravity'];
   let session = {cli:'praimate-code',tools:'safe'};
   const vscode = {
     workspace:{isTrusted:trusted,workspaceFolders:[{uri:{fsPath:cwd}}]},
@@ -51,7 +51,8 @@ function extensionHarness(platform, trusted = true, descriptor = null) {
       registerWebviewViewProvider:(_,p) => {vscode.provider=p;return disposable;},
       registerTreeDataProvider:() => disposable,
       onDidChangeActiveTextEditor:() => disposable,onDidChangeTextEditorSelection:() => disposable,
-      showErrorMessage:m => errors.push(m),createTerminal:o => {terminals.push(o);return {show(){}};}
+      onDidCloseTerminal:fn => {closeTerminal=fn;return disposable;},
+      showErrorMessage:m => errors.push(m),createTerminal:o => {if (terminalError) throw Error(terminalError); terminals.push(o);return {show(){}};}
       ,showQuickPick:async items => items.find(item => item.id === choiceID)
     },
     commands:{registerCommand:(id,fn) => {commands.set(id,fn);return disposable;},executeCommand:() => {}},
@@ -79,7 +80,7 @@ function extensionHarness(platform, trusted = true, descriptor = null) {
         if (req.method === 'terminals.list') result = available.map(id => ({id,label:id,available:true}));
         if (req.method === 'terminals.prepare') {
           const cli = req.params.cli || session.cli;
-          result = {cli,cwd,command:platform === 'win32' ? 'C:\\CLI Tools\\'+cli+'.exe' : '/CLI Tools/'+cli,
+          result = {usageId:'usage-'+requests.length,cli,cwd,command:platform === 'win32' ? 'C:\\CLI Tools\\'+cli+'.exe' : '/CLI Tools/'+cli,
             args:cli === session.cli && session.model ? [cli === 'codex' ? '-m' : '--model',session.model] : [],env:{PATH:'/managed/runtime'}};
         }
         queueMicrotask(() => child.stdout.write(JSON.stringify({id:req.id,result})+'\n'));
@@ -97,6 +98,7 @@ function extensionHarness(platform, trusted = true, descriptor = null) {
     workspaceState:{get:(key,fallback) => stored.has(key)?stored.get(key):fallback,update:async(key,v)=>stored.set(key,v)}};
   sandbox.module.exports.activate(ctx);
   return {commands,requests,spawns,terminals,errors,cwd,executable,stored,provider:()=>vscode.provider,
+    closeTerminal:term=>closeTerminal(term),failTerminal:message=>{terminalError=message;},
     choose:id=>{choiceID=id;},setAvailable:ids=>{available=ids;},vscode,
     changeDescriptor:next => {descriptor=next;watch({mtimeMs:2,size:100},{mtimeMs:1,size:100});},
     close:() => sandbox.module.exports.deactivate()};
@@ -144,7 +146,7 @@ for (const platform of ['linux','win32']) {
       assert.deepEqual(Array.from(h.terminals[0].shellArgs),['-m','custom-model']);
       assert.match(h.terminals[0].shellPath,/codex(?:\.exe)?$/);
       const before = h.requests.filter(r=>r.method==='session.update').length;
-      for (const cli of ['claude','openclaude','opencode','praimate-code']) {
+      for (const cli of ['claude','openclaude','opencode','praimate-code','copilot','antigravity']) {
         h.choose(cli); await h.commands.get('praimate.chooseTerminal')();
         const term = h.terminals.at(-1);
         assert.equal(term.name,'PrAImate · '+cli); assert.equal(term.cwd,cwd);
@@ -153,7 +155,7 @@ for (const platform of ['linux','win32']) {
       }
       assert.equal(h.requests.filter(r=>r.method==='session.update').length,before);
       h.choose(undefined); await h.commands.get('praimate.chooseTerminal')();
-      assert.equal(h.terminals.length,5,'cancel must not launch');
+      assert.equal(h.terminals.length,7,'cancel must not launch');
       h.setAvailable([]); await h.commands.get('praimate.chooseTerminal')();
       assert.match(h.errors.at(-1),/No CLI executables/);
     } finally {h.close();}
@@ -329,4 +331,21 @@ test('overview requests the selected month and renders usage labels as text', ()
   assert.equal(root.children[0].children[0].children[1].textContent,'20');
   assert.equal(root.children[1].children[0].children[1].children[0].textContent,'<private-model>');
   assert.equal(root.children[1].children[0].children[1].children[0].innerHTML,'');
+});
+
+ test('terminal closure and launch failure release usage receivers', async () => {
+  const h=extensionHarness('linux');
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    const term=await h.commands.get('praimate.openTerminal')();
+    h.closeTerminal(term);
+    h.closeTerminal(term);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(h.requests.filter(r=>r.method==='terminals.closed').length,1);
+    assert.match(h.requests.find(r=>r.method==='terminals.closed').params.usageId,/^usage-/);
+    h.failTerminal('cannot create terminal');
+    await h.commands.get('praimate.openTerminal')();
+    assert.equal(h.requests.filter(r=>r.method==='terminals.closed').length,2);
+    assert.match(h.errors.at(-1),/cannot create terminal/);
+  } finally {h.close();}
 });

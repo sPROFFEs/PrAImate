@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const { RPCClient } = require('./rpc');
 const { terminalOptions } = require('./terminal');
+const terminalUsage = new Map();
 
 let rpc, transport, backend, context, output, statusBar, provider;
 let reconnectTimer, stopped = false, generation = 0, launchInfo = {}, connectionFile, stopWatching;
@@ -713,9 +714,15 @@ async function openTerminal(cli) {
   const plan = await call('terminals.prepare',typeof cli === 'string' ? {cli} : {});
   // Keep the launch plan (and host environment) in the extension host, not in
   // the HTML renderer. The terminal receives an executable and separate args.
-  const term = vscode.window.createTerminal(terminalOptions(plan,process.platform,process.env));
-  term.show();
-  return term;
+  try {
+    const term = vscode.window.createTerminal(terminalOptions(plan,process.platform,process.env));
+    if (plan.usageId) terminalUsage.set(term,{id:plan.usageId,client:rpc});
+    term.show();
+    return term;
+  } catch (error) {
+    if (plan.usageId) await call('terminals.closed',{usageId:plan.usageId}).catch(() => {});
+    throw error;
+  }
 }
 async function chooseTerminal() {
   if (!vscode.workspace.isTrusted || !currentStatus.connected) throw new Error('Connect in a trusted workspace before choosing a CLI');
@@ -767,6 +774,10 @@ function activate(ctx) {
   fs.watchFile(connectionFile,{persistent:false,interval:1500},connectionChanged);
   stopWatching = () => fs.unwatchFile(connectionFile,connectionChanged);
   context.subscriptions.push({dispose:stopWatching});
+  if (vscode.window.onDidCloseTerminal) context.subscriptions.push(vscode.window.onDidCloseTerminal(term => {
+    const usage=terminalUsage.get(term); terminalUsage.delete(term);
+    if (usage) usage.client?.request('terminals.closed',{usageId:usage.id}).catch(() => {});
+  }));
   if (vscode.workspace.onDidGrantWorkspaceTrust) context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(connect));
   context.subscriptions.push(output,statusBar,vscode.window.registerWebviewViewProvider('praimate.chatView',provider));
   let panel;

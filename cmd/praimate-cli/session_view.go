@@ -45,6 +45,14 @@ func (v sessionView) session(model, tools string, status *core.NativeContextStat
 	}
 	fmt.Fprintln(v.out)
 	if status != nil && status.InputLimit > 0 {
+		if !status.WindowKnown {
+			mode := "automatic"
+			if !status.OutputAutomatic {
+				mode = fmt.Sprintf("fixed %d", status.OutputReserve)
+			}
+			fmt.Fprintln(v.out, v.style(fmt.Sprintf("  last input ~%d · backend context unknown · output %s", status.EstimatedInput, mode), "2"))
+			return
+		}
 		filled := min(10, max(0, status.EstimatedInput*10/status.InputLimit))
 		bar := strings.Repeat("━", filled) + strings.Repeat("·", 10-filled)
 		label := fmt.Sprintf("  %s  last input ~%d/%d · output reserve %d", bar, status.EstimatedInput, status.InputLimit, status.OutputReserve)

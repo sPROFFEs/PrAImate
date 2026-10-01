@@ -9,10 +9,14 @@ import (
 )
 
 func TestInteractiveCLICommand(t *testing.T) {
-	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code", "praimate-cli"} {
+	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code", "praimate-cli", "copilot", "antigravity"} {
 		t.Run(cli, func(t *testing.T) {
+			binary := cli
+			if cli == "antigravity" {
+				binary = "agy"
+			}
 			name, args, err := InteractiveCLICommand(cli, "")
-			if err != nil || name != cli || len(args) != 0 {
+			if err != nil || name != binary || len(args) != 0 {
 				t.Fatalf("default launch: %q %q %v", name, args, err)
 			}
 			model := "provider/model with spaces; literal-not-a-shell-command"
@@ -21,7 +25,7 @@ func TestInteractiveCLICommand(t *testing.T) {
 			if cli == "codex" {
 				flag = "-m"
 			}
-			if err != nil || name != cli || !reflect.DeepEqual(args, []string{flag, model}) {
+			if err != nil || name != binary || !reflect.DeepEqual(args, []string{flag, model}) {
 				t.Fatalf("model not kept as one argv value: %q %q %v", name, args, err)
 			}
 		})

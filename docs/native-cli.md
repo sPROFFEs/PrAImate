@@ -42,43 +42,53 @@ transfer of its private context to another host.
 
 ## Context and output budgets
 
-Context limits are selected in this order:
+Automatic context uses the loaded server window: Ollama `/api/ps`, LM Studio
+`/api/v1/models`, llama.cpp `/props`, or serving `max_model_len` from OpenAI model
+cards such as vLLM. Saved host values are planning hints and are superseded by
+loaded backend metadata. Explicit per-chat or `--context-tokens` settings remain
+manual ceilings.
 
-1. An explicit chat or `--context-tokens` override, including 8192.
-2. Saved host settings.
-3. Loaded server metadata: Ollama `/api/ps`, LM Studio `/api/v1/models`, or
-   llama.cpp `/props`.
-4. An 8192-token fallback, labelled as an unknown server window.
+When metadata is unavailable, the initial 8192-token value is a **planning
+threshold**, not an input limit. It grows to retain the complete current request,
+instructions, images, skills and tool schemas. Eligible older history can still
+be compacted. The CLI does not guess a physical window from a model name or
+training maximum. A context rejection that reports a serving limit teaches the
+session and its in-memory route cache that limit.
 
 Discovery uses cached, bounded read-only requests to the selected server. It
-preserves proxy prefixes and does not load models or infer a running window from
-a model name or training maximum. Cold models and servers without compatible
-metadata may need explicit host limits. A client setting does not enlarge the
-server's context allocation.
+preserves proxy prefixes and does not load models or change their configuration.
+A client setting cannot enlarge the server's context allocation.
 
-An explicit chat or saved host output limit stays fixed. Otherwise, automatic
-mode reserves one eighth of the window (1024–4096 tokens) when fitting input,
-then lets each response use the remaining estimated backend context for output
-tokens. The reserve is a minimum, not a generation ceiling. Output includes
-both reasoning and the visible answer; reasoning models can exhaust a small
-fixed limit before producing any visible text.
+Output is automatic unless pinned explicitly for a chat or with `--output-tokens`.
+A saved host output value is a reservation hint, not a generation ceiling. The
+runtime adapts reservations to the essential input. With a known window, each
+response can use the estimated remaining space for reasoning and visible output.
+With an unknown window, it initially omits `max_tokens` so the backend selects its
+default. If that default produces a length stop, recovery requests more output
+space automatically. Reasoning and visible text share the model's generation
+budget.
 
 Use `/context` to inspect the source, automatic/fixed output mode, last requested
 output limit, reservations, input estimate, compactions and last endpoint usage.
-`/context auto` restores host inheritance
-and discovery. `/context 32768 4096` sets a 32768-token window and 4096-token
+`/context auto` restores automatic budgets and backend discovery. `/context 32768 4096` sets a 32768-token window and 4096-token
 fixed output limit for this chat. Desktop Chats and Studio expose the same per-chat
-settings. Values of 0 inherit host settings or use automatic selection.
+settings. Values of 0 use automatic selection and treat host settings as planning hints.
 
-Context budgeting reserves output plus a safety margin of 5% of the window,
-with at least 256 safety tokens. It estimates text, Unicode, tool schemas/calls,
+Context budgeting normally reserves output plus a safety margin of 5% of the
+window, with at least 256 safety tokens. Automatic reservations yield space to
+essential input when necessary; the latest request is not rejected merely to
+preserve these reservations. Compaction receipts also shrink to the free space. It estimates text, Unicode, tool schemas/calls,
 skills and vision input separately; base64 bytes are not counted as text tokens.
 Endpoint-reported prompt usage calibrates subsequent estimates upward. These
 are estimates, **not exact tokenizer counts**; image token costs vary by model.
+If mandatory input alone exceeds a discovered window according to the estimate,
+automatic mode asks the backend with that input intact instead of rejecting it
+based on the heuristic. A real backend rejection remains authoritative.
 
 The transport requests streaming usage when supported and retries without that
 optional field only if the endpoint explicitly rejects it. A context-length HTTP
-rejection allows one attempt with a more conservative budget. Automatic mode
+rejection allows one recovery attempt per model step with a more conservative
+budget and any physical window reported by the backend. Automatic mode
 reduces the output allowance and increases the input estimate; fixed mode
 trims eligible history while retaining the configured output limit. Completed tools are
 not replayed. Older history and
@@ -94,7 +104,9 @@ calls are discarded. Completed tools are not automatically replayed. The model
 receives continuation instructions and retained tool receipts; it must inspect
 state before deciding to repeat an action.
 
-Recovery is bounded to three consecutive continuations to avoid endless reasoning.
+Recovery is bounded to eight consecutive automatic continuations (three with
+an explicit output limit) to avoid endless reasoning. Unknown backend defaults
+can grow past 8192 output tokens as the reasoning requires.
 Network errors and arbitrary broken streams are not replayed. Managed structured
 responses only retry when no visible answer has started, preserving the JSON
 contract. If essential instructions, images or the latest request cannot fit,

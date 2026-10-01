@@ -15,7 +15,7 @@ import (
 
 func TestCatalog_EveryAgentHasAtLeastOneMethodPerOS(t *testing.T) {
 	osList := []OS{OSMacOS, OSLinux, OSWSL, OSWindows}
-	agents := []AgentID{AgentClaude, AgentCodex, AgentOpenCode}
+	agents := []AgentID{AgentClaude, AgentCodex, AgentOpenCode, AgentCopilot, AgentAntigravity}
 	for _, a := range agents {
 		for _, o := range osList {
 			for _, act := range []Action{ActionInstall, ActionUpdate} {
@@ -29,7 +29,7 @@ func TestCatalog_EveryAgentHasAtLeastOneMethodPerOS(t *testing.T) {
 }
 
 func TestCatalog_ExactlyOneRecommendedPerEntry(t *testing.T) {
-	agents := []AgentID{AgentClaude, AgentCodex, AgentOpenCode}
+	agents := []AgentID{AgentClaude, AgentCodex, AgentOpenCode, AgentCopilot, AgentAntigravity}
 	for _, a := range agents {
 		for _, o := range []OS{OSMacOS, OSLinux, OSWSL, OSWindows} {
 			got := allMethods(a, ActionInstall, o)

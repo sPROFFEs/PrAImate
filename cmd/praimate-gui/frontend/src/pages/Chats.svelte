@@ -52,6 +52,13 @@
   }
 
   function toolLevelsForCli(cli) {
+    if (cli === 'antigravity') return [
+      {id:'',label:'Native',hint:'Antigravity permission rules apply; workspace edits may be allowed'},
+      {id:'plan',label:'Plan',hint:'Plan instructions; Antigravity permissions still apply'},
+      {id:'edits',label:'Edits',hint:'Automatically accept file edits'},
+      {id:'full',label:'Full',hint:'Automatically approve tools'},
+    ]
+    if (cli === 'copilot') return TOOL_LEVELS.filter(level => level.id !== 'ask')
     return isOpenCodeLikeCli(cli) ? OPENCODE_TOOL_LEVELS : TOOL_LEVELS
   }
 
@@ -774,9 +781,9 @@
       {/if}
     {/if}
     {#if cfg.cli === 'praimate-cli'}
-      <div class="card-sub" style="margin-top:12px">Use 0 for host defaults or automatic selection. Automatic context comes from the server (8192 tokens if unavailable). Automatic output uses the remaining backend context, including reasoning. A nonzero output limit stays fixed.</div>
+      <div class="card-sub" style="margin-top:12px">Use 0 for automatic budgets. Context comes from the loaded backend; if unavailable, the planning threshold adapts without imposing an 8192-token input limit. Output adapts to include reasoning. Nonzero per-chat limits stay fixed.</div>
       {#if cfg.contextStatus}
-        <div class="card-sub">Effective: {cfg.contextStatus.window_tokens} context · {cfg.contextStatus.input_limit_tokens} available input · {cfg.contextStatus.output_automatic ? 'automatic output' : `${cfg.contextStatus.output_reserve_tokens} output limit`} · {cfg.contextStatus.source || 'configured'}</div>
+        <div class="card-sub">Effective: {cfg.contextStatus.window_known ? `${cfg.contextStatus.window_tokens} context` : 'backend context unknown (adaptive)'} · {cfg.contextStatus.input_limit_tokens} available input · {cfg.contextStatus.output_automatic ? 'automatic output' : `${cfg.contextStatus.output_reserve_tokens} output limit`} · {cfg.contextStatus.source || 'configured'}</div>
         {#if cfg.contextStatus.last_output_limit_tokens}<div class="card-sub">Last request output limit: {cfg.contextStatus.last_output_limit_tokens} tokens, including reasoning.</div>{/if}
       {/if}
       <div class="row" style="gap:10px; flex-wrap:wrap">
@@ -1089,7 +1096,7 @@
           {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
         {/if}
         {#if newCli === 'praimate-cli'}
-          <div class="card-sub" style="margin-top:12px">Use 0 for host defaults or automatic selection. Automatic context comes from the server (8192 tokens if unavailable). Automatic output uses the remaining backend context, including reasoning. A nonzero output limit stays fixed.</div>
+          <div class="card-sub" style="margin-top:12px">Use 0 for automatic budgets. Context comes from the loaded backend; if unavailable, the planning threshold adapts without imposing an 8192-token input limit. Output adapts to include reasoning. Nonzero per-chat limits stay fixed.</div>
           <div class="row" style="gap:10px; flex-wrap:wrap">
             <label class="lbl">Context window tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={newContextTokens} /></label>
             <label class="lbl">Output limit tokens <input class="field" type="number" min="0" max="2000000" step="1" bind:value={newOutputTokens} /></label>
