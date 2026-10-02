@@ -192,14 +192,16 @@ func (a *App) CancelAgentRequirements(id string) {
 
 // AgentKnowledgeInfo is the knowledge panel's state for one agent.
 type AgentKnowledgeInfo struct {
-	Mode              string   `json:"mode"` // "", "raw", "rag"
-	Dir               string   `json:"dir"`
-	Exists            bool     `json:"exists"` // the knowledge folder exists on disk
-	Files             []string `json:"files"`
-	GraphifyInstalled bool     `json:"graphifyInstalled"`
-	HasIndex          bool     `json:"hasIndex"`
-	NativeIndex       bool     `json:"nativeIndex"`
-	RetrievalEngine   string   `json:"retrievalEngine"`
+	Config            *core.AgentKnowledgeConfig `json:"config,omitempty"`
+	HasAPIKey         bool                       `json:"hasAPIKey"`
+	Mode              string                     `json:"mode"` // "", "raw", "rag"
+	Dir               string                     `json:"dir"`
+	Exists            bool                       `json:"exists"` // the knowledge folder exists on disk
+	Files             []string                   `json:"files"`
+	GraphifyInstalled bool                       `json:"graphifyInstalled"`
+	HasIndex          bool                       `json:"hasIndex"`
+	NativeIndex       bool                       `json:"nativeIndex"`
+	RetrievalEngine   string                     `json:"retrievalEngine"`
 	// LocalEndpoint is the saved Local-LLM endpoint (Local LLM tab), so
 	// the RAG panel can offer "Local LLM" indexing without retyping it.
 	LocalEndpoint string `json:"localEndpoint"`
@@ -232,12 +234,18 @@ func (a *App) GetAgentKnowledge(id string) (*AgentKnowledgeInfo, error) {
 		retrievalEngine = "native"
 		hasIndex = nativeIndex
 	}
+	if agent.KnowledgeConfig.Remote() {
+		retrievalEngine = "remote"
+		hasIndex = false
+	}
 	localCfg, _ := launcher.LoadConfig()
 	localEndpoint := ""
 	if localCfg != nil {
 		localEndpoint = localCfg.DefaultLocalEndpoint
 	}
 	return &AgentKnowledgeInfo{
+		Config:            agent.KnowledgeConfig,
+		HasAPIKey:         agent.HasKnowledgeAPIKey(),
 		Mode:              agent.Knowledge,
 		Dir:               dir,
 		Exists:            dirExists(dir),
@@ -248,6 +256,27 @@ func (a *App) GetAgentKnowledge(id string) (*AgentKnowledgeInfo, error) {
 		RetrievalEngine:   retrievalEngine,
 		LocalEndpoint:     localEndpoint,
 	}, nil
+}
+
+func (a *App) SaveAgentKnowledgeConfig(id, body, apiKey string, removeKey bool) error {
+	c, err := a.requireCore()
+	if err != nil {
+		return err
+	}
+	var config core.AgentKnowledgeConfig
+	if err = json.Unmarshal([]byte(body), &config); err != nil {
+		return err
+	}
+	_, err = c.SaveAgentKnowledgeConfig(a.ctx, id, config, apiKey, removeKey)
+	return err
+}
+
+func (a *App) TestAgentKnowledgeRemote(id string) error {
+	c, err := a.requireCore()
+	if err != nil {
+		return err
+	}
+	return c.TestAgentKnowledgeRemote(a.ctx, id)
 }
 
 // EnableAgentKnowledge creates the agent's knowledge folder so the user
@@ -498,7 +527,11 @@ func (a *App) BuildAgentRAG(id, backend, apiKey, model string) error {
 			return err
 		}
 		defer done()
-		idx, err := c.BuildAgentKnowledge(ctx, id)
+		idx, err := c.BuildAgentKnowledgeWithProgress(ctx, id, func(done, total int) {
+			if a.ctx != nil && a.ctx.Value("events") != nil {
+				fmt.Fprintf(installLogWriter{ctx: a.ctx, cli: "graphify:" + id}, "Semantic enrichment: %d/%d passages (including cache hits)\n", done, total)
+			}
+		})
 		if err != nil {
 			return err
 		}

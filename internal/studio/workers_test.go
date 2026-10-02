@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +20,93 @@ import (
 type waitingWorkerAdapter struct {
 	started chan struct{}
 	release chan struct{}
+}
+
+func TestStudioDAGAndRemoteKnowledgeConfigurationRPC(t *testing.T) {
+	s, _ := fixture(t)
+	_, err := s.core.ImportAgentYAML(context.Background(), []byte("schema: praimate.agent/v1\nid: remote-rpc\nname: Remote\ninstructions: Use source references.\nsupports: [codex]\n"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rpcOK(t, s, "agents.knowledge.config.save", map[string]any{"id": "remote-rpc", "config": core.AgentKnowledgeConfig{Source: "remote", Endpoint: "https://example.test/knowledge"}, "apiKey": "private-rpc-key", "mode": "rag"})
+	configResult := rpcOK(t, s, "agents.knowledge.config.get", map[string]string{"id": "remote-rpc"})
+	raw, _ := json.Marshal(configResult)
+	if strings.Contains(string(raw), "private-rpc-key") || !strings.Contains(string(raw), `"hasAPIKey":true`) || !strings.Contains(string(raw), `"mode":"rag"`) {
+		t.Fatalf("config RPC leaked/forgot credential: %s", raw)
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("Git required for parallel planning")
+	}
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = s.session.Workspace
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.test", "GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.test")
+		if body, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s %v", args, body, err)
+		}
+	}
+	git("init")
+	_ = os.WriteFile(filepath.Join(s.session.Workspace, "a.go"), []byte("base\n"), 0600)
+	git("add", ".")
+	git("-c", "core.hooksPath="+os.DevNull, "-c", "commit.gpgsign=false", "commit", "-m", "fixture")
+	adapter := &planOnlyAdapter{}
+	old, _ := core.GetCLIAdapter("codex")
+	core.RegisterCLIAdapter(adapter)
+	defer func() {
+		if old != nil {
+			core.RegisterCLIAdapter(old)
+		} else {
+			core.UnregisterCLIAdapter("codex")
+		}
+	}()
+	config := orchestrator.Config{}
+	for _, tier := range []orchestrator.Tier{orchestrator.Primary, orchestrator.Middle, orchestrator.Fast} {
+		config.Profiles = append(config.Profiles, orchestrator.Profile{Tier: tier, Runtime: "cli", CLI: "codex", Model: "selected-" + string(tier), TimeoutSeconds: 10, MaxInputBytes: 32768})
+	}
+	id := rpcOK(t, s, "workers.plan", map[string]any{"task": "Inspect source", "config": config, "maxParallel": 2}).(string)
+	var snapshot orchestrator.Run
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot = rpcOK(t, s, "workers.get", map[string]string{"id": id}).(orchestrator.Run)
+		if snapshot.Status == "draft" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if snapshot.Status != "draft" {
+		t.Fatalf("plan: %+v", snapshot)
+	}
+	rpcOK(t, s, "workers.graph.save", map[string]any{"id": id, "tasks": snapshot.DAG.Tasks, "maxParallel": 2})
+	rpcOK(t, s, "workers.graph.execute", map[string]string{"id": id})
+	for time.Now().Before(deadline) {
+		snapshot = rpcOK(t, s, "workers.get", map[string]string{"id": id}).(orchestrator.Run)
+		if snapshot.Status == "review" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if snapshot.Status != "review" || snapshot.DAG.Tasks[0].Result == nil {
+		t.Fatalf("execution RPC: %+v", snapshot)
+	}
+	rpcOK(t, s, "workers.graph.review", map[string]string{"id": id, "taskID": "a", "decision": "rejected"})
+	rpcOK(t, s, "workers.graph.cleanup", map[string]string{"id": id})
+}
+
+type planOnlyAdapter struct{}
+
+func (*planOnlyAdapter) Name() string                    { return "codex" }
+func (*planOnlyAdapter) Available(context.Context) error { return nil }
+func (*planOnlyAdapter) SupportsResume() bool            { return false }
+func (*planOnlyAdapter) ManagedSafeMode() bool           { return true }
+func (*planOnlyAdapter) Resume(context.Context, string, core.ResumeOpts) (*core.Reply, error) {
+	return nil, errors.New("unexpected resume")
+}
+func (*planOnlyAdapter) SingleShot(_ context.Context, opts core.SingleShotOpts) (*core.Reply, error) {
+	if strings.Contains(opts.SystemPrompt, "coordinate a parallel software task graph") {
+		return &core.Reply{Text: `{"tasks":[{"id":"a","description":"Inspect source","worker":{"profile":"fast"}}]}`}, nil
+	}
+	return &core.Reply{Text: `{"action":"final","content":"inspected"}`}, nil
 }
 
 func (*waitingWorkerAdapter) Name() string                    { return "codex" }

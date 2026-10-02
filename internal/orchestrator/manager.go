@@ -17,6 +17,7 @@ import (
 // Run is a snapshot of one orchestrated task. The manager owns cancellation
 // and event recording; adapters never receive another worker's chat history.
 type Run struct {
+	DAG            *DAG      `json:"dag,omitempty"`
 	EntryTier      Tier      `json:"entryTier,omitempty"`
 	ID             string    `json:"id"`
 	Title          string    `json:"title"`
@@ -93,7 +94,20 @@ func (m *Manager) restore() error {
 				run.config = config
 			}
 		}
-		if run.Status == "running" {
+		if run.Status == "merging" && run.DAG != nil && mergedCandidate(run.Workspace, run.DAG) {
+			run.DAG.LastMergedCommit = run.DAG.MergeCommit
+			for i := range run.DAG.Tasks {
+				for _, id := range run.DAG.MergeTasks {
+					if run.DAG.Tasks[i].ID == id {
+						run.DAG.Tasks[i].Review = "merged"
+					}
+				}
+			}
+			run.Status = "review"
+			updateDAGReviewStatus(&run)
+			run.Error = "Merge completed before interruption. Inspect the branch and clean the remaining reviewed worktrees."
+		}
+		if run.Status == "running" || run.Status == "planning" || run.Status == "merging" {
 			run.Status = "cancelled"
 			run.Error = "Worker chat was interrupted; review the recorded activity before continuing."
 			activity := "No worker activity was recorded."
@@ -102,6 +116,15 @@ func (m *Manager) restore() error {
 				activity = "Last recorded activity (" + string(last.Tier) + ", " + last.Kind + "): " + truncateWorkerText(last.Text, 1024)
 			}
 			run.Turns = append(run.Turns, Turn{Task: run.CurrentTask, Error: run.Error + " " + activity})
+			if run.DAG != nil {
+				for i := range run.DAG.Tasks {
+					task := &run.DAG.Tasks[i]
+					if task.Status == "running" || task.Status == "ready" {
+						task.Status = "failed"
+						task.Error = "Interrupted. Inspect the worktree before explicitly discarding and retrying this task."
+					}
+				}
+			}
 		}
 		run.Title = chat.Title
 		run.Workspace = config.Workspace
@@ -263,6 +286,10 @@ func (m *Manager) ContinueWithApproval(id, task string, approvalProvider func(st
 	if run == nil {
 		m.mu.Unlock()
 		return errors.New("worker run not found")
+	}
+	if run.DAG != nil {
+		m.mu.Unlock()
+		return errors.New("use the task graph controls to resume a parallel run")
 	}
 	if run.cancel != nil || (run.Status != "completed" && run.Status != "failed" && run.Status != "cancelled") {
 		m.mu.Unlock()
@@ -447,6 +474,19 @@ func (m *Manager) Delete(id string) error {
 	if run.cancel != nil {
 		return errors.New("stop the worker chat before deleting it")
 	}
+	if run.DAG != nil {
+		if err := m.cleanupDAGLocked(run); err != nil {
+			return err
+		}
+		worktrees := WorktreeManager{Workspace: run.Workspace, RunID: id}
+		for _, task := range run.DAG.Tasks {
+			if task.Result != nil {
+				if err := worktrees.RemoveResultRef(m.ctx, task.ID); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	if err := m.core.DeleteChat(m.ctx, id); err != nil {
 		return err
 	}
@@ -468,6 +508,7 @@ func (m *Manager) Snapshot(id string) (Run, error) {
 	copy.Profiles = append([]Profile(nil), run.Profiles...)
 	copy.Events = append([]Event(nil), run.Events...)
 	copy.Turns = append([]Turn(nil), run.Turns...)
+	copy.DAG = cloneDAG(run.DAG)
 	copy.cancel = nil
 	copy.config = Config{}
 	return copy, nil

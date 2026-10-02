@@ -41,7 +41,10 @@ type Agent struct {
 	// knowledge.query or the CLI maintenance command). The folder
 	// path is identical for both modes, so the format can change after
 	// the agent exists without breaking anything.
-	Knowledge string `json:"knowledge,omitempty"`
+	Knowledge         string                `json:"knowledge,omitempty"`
+	KnowledgeConfig   *AgentKnowledgeConfig `json:"knowledge_config,omitempty"`
+	knowledgeAPIKey   string
+	knowledgeKeyWrite *string
 
 	// Foreign preserves Markdown frontmatter for export. These options are
 	// data only: they never grant PrAImate permissions or select a model.

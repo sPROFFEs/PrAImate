@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/knowledge"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +28,31 @@ func TestRAGContextHasNoDeadlineAndCancelsWithApp(t *testing.T) {
 	case <-ragCtx.Done():
 	case <-time.After(time.Second):
 		t.Fatal("RAG context was not cancelled when the application stopped")
+	}
+}
+
+func TestAgentKnowledgeRemoteBindingsPreservePrivateKey(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	a := assistantAppFixture(t)
+	a.ctx = context.Background()
+	_, err := a.core.ImportAgentYAML(a.ctx, []byte("schema: praimate.agent/v1\nid: remote-binding\nname: Remote\ninstructions: Use references.\nsupports: [codex]\nknowledge: rag\n"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(knowledge.HTTPHandler(t.TempDir(), "test-key"))
+	defer server.Close()
+	if err = a.SaveAgentKnowledgeConfig("remote-binding", `{"source":"remote","endpoint":"`+server.URL+`"}`, "test-key", false); err != nil {
+		t.Fatal(err)
+	}
+	info, err := a.GetAgentKnowledge("remote-binding")
+	if err != nil || info.RetrievalEngine != "remote" || !info.HasAPIKey || info.HasIndex {
+		t.Fatalf("remote GUI state: %+v %v", info, err)
+	}
+	if err = a.TestAgentKnowledgeRemote("remote-binding"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.core.BuildAgentKnowledge(a.ctx, "remote-binding"); err == nil {
+		t.Fatal("remote corpus indexed locally")
 	}
 }
 

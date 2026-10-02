@@ -182,7 +182,7 @@ func (b *managedToolBroker) ExecuteTool(ctx context.Context, tool string, argume
 		if !b.canReadKnowledge() {
 			return "", b.denied(tool)
 		}
-		return b.readKnowledge(arguments)
+		return b.readKnowledge(ctx, arguments)
 	case "knowledge.search":
 		if !b.canSearchKnowledge() {
 			return "", b.denied(tool)
@@ -720,7 +720,7 @@ func (b *managedToolBroker) requireApproval(ctx context.Context, tool string, in
 	return nil
 }
 
-func (b *managedToolBroker) readKnowledge(raw json.RawMessage) (string, error) {
+func (b *managedToolBroker) readKnowledge(ctx context.Context, raw json.RawMessage) (string, error) {
 	var args struct {
 		Path   string `json:"path"`
 		Offset int64  `json:"offset"`
@@ -728,6 +728,9 @@ func (b *managedToolBroker) readKnowledge(raw json.RawMessage) (string, error) {
 	}
 	if err := decodeManagedArgs(raw, &args); err != nil {
 		return "", err
+	}
+	if b.agent != nil && b.agent.KnowledgeConfig.Remote() {
+		return b.remoteKnowledge(ctx, "read", args)
 	}
 	root, real, err := existingRoot(b.knowledgeDir)
 	if err != nil {
@@ -755,6 +758,9 @@ func (b *managedToolBroker) searchKnowledge(ctx context.Context, raw json.RawMes
 	}
 	if args.MaxResults <= 0 || args.MaxResults > 100 {
 		args.MaxResults = 20
+	}
+	if b.agent != nil && b.agent.KnowledgeConfig.Remote() {
+		return b.remoteKnowledge(ctx, "search", args)
 	}
 	root, real, err := existingRoot(b.knowledgeDir)
 	if err != nil {
@@ -796,6 +802,9 @@ func (b *managedToolBroker) queryKnowledge(ctx context.Context, raw json.RawMess
 	if args.Budget < 200 || args.Budget > 8000 {
 		return "", errors.New("knowledge.query budget must be between 200 and 8000")
 	}
+	if b.agent != nil && b.agent.KnowledgeConfig.Remote() {
+		return b.remoteKnowledge(ctx, "query", args)
+	}
 	root, _, err := existingRoot(b.knowledgeDir)
 	if err != nil {
 		return "", err
@@ -829,6 +838,14 @@ func (b *managedToolBroker) queryKnowledge(ctx context.Context, raw json.RawMess
 		return fallback, nil
 	}
 	return boundManagedOutput(strings.TrimSpace(out.String())), nil
+}
+
+func (b *managedToolBroker) remoteKnowledge(ctx context.Context, action string, arguments any) (string, error) {
+	config := b.agent.KnowledgeConfig
+	if err := b.requireApproval(ctx, "knowledge."+action, map[string]any{"endpoint": config.Endpoint, "arguments": arguments}); err != nil {
+		return "", err
+	}
+	return (knowledge.RemoteClient{Endpoint: config.Endpoint, APIKey: b.agent.knowledgeAPIKey}).Call(ctx, action, arguments)
 }
 
 func existingRoot(path string) (string, string, error) {

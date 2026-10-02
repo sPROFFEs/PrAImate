@@ -78,19 +78,22 @@ func sourceFingerprint(docs []Document, skipped []string, graph string) string {
 	return hex.EncodeToString(sum[:])
 }
 func graphifyDigest(dir string) string {
+	return fileDigest(dir, "graphify-out/graph.json", maxIndex)
+}
+func fileDigest(dir, name string, limit int64) string {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return ""
 	}
 	defer root.Close()
-	f, err := openRegular(root, "graphify-out/graph.json", maxIndex)
+	f, err := openRegular(root, name, limit)
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
 	hash := sha256.New()
-	n, err := io.Copy(hash, io.LimitReader(f, maxIndex+1))
-	if err != nil || n > maxIndex {
+	n, err := io.Copy(hash, io.LimitReader(f, limit+1))
+	if err != nil || n > limit {
 		return ""
 	}
 	return hex.EncodeToString(hash.Sum(nil))

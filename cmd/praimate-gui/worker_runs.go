@@ -85,3 +85,60 @@ func (a *App) DeleteWorkerRun(id string) error {
 	}
 	return a.workers.Delete(id)
 }
+
+func (a *App) PlanWorkerDAG(task, body string, parallel int) (string, error) {
+	if a.workers == nil {
+		return "", errors.New("worker runtime is unavailable")
+	}
+	var config orchestrator.Config
+	if err := json.Unmarshal([]byte(body), &config); err != nil {
+		return "", err
+	}
+	return a.workers.PlanDAG(task, config, parallel)
+}
+
+func (a *App) SaveWorkerDAG(id, body string, parallel int) error {
+	if a.workers == nil {
+		return errors.New("worker runtime is unavailable")
+	}
+	var tasks []orchestrator.DAGTask
+	if err := json.Unmarshal([]byte(body), &tasks); err != nil {
+		return err
+	}
+	return a.workers.UpdateDAG(id, tasks, parallel)
+}
+
+func (a *App) ExecuteWorkerDAG(id string) error {
+	if a.workers == nil {
+		return errors.New("worker runtime is unavailable")
+	}
+	return a.workers.ExecuteDAG(id, a.approvalProvider)
+}
+
+func (a *App) ReviewWorkerDAGTask(id, taskID, decision string) error {
+	if a.workers == nil {
+		return errors.New("worker runtime is unavailable")
+	}
+	return a.workers.ReviewDAGTask(id, taskID, decision)
+}
+
+func (a *App) MergeWorkerDAG(id string) error {
+	if a.workers == nil {
+		return errors.New("worker runtime is unavailable")
+	}
+	return a.workers.MergeDAG(id)
+}
+
+func (a *App) ResetWorkerDAGTask(id, taskID string) error {
+	if a.workers == nil {
+		return errors.New("worker runtime is unavailable")
+	}
+	return a.workers.ResetDAGTask(id, taskID)
+}
+
+func (a *App) CleanupWorkerDAG(id string) error {
+	if a.workers == nil {
+		return errors.New("worker runtime is unavailable")
+	}
+	return a.workers.CleanupDAG(id)
+}

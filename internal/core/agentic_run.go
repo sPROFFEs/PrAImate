@@ -340,6 +340,9 @@ func validateManagedKnowledge(agent *Agent) error {
 	if agent == nil || agent.Knowledge == "" {
 		return nil
 	}
+	if agent.KnowledgeConfig.Remote() {
+		return agent.KnowledgeConfig.Validate()
+	}
 	dir, err := AgentKnowledgeDir(agent.ID)
 	if err != nil {
 		return err

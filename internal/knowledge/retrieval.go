@@ -94,6 +94,27 @@ func bm25(tf, df, length, average, total float64) float64 {
 	return math.Log(1+(total-df+.5)/(df+.5)) * tf * 2.2 / (tf + 1.2*(.25+.75*length/average))
 }
 
+func semanticPassageTerms(idx *Index, query map[string]bool) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, n := range idx.Graph.Nodes {
+		if n.FileType != "semantic" {
+			continue
+		}
+		prefix := "semantic:" + n.SourceFile + ":" + n.SourceLocation + ":"
+		hash, _, _ := strings.Cut(strings.TrimPrefix(n.ID, prefix), ":")
+		key := n.SourceFile + "\x00" + n.SourceLocation + "\x00" + hash
+		if out[key] == nil {
+			out[key] = map[string]bool{}
+		}
+		for _, term := range terms(n.Label) {
+			if query[term] {
+				out[key][term] = true
+			}
+		}
+	}
+	return out
+}
+
 // excerpt selects a UTF-8 window around the best matching terms instead of
 // dropping the useful part of a passage when the output budget is small.
 func excerpt(chunk Chunk, query map[string]bool, limit int) (string, int) {

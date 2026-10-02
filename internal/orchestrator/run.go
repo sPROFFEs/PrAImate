@@ -22,6 +22,7 @@ const (
 )
 
 type Event struct {
+	TaskID    string              `json:"taskID,omitempty"`
 	Tier      Tier                `json:"tier"`
 	Kind      string              `json:"kind"`
 	Text      string              `json:"text"`
@@ -30,9 +31,10 @@ type Event struct {
 }
 
 type Runner struct {
-	Resolve  func(Profile) (workerruntime.Runtime, error)
-	Emit     func(Event)
-	Approval *core.ApprovalConfig
+	NoDelegation bool
+	Resolve      func(Profile) (workerruntime.Runtime, error)
+	Emit         func(Event)
+	Approval     *core.ApprovalConfig
 }
 
 // ResolveRuntime maps a saved profile to the current host's configured
@@ -426,6 +428,9 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 		return "", fmt.Errorf("%s worker does not enforce the selected permission mode", tier)
 	}
 	instructions := workerInstructions(config, tier, profile)
+	if r.NoDelegation {
+		instructions += "\nThis is one isolated parallel task. Delegation is disabled. Complete only this assignment in its worktree, and return a final action. Do not change Git branches or commit; the host creates the task commit and review diff. Dependencies are already integrated into this worktree."
+	}
 	tools, err := core.NewWorkerToolBroker(ctx, config.Workspace, profile.AllowEdits, profile.AllowCommands, r.Approval)
 	if err != nil {
 		return "", err
@@ -527,6 +532,9 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 			return "", fmt.Errorf("%s cannot delegate to %s", tier, d.Tier)
 		}
 		r.emit(tier, "delegation", string(d.Tier)+": "+d.Task, workerruntime.Usage{})
+		if r.NoDelegation {
+			return "", errors.New("delegation is disabled for isolated DAG tasks")
+		}
 		childResult, err := r.runTier(ctx, config, d.Tier, d.Task, remaining)
 		if err != nil {
 			consecutiveFailures++

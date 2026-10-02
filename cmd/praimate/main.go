@@ -32,6 +32,9 @@ var (
 )
 
 func run(args []string) int {
+	if len(args) > 0 && args[0] == "workers" {
+		return runWorkers(args[1:])
+	}
 	if len(args) > 0 && args[0] == "knowledge" {
 		return runKnowledge(args[1:])
 	}
@@ -107,7 +110,8 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "  agent run [options]        Execute an agent headless/non-interactively")
 		fmt.Fprintln(os.Stderr, "  agent status [options]     Check durable agent run status")
 		fmt.Fprintln(os.Stderr, "  agent convert [options]    Convert agent Markdown and YAML (--input, --output)")
-		fmt.Fprintln(os.Stderr, "  knowledge [action]        Offline index, query or graph export (--root)")
+		fmt.Fprintln(os.Stderr, "  knowledge [action]         Index, query, graph export or HTTP service (--root / --agent)")
+		fmt.Fprintln(os.Stderr, "  workers [action]           Plan, execute and review parallel worker tasks")
 		fmt.Fprintln(os.Stderr, "  model check [options]      Check model connectivity and permissions")
 		fmt.Fprintln(os.Stderr, "\nGeneral Options:")
 		fmt.Fprintln(os.Stderr, "  --version, -v              Print version and exit")

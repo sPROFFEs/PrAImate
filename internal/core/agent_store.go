@@ -109,7 +109,7 @@ func (c *Core) DeleteAgent(ctx context.Context, id string) error {
 	if n == 0 {
 		return fmt.Errorf("%w: %s", ErrAgentNotFound, id)
 	}
-	if _, err = tx.ExecContext(ctx, `DELETE FROM settings_cli WHERE key = ?`, "agent.foreign:"+id); err != nil {
+	if _, err = tx.ExecContext(ctx, `DELETE FROM settings_cli WHERE key IN (?,?,?)`, "agent.foreign:"+id, knowledgeConfigKey(id), knowledgeAPIKeySetting(id)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -174,6 +174,10 @@ func (c *Core) upsertAgent(ctx context.Context, a *Agent) (*Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("agent foreign metadata: %w", err)
 	}
+	knowledgeConfig, err := json.Marshal(a.KnowledgeConfig)
+	if err != nil {
+		return nil, err
+	}
 	tx, err := c.store.DB().BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -190,6 +194,40 @@ func (c *Core) upsertAgent(ctx context.Context, a *Agent) (*Agent, error) {
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO settings_cli (key,value_json,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`, "agent.foreign:"+a.ID, string(foreign), now); err != nil {
 		return nil, err
+	}
+	var previousJSON string
+	err = tx.QueryRowContext(ctx, `SELECT value_json FROM settings_cli WHERE key = ?`, knowledgeConfigKey(a.ID)).Scan(&previousJSON)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	var previous *AgentKnowledgeConfig
+	if previousJSON != "" {
+		if err = json.Unmarshal([]byte(previousJSON), &previous); err != nil {
+			return nil, err
+		}
+	}
+	endpoint := ""
+	if a.KnowledgeConfig != nil {
+		endpoint = a.KnowledgeConfig.Endpoint
+	}
+	if previous != nil && previous.Endpoint != endpoint {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM settings_cli WHERE key = ?`, knowledgeAPIKeySetting(a.ID)); err != nil {
+			return nil, err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO settings_cli (key,value_json,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`, knowledgeConfigKey(a.ID), string(knowledgeConfig), now); err != nil {
+		return nil, err
+	}
+	if key := a.knowledgeKeyWrite; key != nil {
+		if *key == "" {
+			_, err = tx.ExecContext(ctx, `DELETE FROM settings_cli WHERE key = ?`, knowledgeAPIKeySetting(a.ID))
+		} else {
+			raw, _ := json.Marshal(*key)
+			_, err = tx.ExecContext(ctx, `INSERT INTO settings_cli (key,value_json,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`, knowledgeAPIKeySetting(a.ID), string(raw), now)
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
@@ -313,8 +351,13 @@ const (
 // Existing settings storage avoids changing the agents database schema.
 func (c *Core) loadAgentForeign(ctx context.Context, a *Agent) error {
 	raw, err := c.GetSetting(ctx, ScopeCLI, "agent.foreign:"+a.ID)
-	if err != nil || len(raw) == 0 {
+	if err != nil {
 		return err
 	}
-	return json.Unmarshal(raw, &a.Foreign)
+	if len(raw) > 0 {
+		if err = json.Unmarshal(raw, &a.Foreign); err != nil {
+			return err
+		}
+	}
+	return c.loadAgentKnowledgeConfig(ctx, a)
 }

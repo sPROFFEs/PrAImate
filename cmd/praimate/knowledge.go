@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/sPROFFEs/PrAImate/internal/core"
 	"github.com/sPROFFEs/PrAImate/internal/knowledge"
@@ -17,25 +20,82 @@ import (
 
 func runKnowledge(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: praimate knowledge index|query|graph --root DIRECTORY [--question TEXT --budget 1200]")
+		fmt.Fprintln(os.Stderr, "usage: praimate knowledge index|query|graph|serve --root DIRECTORY (or index|query --agent ID)")
 		return 2
 	}
 	action := args[0]
 	f := flag.NewFlagSet("knowledge "+action, flag.ContinueOnError)
 	root := f.String("root", "", "knowledge document directory")
+	agentID := f.String("agent", "", "saved agent knowledge configuration")
+	listen := f.String("listen", "127.0.0.1:8766", "knowledge server listen address")
+	keyEnv := f.String("api-key-env", "", "environment variable containing the server API key")
 	question := f.String("question", "", "focused retrieval question")
 	budget := f.Int("budget", 1200, "approximate output token budget (200–8000)")
 	if err := f.Parse(args[1:]); err != nil {
 		return 2
 	}
-	if *root == "" || f.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "--root is required; unexpected positional arguments are not accepted")
+	if (*root == "" && *agentID == "") || (*root != "" && *agentID != "") || f.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "choose exactly one of --root DIRECTORY or --agent ID; positional arguments are not accepted")
 		return 2
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 	var err error
+	if *agentID != "" {
+		c, close, openErr := openCore()
+		if openErr != nil {
+			fmt.Fprintln(os.Stderr, openErr)
+			return 1
+		}
+		defer close()
+		switch action {
+		case "query":
+			var text string
+			text, err = c.AgentKnowledgeRequest(ctx, *agentID, "query", map[string]any{"question": *question, "budget": *budget})
+			if err == nil {
+				fmt.Fprintln(os.Stdout, text)
+			}
+		case "index":
+			_, err = c.BuildAgentKnowledge(ctx, *agentID)
+		default:
+			err = fmt.Errorf("--agent supports query and index")
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
 	switch action {
+	case "serve":
+		key := ""
+		if *keyEnv != "" {
+			key = os.Getenv(*keyEnv)
+			if key == "" {
+				fmt.Fprintln(os.Stderr, "API key environment variable is empty")
+				return 2
+			}
+		}
+		var directory *os.Root
+		if directory, err = os.OpenRoot(*root); err == nil {
+			directory.Close()
+			var listener net.Listener
+			listener, err = net.Listen("tcp", *listen)
+			if err == nil {
+				server := &http.Server{Handler: knowledge.HTTPHandler(*root, key), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
+				fmt.Fprintln(os.Stdout, "Knowledge service listening on", listener.Addr())
+				go func() {
+					<-ctx.Done()
+					stop, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					_ = server.Shutdown(stop)
+				}()
+				err = server.Serve(listener)
+				if err == http.ErrServerClosed {
+					err = nil
+				}
+			}
+		}
 	case "index":
 		var idx *knowledge.Index
 		idx, err = knowledge.Build(ctx, *root)

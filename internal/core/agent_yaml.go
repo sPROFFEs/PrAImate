@@ -39,6 +39,7 @@ type agentYAML struct {
 	DefaultWorkflow string                   `yaml:"default_workflow,omitempty"`
 	Surfaces        []string                 `yaml:"surfaces,omitempty"`
 	Knowledge       string                   `yaml:"knowledge,omitempty"`
+	KnowledgeConfig *AgentKnowledgeConfig    `yaml:"knowledge_config,omitempty"`
 	Requirements    *AgentRequirements       `yaml:"requirements,omitempty"`
 	Foreign         map[string]any           `yaml:"foreign,omitempty"`
 }
@@ -162,6 +163,7 @@ func MarshalAgentYAML(a *Agent) ([]byte, error) {
 		DefaultWorkflow: a.DefaultWorkflow,
 		Surfaces:        a.Surfaces,
 		Knowledge:       a.Knowledge,
+		KnowledgeConfig: a.KnowledgeConfig,
 		Requirements:    a.Requirements,
 		Foreign:         a.Foreign,
 	}
@@ -209,6 +211,7 @@ func (raw *agentYAML) toAgent() (*Agent, error) {
 		DefaultWorkflow: raw.DefaultWorkflow,
 		Surfaces:        raw.Surfaces,
 		Knowledge:       raw.Knowledge,
+		KnowledgeConfig: raw.KnowledgeConfig,
 		Requirements:    raw.Requirements,
 	}
 	if raw.Schema == AgentSchemaV2 {
@@ -329,6 +332,9 @@ func (a *Agent) Validate() error {
 	case "", "raw", "rag":
 	default:
 		return fmt.Errorf("agent %q: unknown knowledge mode %q (want raw or rag)", a.ID, a.Knowledge)
+	}
+	if err := a.KnowledgeConfig.Validate(); err != nil {
+		return fmt.Errorf("agent %q knowledge configuration: %w", a.ID, err)
 	}
 	if r := a.Requirements; r != nil {
 		switch r.OS {

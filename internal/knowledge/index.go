@@ -229,6 +229,7 @@ func compileIndex(ctx context.Context, dir string, docs []Document, contents map
 	}
 	connectSources(idx, contents)
 	addGraphify(idx, dir)
+	addEnrichment(idx, dir)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -243,6 +244,11 @@ func saveIndex(ctx context.Context, root *os.Root, idx *Index) error {
 	if len(raw) > maxIndex {
 		return fmt.Errorf("knowledge index exceeds 96 MiB")
 	}
+	return writeAtomic(ctx, root, Directory+"/index.json", raw)
+}
+
+func writeAtomic(ctx context.Context, root *os.Root, destination string, raw []byte) error {
+	var err error
 	if err = root.Mkdir(Directory, 0o700); err != nil && !os.IsExist(err) {
 		return err
 	}
@@ -266,7 +272,7 @@ func saveIndex(ctx context.Context, root *os.Root, idx *Index) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err = root.Rename(name, Directory+"/index.json"); err != nil {
+	if err = root.Rename(name, destination); err != nil {
 		return err
 	}
 	return nil
@@ -394,7 +400,7 @@ func Ensure(ctx context.Context, dir string) (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
-	graphDigest := graphifyDigest(dir)
+	graphDigest := graphifyDigest(dir) + "/" + fileDigest(dir, enrichmentFile, maxEnrichment)
 	sourceDigest := sourceFingerprint(docs, skipped, graphDigest)
 	if loadErr == nil && indexVerified(dir, diskDigest, sourceDigest) {
 		return idx, nil
@@ -436,6 +442,7 @@ func Query(ctx context.Context, dir, question string, budget int) (string, error
 	}
 	query := questionTerms(question)
 	fileTerms := metadataTerms(idx, query)
+	semanticTerms := semanticPassageTerms(idx, query)
 	type hit struct {
 		chunk     Chunk
 		score     float64
@@ -476,6 +483,12 @@ func Query(ctx context.Context, dir, question string, budget int) (string, error
 			score += bm25(tf, float64(freq[t]), float64(lengths[i]), avg, float64(len(idx.Chunks)))
 		}
 		bodyMatch := score > 0
+		if len(semanticTerms) > 0 {
+			if matches := semanticTerms[c.Path+"\x00"+strconv.Itoa(c.Line)+"\x00"+passageHash(c)[:12]]; len(matches) > 0 {
+				score += float64(len(matches)) * .9
+				bodyMatch = true
+			}
+		}
 		for term := range fileTerms[c.Path] {
 			if counts[i][term] == 0 {
 				score += .15
@@ -558,7 +571,11 @@ func Query(ctx context.Context, dir, question string, budget int) (string, error
 		if !selected[e.SourceFile] || e.Relation == "contains" {
 			continue
 		}
-		line := fmt.Sprintf("\nRelationship: %s --%s--> %s (%s)\n", e.Source, e.Relation, e.Target, e.SourceFile)
+		label := "Relationship"
+		if e.Confidence == "MODEL_INFERRED" {
+			label = "Model-inferred relationship (verify source)"
+		}
+		line := fmt.Sprintf("\n%s: %s --%s--> %s (%s)\n", label, e.Source, e.Relation, e.Target, e.SourceFile)
 		if out.Len()+len(line) <= limit {
 			out.WriteString(line)
 		}

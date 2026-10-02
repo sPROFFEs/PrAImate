@@ -453,6 +453,57 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 			config.Workspace = workspace
 		}
 		return true, orchestrator.SaveConfig(ctx, s.core, config)
+	case "workers.plan":
+		var p struct {
+			Task        string
+			Config      orchestrator.Config
+			MaxParallel int
+		}
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		p.Config.Workspace = s.sessionSnapshot().Workspace
+		return s.workers.PlanDAG(p.Task, p.Config, p.MaxParallel)
+	case "workers.graph.save":
+		var p struct {
+			ID          string
+			Tasks       []orchestrator.DAGTask
+			MaxParallel int
+		}
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.UpdateDAG(p.ID, p.Tasks, p.MaxParallel)
+	case "workers.graph.execute":
+		var p struct{ ID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.ExecuteDAG(p.ID, s.workerApprovalProvider)
+	case "workers.graph.review":
+		var p struct{ ID, TaskID, Decision string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.ReviewDAGTask(p.ID, p.TaskID, p.Decision)
+	case "workers.graph.merge":
+		var p struct{ ID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.MergeDAG(p.ID)
+	case "workers.graph.reset":
+		var p struct{ ID, TaskID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.ResetDAGTask(p.ID, p.TaskID)
+	case "workers.graph.cleanup":
+		var p struct{ ID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.CleanupDAG(p.ID)
 	case "workers.start":
 		var p struct {
 			Task   string
@@ -684,12 +735,47 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 			return nil, err
 		}
 		return true, s.core.ExportAgent(ctx, p.ID, p.Path)
+	case "agents.knowledge.config.get":
+		var p struct{ ID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		a, err := s.core.GetAgent(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"config": a.KnowledgeConfig, "hasAPIKey": a.HasKnowledgeAPIKey(), "mode": a.Knowledge}, nil
+	case "agents.knowledge.config.save":
+		var p struct {
+			ID        string
+			Config    core.AgentKnowledgeConfig
+			APIKey    string
+			RemoveKey bool
+			Mode      *string
+		}
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		var mode []string
+		if p.Mode != nil {
+			mode = []string{*p.Mode}
+		}
+		_, err := s.core.SaveAgentKnowledgeConfig(ctx, p.ID, p.Config, p.APIKey, p.RemoveKey, mode...)
+		return true, err
+	case "agents.knowledge.config.test":
+		var p struct{ ID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.core.TestAgentKnowledgeRemote(ctx, p.ID)
 	case "agents.knowledge.index":
 		var p struct{ ID string }
 		if err := json.Unmarshal(body, &p); err != nil {
 			return nil, err
 		}
-		idx, err := s.core.BuildAgentKnowledge(ctx, p.ID)
+		idx, err := s.core.BuildAgentKnowledgeWithProgress(ctx, p.ID, func(done, total int) {
+			s.Broadcast("knowledge.progress", map[string]any{"id": p.ID, "done": done, "total": total})
+		})
 		if err != nil {
 			return nil, err
 		}
