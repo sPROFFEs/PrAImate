@@ -8,6 +8,7 @@
   import { api, onRequirementsProgress } from '../lib/api.js'
   import { activePage, pageRevision, openChatId, pendingTerm, agentStudio, showToast, showConfirm } from '../lib/stores.js'
   import CodeEditor from '../lib/CodeEditor.svelte'
+  import KnowledgeSettings from '../lib/KnowledgeSettings.svelte'
   import WorkflowRunner from '../lib/WorkflowRunner.svelte'
   import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
   import { LOCAL_ROUTABLE_CLIS, localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
@@ -284,6 +285,7 @@
   // --- YAML editor -----------------------------------------------------------
 
   let yamlText = ''
+  let yamlDirty = false
   let editing = null // agent being edited, or {id:''} for new
   let editorRef
   let saving = false
@@ -308,12 +310,27 @@
     }
   }
 
+  async function knowledgeSettingsSaved() {
+    const id = editing?.id
+    const before = editorRef?.getValue() ?? yamlText
+    try {
+      const [info, yaml] = await Promise.all([api.getAgentKnowledge(id), api.agentYAML(id)])
+      if (editing?.id !== id) return
+      know = info
+      if (yamlDirty || (editorRef?.getValue() ?? yamlText) !== before) return
+      yamlText = yaml
+      editorRef?.setExternal(yamlText)
+      yamlDirty = false
+    } catch (e) { if (editing?.id === id) error = String(e) }
+  }
+
   async function setKnowMode(mode) {
     if (!editing?.id) return
     try {
       await api.setAgentKnowledgeMode(editing.id, mode)
       // The YAML changed (knowledge: field) — refresh the editor too.
       yamlText = await api.agentYAML(editing.id)
+      yamlDirty = false
       editorRef?.setExternal(yamlText)
       await loadKnowledge(editing.id)
       await load()
@@ -378,6 +395,7 @@
     error = ''
     try {
       yamlText = await api.agentYAML(a.id)
+      yamlDirty = false
       editing = a
       view = 'edit'
       loadKnowledge(a.id)
@@ -390,6 +408,7 @@
     error = ''
     try {
       yamlText = await api.newAgentTemplateYAML()
+      yamlDirty = false
       editing = { id: '', name: 'new agent' }
       know = null
       view = 'edit'
@@ -404,6 +423,8 @@
     try {
       const body = editorRef?.getValue() ?? yamlText
       const saved = await api.saveAgentYAML(body)
+      yamlText = body
+      yamlDirty = false
       notice = `Saved ${saved.name}`
       // Stay in the editor (now bound to the saved id) so the knowledge
       // step is available right after creating an agent.
@@ -536,7 +557,7 @@
 
   <div class="edit-stack">
   <div class="agent-editor">
-    <CodeEditor bind:this={editorRef} value={yamlText} lang="yaml" />
+    <CodeEditor bind:this={editorRef} value={yamlText} lang="yaml" on:change={(event) => yamlDirty = event.detail !== yamlText} />
   </div>
 
   <div class="card">
@@ -559,7 +580,9 @@
         <button class="btn sm" class:primary={know.mode === 'rag'} on:click={() => setKnowMode('rag')}
           title="Built-in local retrieval with optional Graphify indexing.">RAG</button>
       </div>
-      {#if know.mode === 'rag' && !know.graphifyInstalled && ragBackend !== 'native'}
+      <KnowledgeSettings id={editing.id} {know} disabled={yamlDirty || knowBusy} on:saved={knowledgeSettingsSaved} />
+      {#if know.retrievalEngine === 'remote'}<p class="card-sub">Remote knowledge is queried through the configured service. Build its index on the server.</p>{/if}
+      {#if know.mode === 'rag' && know.retrievalEngine !== 'remote' && !know.graphifyInstalled && ragBackend !== 'native'}
         <div class="banner" style="margin-top:8px">
           This external backend needs <strong>Graphify</strong>; the built-in backend works without it.
           <button class="btn sm primary" style="margin-left:8px" on:click={installGraphify} disabled={knowBusy}>
@@ -568,11 +591,11 @@
           <span class="card-sub"> — PrAImate's self-contained build, no Python needed. Until then the agent just reads the files directly.</span>
         </div>
       {/if}
-      {#if know.mode === 'rag'}
+      {#if know.mode === 'rag' && know.retrievalEngine !== 'remote'}
         <label class="lbl" style="margin-top:8px">Indexing backend</label>
         <div class="row">
           <select class="field" style="max-width:320px" bind:value={ragBackend}>
-            <option value="native">PrAImate built-in (offline · no dependencies)</option>
+            <option value="native">PrAImate built-in (offline or model-enriched)</option>
             <option value="claude-cli">Claude CLI (uses your install · no key)</option>
             <option value="code">Code only (no key · skips documents)</option>
             {#if know.localEndpoint}
@@ -604,9 +627,9 @@
         {/if}
         <div class="card-sub" style="margin-top:4px">
           {#if ragBackend === 'native'}
-            Offline text retrieval, source citations and Go AST relationships. No model or API key. PDF/media need Graphify or Raw mode; skipped files are listed in Agent Studio's indexing log.
+            Text retrieval, source citations and Go AST relationships, with optional model enrichment configured above. PDF/media need Graphify or Raw mode; skipped files are listed in Agent Studio's indexing log.
           {:else if ragBackend === 'claude-cli'}
-            Uses your installed, signed-in Claude CLI to summarize documents — no API key, no extra cost. Recommended.
+            Uses your installed, signed-in Claude CLI to summarize documents. No API key is needed; subscription quotas may apply.
           {:else if ragBackend === 'code'}
             Builds a code knowledge-graph (functions, calls, imports) only. Documents/PDFs are skipped — pick an LLM backend to index those.
           {:else if ragBackend === 'local'}
@@ -630,7 +653,7 @@
         <div class="row" style="margin-top:8px">
           <button class="btn" on:click={() => addKnowFiles(false)}>Add files…</button>
           <button class="btn" on:click={() => addKnowFiles(true)}>Add folder…</button>
-          {#if know.mode === 'rag'}
+          {#if know.mode === 'rag' && know.retrievalEngine !== 'remote'}
             <button class="btn primary" on:click={buildRAG}
               disabled={knowBusy || (ragBackend !== 'native' && !know.graphifyInstalled) || ((know.files || []).length === 0)}>
               {knowBusy ? 'Indexing…' : know.hasIndex ? 'Rebuild RAG index' : 'Build RAG index'}

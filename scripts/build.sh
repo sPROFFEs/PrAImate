@@ -168,7 +168,7 @@ build_one() {
   mkdir -p "$out/docs"
   cp docs/ACTIVATION.md docs/TARGETS.md docs/SCHEMA.md docs/QUICKSTART.md \
     docs/GUIDE.md docs/AGENT_GUIDE.md docs/CLI_AGENT_API.md \
-    docs/native-cli.md docs/WORKERS.md docs/assistant-voice.md docs/RELEASE-GITHUB.md "$out/docs/"
+    docs/native-cli.md docs/WORKERS.md docs/KNOWLEDGE.md docs/assistant-voice.md docs/RELEASE-GITHUB.md "$out/docs/"
   mkdir -p "$out/docs/assets"
   cp docs/assets/monke-icon.png "$out/docs/assets/"
   mkdir -p "$out/examples"

@@ -142,8 +142,8 @@ Underlying CLIs may still keep native logs or sessions.
 | **Chats** | Create and reopen conversations with per-chat CLI, model, tools, skills, MCP and native context limits. |
 | **Studio** | Open projects in the integrated Code-OSS / VSCodium environment with the PrAImate sidebar. |
 | **Documents** | Work on documents with an editor and assistant chat. |
-| **Workers** | Configure Reasoner, Middle and Fast profiles, follow their activity, and save or resume coordinated tasks. |
-| **Agents** | Create, edit, import/export, and run YAML agents and workflows; manage raw or Graphify-backed knowledge. |
+| **Workers** | Configure Reasoner, Middle and Fast profiles; save hierarchical chats or review parallel task graphs with isolated Git worktrees. |
+| **Agents** | Create, import/export and run agents and workflows; manage built-in, optional Graphify or remote knowledge. |
 | **Skills** | Enable built-in skills or add a skill from a URL, local ZIP, or manual definition. |
 | **CLI & Tools** | Detect, install, update, or repair supported CLIs and managed tools. |
 | **Local LLM** | Save an OpenAI-compatible endpoint, API key, and model; route supported CLIs and see an explicit warning for HTTP transport. |
@@ -178,7 +178,7 @@ Agents are portable YAML definitions. They can contain:
 - `mcp_servers` references;
 - one or more parameterized workflows;
 - a default workflow;
-- raw or Graphify/RAG knowledge mode;
+- raw, built-in RAG or optional Graphify knowledge, with optional model enrichment and remote knowledge endpoints;
 - an optional, explicitly confirmed requirements installation script.
 
 Agent Studio starts with **Guided**, **Manual**, and **Import** paths. Guided
@@ -197,7 +197,7 @@ Autonomous runs use a managed single-agent lifecycle in Chats, document Studio,
 and Workflows. The runtime provides explicit completion, structured per-run
 working memory, artifacts, bounded context/output, live events, and durable
 checkpoints. Declared capabilities expose brokered project read/search/write,
-Git, argv-only commands, bounded HTTP GET, Raw or Graphify RAG knowledge, and
+Git, argv-only commands, bounded HTTP GET, local or remote agent knowledge, and
 configured MCP tools. File writes, commands, mutating Git, network requests,
 and MCP connection/tool calls pause for explicit approval. The underlying CLI remains in
 safe mode and never receives those host tools directly.
@@ -273,8 +273,9 @@ mode and never force full tool access.
 
 Agentic runs use a separate managed path rather than replacing the workflow
 runner. Its policy broker exposes only capabilities declared by the agent:
-project read/search/write, Git, argv-only commands, bounded HTTP GET, Raw or
-Graphify knowledge, configured MCP tools, working memory, and artifacts.
+project read/search/write, Git, argv-only commands, bounded HTTP GET, raw,
+built-in, optional Graphify or remote knowledge, configured MCP tools, working
+memory, and artifacts.
 Mutating or external operations pause for explicit GUI approval; MCP
 configuration and credentials remain backend-only.
 Plain model prose cannot finish a managed run: completion requires the runtime's
@@ -374,6 +375,7 @@ asset matrix and checksum process.
 | [PrAImate CLI](docs/native-cli.md) | Terminal commands, local model context, tools, skills, sessions and attachments. |
 | [Assistant and Voice](docs/assistant-voice.md) | Optional desktop assistant, permissions, Worker delegation, local dictation and SHA-256 verified model distribution. |
 | [Workers](docs/WORKERS.md) | Three-tier profiles, delegation, saved runs, execution limits and verification boundaries. |
+| [Agent knowledge](docs/KNOWLEDGE.md) | Built-in retrieval, optional local/CLI enrichment and remote knowledge API. |
 | [Agent creation manual](docs/AGENT_GUIDE.md) | Create, configure, test, package, and share agents; complete `praimate.agent/v1` YAML reference. |
 | [Workpath quickstart](docs/QUICKSTART.md) | Create and compile a workpath with `wpc`. |
 | [Workpath schema](docs/SCHEMA.md) | Source files, imports, hooks, tools, and subagents. |

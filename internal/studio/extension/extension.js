@@ -173,6 +173,7 @@ function incoming(msg) {
 	if (msg.method.startsWith('assistant.')) provider.post({type:'assistantEvent',method:msg.method,value:msg.params});
   if (msg.method === 'run.event') provider.stream(msg.params);
   if (msg.method === 'install.output') output.appendLine(msg.params?.line || '');
+  if (msg.method === 'knowledge.progress' && knowledgeProgress?.id === msg.params?.id) knowledgeProgress.report({message:'Semantic enrichment: '+msg.params.done+'/'+msg.params.total+' passages (including cache hits)'});
   if (msg.method === 'desktop.window.changed') { currentStatus.desktopWindow = msg.params || {available:false,hidden:false}; provider.notifyStatus(); }
   if (msg.method === 'run.finished') refresh();
   if (msg.method === 'run.approval.required') {
@@ -284,7 +285,7 @@ class ChatView {
           view.webview.postMessage({type:'workerModels',cli:data.cli,models:models || []});
         },
         workerStart:async () => {
-          const id = await call('workers.start',{task:data.task,config:data.config});
+          const id = await call(data.mode === 'parallel' ? 'workers.plan' : 'workers.start',{task:data.task,config:data.config,maxParallel:data.maxParallel || 2});
           view.webview.postMessage({type:'workerStarted',id});
         },
         workerRefresh:async () => {
@@ -296,8 +297,20 @@ class ChatView {
         workerCancel:async () => { await call('workers.cancel',{id:data.id}); },
         workerContinue:async () => { await call('workers.continue',{id:data.id,task:data.task}); },
         workerRename:async () => { await call('workers.rename',{id:data.id,title:data.title}); },
+        workerGraphSave:async () => { await call('workers.graph.save',{id:data.id,tasks:data.tasks,maxParallel:data.maxParallel}); },
+        workerGraphExecute:async () => { await call('workers.graph.execute',{id:data.id}); },
+        workerGraphReview:async () => { await call('workers.graph.review',{id:data.id,taskID:data.taskID,decision:data.decision}); },
+        workerGraphMerge:async () => {
+          if (await vscode.window.showWarningMessage('Merge accepted task commits into the target branch? Conflicts stop in a separate review worktree.',{modal:true},'Merge accepted') === 'Merge accepted') await call('workers.graph.merge',{id:data.id});
+        },
+        workerGraphReset:async () => {
+          if (await vscode.window.showWarningMessage('Discard this failed task’s worktree and its uncommitted changes? Inspect it before resetting.',{modal:true},'Discard and reset') === 'Discard and reset') await call('workers.graph.reset',{id:data.id,taskID:data.taskID});
+        },
+        workerGraphCleanup:async () => {
+          if (await vscode.window.showWarningMessage('Remove rejected and merged worktrees, plus any temporary merge attempt? Saved diffs and commits remain.',{modal:true},'Clean worktrees') === 'Clean worktrees') await call('workers.graph.cleanup',{id:data.id});
+        },
         workerDelete:async () => {
-          const choice = await vscode.window.showWarningMessage('Delete this worker chat and its saved history?',{modal:true},'Delete chat');
+          const choice = await vscode.window.showWarningMessage('Delete this worker chat, saved history and temporary worktrees? Unmerged and failed task changes will be removed.',{modal:true},'Delete chat');
           if(choice !== 'Delete chat') return;
           await call('workers.delete',{id:data.id});
           view.webview.postMessage({type:'workerDeleted',id:data.id});
@@ -574,13 +587,17 @@ async function exportAgentPack(id) {
   const target = await vscode.window.showSaveDialog({title:'Export portable PrAImate agent',defaultUri:vscode.Uri.file(path.join(workspace(),id+'.praimate-agent')),filters:{'PrAImate agent':['praimate-agent'],'OpenCode-compatible Markdown':['md'],'Agent YAML':['yaml']}});
   if (target) await call(/\.(ya?ml|md|markdown)$/i.test(target.fsPath) ? 'agents.export' : 'agents.pack.export',{id,path:target.fsPath});
 }
+let knowledgeProgress = null;
 async function manageKnowledge(id) {
   const rows = await call('agents.knowledge.list',{id});
   const action = await vscode.window.showQuickPick([{label:'$(add) Add files…',action:'add'},{label:'$(trash) Remove a file…',action:'remove',disabled:!rows.length},
-    {label:'$(database) Build offline retrieval index',action:'index'},
+    {label:'$(settings-gear) Configure source and model enrichment…',action:'config'},
+    {label:'$(database) Build retrieval index',action:'index'},
     {label:'$(export) Export portable agent…',action:'export'}],{placeHolder:'Agent knowledge and distribution'});
   if (!action) return;
-  if (action.action === 'add') {
+  if (action.action === 'config') {
+    await configureKnowledge(id);
+  } else if (action.action === 'add') {
     const picked = await vscode.window.showOpenDialog({title:'Add agent knowledge',canSelectMany:true,canSelectFiles:true,canSelectFolders:true});
     if (picked?.length) await call('agents.knowledge.add',{id,sources:picked.map(uri => uri.fsPath)});
   } else if (action.action === 'remove') {
@@ -593,7 +610,8 @@ async function manageKnowledge(id) {
     provider.busy = true;
     provider.notifyStatus();
     try {
-      await vscode.window.withProgress({location:vscode.ProgressLocation.Notification,title:'Indexing knowledge locally',cancellable:true},async (_,token) => {
+      await vscode.window.withProgress({location:vscode.ProgressLocation.Notification,title:'Indexing agent knowledge',cancellable:true},async (progress,token) => {
+        knowledgeProgress = {id,report:progress.report.bind(progress)};
         const cancellation = token.onCancellationRequested(() => {
           indexRPC.request('runs.cancel').catch(err => output.appendLine('Index cancellation: '+err.message));
         });
@@ -602,11 +620,59 @@ async function manageKnowledge(id) {
           if (!token.isCancellationRequested) await showJSON(result);
         } catch (err) {
           if (!token.isCancellationRequested) throw err;
-        } finally { cancellation.dispose(); }
+        } finally { knowledgeProgress = null; cancellation.dispose(); }
       });
     } finally { provider.busy = false; provider.notifyStatus(); }
   }
   else await exportAgentPack(id);
+}
+async function configureKnowledge(id) {
+  const saved = await call('agents.knowledge.config.get',{id});
+  const config = {...saved.config};
+  const modes = [{label:'RAG · focused retrieval',id:'rag'},{label:'Raw · search and read sources',id:'raw'},{label:'Disabled · retain configuration',id:''}];
+  const mode = await vscode.window.showQuickPick(modes.map(item => ({...item,description:item.id === (saved.mode || '') ? 'Current mode' : ''})),{placeHolder:'Agent knowledge mode'});
+  if (!mode) return;
+  const source = await vscode.window.showQuickPick(['Local documents','Remote knowledge service'],{placeHolder:'Knowledge source'});
+  if (!source) return;
+  config.source = source.startsWith('Remote') ? 'remote' : 'local';
+  let apiKey = '', removeKey = false;
+  if (config.source === 'remote') {
+    const endpoint = await vscode.window.showInputBox({title:'Knowledge service URL',value:config.endpoint || '',prompt:'HTTP(S) base URL implementing /health, /query, /search and /read'});
+    if (endpoint === undefined) return;
+    config.endpoint = endpoint;
+    apiKey = await vscode.window.showInputBox({title:'Optional knowledge API key',password:true,prompt:saved.hasAPIKey ? 'Leave blank to keep the saved key. Keys are never exported.' : 'Bearer token. Leave blank for no authentication.'});
+    if (apiKey === undefined) return;
+    if (saved.hasAPIKey && !apiKey) {
+      const keyAction = await vscode.window.showQuickPick(['Keep saved key','Remove saved key'],{placeHolder:'Saved credential'});
+      if (!keyAction) return;
+      removeKey = keyAction === 'Remove saved key';
+    }
+  } else {
+    const clis = await call('clis.list');
+    const backend = await vscode.window.showQuickPick([{label:'Offline · no model',id:''},{label:'Local model',id:'local'},...(clis || []).filter(c => c.available && c.capabilities?.managedWorker !== false).map(c => ({label:c.label,id:c.id}))],{placeHolder:'Optional source enrichment (uses your CLI subscription or local host)'});
+    if (!backend) return;
+    config.enrichment_cli = backend.id;
+    if (backend.id) {
+      if (backend.id === 'local') {
+        const endpoint = await vscode.window.showInputBox({title:'Configured local model endpoint',value:config.enrichment_endpoint || currentStatus.localEndpoint || 'http://localhost:11434/v1'});
+        if (endpoint === undefined) return;
+        config.enrichment_endpoint = endpoint;
+      } else config.enrichment_endpoint = '';
+      const models = await call('models.list',{cli:backend.id === 'local' ? 'praimate-cli' : backend.id});
+      const model = await vscode.window.showInputBox({title:'Enrichment model',value:config.enrichment_model || '',prompt:'Model ID or alias'+(models?.length ? ' · available: '+models.slice(0,12).join(', ') : '')});
+      if (model === undefined) return;
+      config.enrichment_model = model;
+      const limit = await vscode.window.showInputBox({title:'Maximum source passages',value:String(config.max_enrichment_chunks || 64),prompt:'1–512; unchanged passages reuse their cache',validateInput:v => /^\d+$/.test(v) && Number(v)>=1 && Number(v)<=512 ? undefined : 'Enter a number from 1 to 512'});
+      if (limit === undefined) return;
+      config.max_enrichment_chunks = Number(limit);
+    }
+  }
+  await call('agents.knowledge.config.save',{id,config,apiKey,removeKey,mode:mode.id});
+  if (config.source === 'remote') {
+    await call('agents.knowledge.config.test',{id});
+    vscode.window.showInformationMessage('Remote knowledge service is available.');
+  } else vscode.window.showInformationMessage('Knowledge configuration saved. Build the index to apply enrichment.');
+  currentStatus.agents = await call('agents.list'); provider.notifyStatus(); refresh();
 }
 async function skillLibrary(request) { return call('skills.library',request); }
 async function ensureSkillLibrary() {

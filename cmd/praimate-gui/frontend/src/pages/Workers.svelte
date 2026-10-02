@@ -1,5 +1,6 @@
 <script>
   import VoiceButton from '../lib/VoiceButton.svelte'
+  import WorkerGraph from '../lib/WorkerGraph.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { openWorkerId } from '../lib/stores.js'
   import { api } from '../lib/api.js'
@@ -27,6 +28,8 @@
   let snapshot = null
   let task = ''
   let newTask = ''
+  let executionMode = 'hierarchical'
+  let maxParallel = 2
   let error = ''
   let loading = true
   let showCreate = false
@@ -40,7 +43,7 @@
   let modelRequests = new Map()
   let visibleCounts = { primary: 80, middle: 80, fast: 80 }
   $: eventsByTier = Object.fromEntries(tiers.map(({ id }) => [id, (snapshot?.events || []).filter((event) => event.tier === id)]))
-  const poller = createPoller(loadRuns, { delay: () => runs.some((run) => run.status === 'running') ? 1000 : 10000 })
+  const poller = createPoller(loadRuns, { delay: () => runs.some((run) => ['running', 'planning', 'merging'].includes(run.status)) ? 1000 : 10000 })
   const refresh = () => poller.request()
 
   async function loadRuns() {
@@ -119,7 +122,7 @@
     submitting = true
     error = ''
     try {
-      const id = await api.startWorkerRunWithConfig(newTask, config)
+      const id = executionMode === 'parallel' ? await api.planWorkerDAG(newTask, config, maxParallel) : await api.startWorkerRunWithConfig(newTask, config)
       selected = id
       newTask = ''
       task = ''
@@ -181,7 +184,7 @@
   <header class="heading">
     <div>
       <h1>Workers</h1>
-      <p>One task. Three workers. Follow every handoff and pick up where you left off.</p>
+      <p>Coordinate a task or run a parallel plan. Review every handoff and change.</p>
     </div>
     <button class="primary" disabled={loading} on:click={() => { error = ''; showCreate = true }}>New worker chat</button>
   </header>
@@ -207,24 +210,25 @@
           {:else}
             <h2>{snapshot.title || snapshot.task}</h2>
             <button on:click={() => { renameTitle = snapshot.title || snapshot.task; editingTitle = true }}>Rename</button>
-            <button disabled={snapshot.status === 'running'} on:click={() => deletePending = true}>Delete</button>
+            <button disabled={['running', 'planning', 'merging'].includes(snapshot.status)} on:click={() => deletePending = true}>Delete</button>
           {/if}
         </div>
         <p class="chat-meta">{snapshot.workspace} · Started {new Date(snapshot.startedAt).toLocaleString()}</p>
-        <div class="runbar"><span>{snapshot.status} · {snapshot.currentTask || snapshot.task}</span>{#if snapshot.status === 'running'}<button on:click={cancel}>Stop</button>{/if}</div>
+        <div class="runbar"><span>{snapshot.status} · {snapshot.currentTask || snapshot.task}</span>{#if ['running', 'planning', 'merging'].includes(snapshot.status)}<button on:click={cancel}>Stop</button>{/if}</div>
+        {#if snapshot.dag}<WorkerGraph {snapshot} {clis} models={modelSuggestions} on:models={event => loadModels(event.detail)} on:refresh={refresh} />{/if}
         {#if snapshot.turns?.length}<div class="turns">{#each snapshot.turns as turn}<p><strong>You:</strong> {turn.task}<br /><strong>{snapshot.entryTier === 'fast' ? 'Fast worker' : snapshot.entryTier === 'middle' ? 'Middle worker' : 'Reasoner'}:</strong> {turn.result || turn.error}</p>{/each}</div>{/if}
         <div class="lanes">
           {#each tiers as tier}
             <section class:closed={!open[tier.id]}>
               <button class="lanehead" aria-expanded={open[tier.id]} on:click={() => open = { ...open, [tier.id]: !open[tier.id] }}>
-                <strong>{tier.label}<small> · {runProfile(tier.id)?.cli || 'Local'} / {runProfile(tier.id)?.model || '—'}</small></strong><span>{open[tier.id] ? 'Hide' : 'Show'}</span>
+                <strong>{tier.label}<small> · {snapshot.dag ? 'Task-specific routes' : (runProfile(tier.id)?.cli || 'Local') + ' / ' + (runProfile(tier.id)?.model || '—')}</small></strong><span>{open[tier.id] ? 'Hide' : 'Show'}</span>
               </button>
               {#if open[tier.id]}
                 <div class="messages">
                   {#if eventsByTier[tier.id].length > visibleCounts[tier.id]}<button class="earlier" on:click={() => visibleCounts = { ...visibleCounts, [tier.id]: visibleCounts[tier.id] + 80 }}>Show earlier activity ({eventsByTier[tier.id].length - visibleCounts[tier.id]})</button>{/if}
                   {#each eventsByTier[tier.id].slice(-visibleCounts[tier.id]) as event}
                     <article class={event.kind}>
-                      <small>{event.kind} · {new Date(event.timestamp).toLocaleTimeString()}{event.usage?.source === 'provider' ? ` · ${event.usage.inputTokens}/${event.usage.outputTokens} tokens` : ''}</small>
+                      <small>{event.taskID ? event.taskID + ' · ' : ''}{event.kind} · {new Date(event.timestamp).toLocaleTimeString()}{event.usage?.source === 'provider' ? ` · ${event.usage.inputTokens}/${event.usage.outputTokens} tokens` : ''}</small>
                       <pre>{event.text}</pre>
                     </article>
                   {/each}
@@ -236,11 +240,11 @@
         </div>
         {#if snapshot.result}<p class="result"><strong>Result</strong><br />{snapshot.result}</p>{/if}
         {#if snapshot.error}<p class="error" role="alert">{snapshot.error}</p>{/if}
-        <div class="composer" data-voice-composer>
+        {#if !snapshot.dag}<div class="composer" data-voice-composer>
           <VoiceButton disabled={snapshot.status === 'running'} context={{page:'workers', worker_id:snapshot.id}} on:transcript={event => { task = [task,event.detail.text].filter(Boolean).join(' '); if (event.detail.autoSend) continueRun() }} />
           <textarea aria-label="Follow-up task" bind:value={task} rows="3" placeholder="Ask the reasoner to continue this chat…" disabled={snapshot.status === 'running'}></textarea>
           <button class="primary" disabled={submitting || snapshot.status === 'running' || !task.trim()} on:click={continueRun}>{submitting ? 'Sending…' : 'Continue chat'}</button>
-        </div>
+        </div>{/if}
       {:else}
         <p class="empty">Select a saved worker chat or create a new one.</p>
       {/if}
@@ -252,6 +256,8 @@
       <div class="create-dialog" role="dialog" aria-modal="true" aria-label="New worker chat" use:focusDialog={{ onClose: () => { if (!submitting) showCreate = false } }}>
         <header class="dialog-heading"><h2>New worker chat</h2><button aria-label="Close" on:click={() => showCreate = false}>×</button></header>
         <p>Choose a workspace and configure the three workers for this chat. These profiles remain attached to its saved history.</p>
+        <label>Execution mode <select bind:value={executionMode}><option value="hierarchical">Hierarchical worker chat</option><option value="parallel">Parallel task graph · isolated Git worktrees</option></select></label>
+        {#if executionMode === 'parallel'}<label>Concurrent tasks <input type="number" min="1" max="4" bind:value={maxParallel} /></label><p>The workspace must be a clean Git repository. The reasoner drafts a plan for review before execution; changes reach your branch only after you accept and merge them.</p>{/if}
         {#if error}<p class="error" role="alert">{error}</p>{/if}
         <div data-voice-composer><VoiceButton context={{page:'workers'}} on:transcript={event => { newTask = [newTask,event.detail.text].filter(Boolean).join(' ') }} />
         <label>Task for the reasoner <textarea bind:value={newTask} rows="3" placeholder="Describe the task to complete…"></textarea></label></div>
@@ -293,7 +299,7 @@
         {/each}
       </div>
         </div>
-        <div class="dialog-actions"><button on:click={() => showCreate = false}>Cancel</button><button class="primary" disabled={submitting || !newTask.trim()} on:click={start}>{submitting ? 'Creating…' : 'Create chat'}</button></div>
+        <div class="dialog-actions"><button on:click={() => showCreate = false}>Cancel</button><button class="primary" disabled={submitting || !newTask.trim()} on:click={start}>{submitting ? 'Creating…' : executionMode === 'parallel' ? 'Create plan' : 'Create chat'}</button></div>
       </div>
     </div>
   {/if}
@@ -301,7 +307,7 @@
   {#if deletePending}
     <div class="dialog-backdrop">
       <div class="delete-dialog" role="dialog" aria-modal="true" aria-label="Delete worker chat" use:focusDialog={{ onClose: () => deletePending = false }}>
-        <h2>Delete worker chat?</h2><p>This removes its saved task history and worker activity.</p>
+        <h2>Delete worker chat?</h2><p>This removes its saved task history, worker activity and temporary worktrees, including any unmerged or failed task changes.</p>
         {#if error}<p class="error" role="alert">{error}</p>{/if}
         <div class="dialog-actions"><button on:click={() => deletePending = false}>Cancel</button><button on:click={deleteRun}>Delete chat</button></div>
       </div>

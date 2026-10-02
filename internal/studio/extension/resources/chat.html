@@ -53,7 +53,7 @@ header{padding:14px 16px;gap:10px}header strong{font-size:15px;letter-spacing:.0
 <section id="workers-page" class="page" hidden>
   <div class="toolbar"><h1 class="grow">Workers</h1><button id="worker-new" class="primary">New worker chat</button></div><p class="hint">Saved worker chats keep their task history, results and activity for later follow-up.</p>
   <div class="worker-layout"><div id="worker-tabs" class="worker-tabs" aria-label="Saved worker chats"></div><div class="worker-main"><div id="worker-result"></div><div id="worker-lanes" class="worker-lanes"></div><div class="section"><label class="field">Follow-up for Reasoner<textarea id="worker-followup" rows="3" placeholder="Continue the selected worker chat"></textarea></label><div class="toolbar"><button id="worker-continue" class="primary" hidden>Continue this chat</button><span id="worker-status" class="hint"></span></div></div></div></div>
-  <div id="worker-create" class="worker-overlay" hidden><div class="worker-create-card" role="dialog" aria-modal="true" aria-label="New worker chat"><div class="worker-create-head"><h2>New worker chat</h2><button id="worker-create-close" aria-label="Close">×</button></div><p class="hint">Choose a task and configure the three workers. Profiles remain attached to this chat.</p><label class="field">Task for Reasoner<textarea id="worker-task" rows="3" placeholder="Describe the task for the reasoning worker"></textarea></label><details id="worker-settings" open><summary>Worker profiles</summary><p id="worker-workspace" class="hint"></p><div id="worker-profiles" class="worker-profiles"></div></details><div class="toolbar"><button id="worker-create-cancel">Cancel</button><button id="worker-start" class="primary">Create chat</button></div></div></div>
+  <div id="worker-create" class="worker-overlay" hidden><div class="worker-create-card" role="dialog" aria-modal="true" aria-label="New worker chat"><div class="worker-create-head"><h2>New worker chat</h2><button id="worker-create-close" aria-label="Close">×</button></div><p class="hint">Choose a task and configure the three workers. Profiles remain attached to this chat.</p><label class="field">Execution mode<select id="worker-mode"><option value="hierarchical">Hierarchical chat</option><option value="parallel">Parallel task graph · isolated Git worktrees</option></select></label><label class="field">Concurrent tasks<input id="worker-parallel" type="number" min="1" max="4" value="2"></label><p class="hint">Parallel mode requires a clean Git repository. Review the plan before execution; accept and merge changes afterward.</p><label class="field">Task for Reasoner<textarea id="worker-task" rows="3" placeholder="Describe the task for the reasoning worker"></textarea></label><details id="worker-settings" open><summary>Worker profiles</summary><p id="worker-workspace" class="hint"></p><div id="worker-profiles" class="worker-profiles"></div></details><div class="toolbar"><button id="worker-create-cancel">Cancel</button><button id="worker-start" class="primary">Create chat</button></div></div></div>
 </section>
 <section id="catalog-page" class="page" hidden>
   <h1 id="catalog-title"></h1><p id="catalog-description" class="hint"></p>
@@ -211,12 +211,76 @@ function renderWorkerProfiles() {
   }
 }
 const workerVisible = new Map();
+let graphDraftID = '', graphDraft = [], graphParallel = 2, workerSnapshotStamp = '';
+const graphDetailsOpen = new Set();
+function graphSelect(label,entries,value,change) {
+  const field=element('label',label,'field'),select=document.createElement('select');
+  for(const [id,text,disabled] of entries) {const option=element('option',text);option.value=id;option.disabled=!!disabled;select.appendChild(option);}
+  select.value=value || '';select.addEventListener('change',()=>change(select.value));field.appendChild(select);return field;
+}
+function graphDetails(label,text,key) {
+  const details=document.createElement('details');details.open=graphDetailsOpen.has(key);details.appendChild(element('summary',label));details.appendChild(element('pre',text));
+  details.addEventListener('toggle',()=>{if(details.open)graphDetailsOpen.add(key);else graphDetailsOpen.delete(key);});return details;
+}
+function graphAction(type,data={}) {post(type,{id:workerSelected,...data},ok=>{if(ok)post('workerRefresh',{id:workerSelected});});}
+function renderWorkerGraph(root) {
+  const graph=workerSnapshot.dag,editable=workerSnapshot.status==='draft',active=['planning','running','merging'].includes(workerSnapshot.status);
+  const section=element('section','','worker-graph');section.appendChild(element('h2','Parallel task graph'));section.appendChild(element('p',graph.targetBranch+' · base '+(graph.baseCommit || '').slice(0,10),'hint'));
+  if(editable) {
+    if(graphDraftID!==workerSelected || !graphDraft.length) {graphDraftID=workerSelected;graphDraft=JSON.parse(JSON.stringify(graph.tasks || []));graphParallel=graph.maxParallel || 2;}
+    section.appendChild(element('p','Review assignments and routes before running. Independent tasks use separate Git worktrees; dependencies start from combined changes.','hint'));
+    section.appendChild(workerInput('Concurrent tasks',graphParallel,v=>graphParallel=v,'number').wrap);
+    for(const task of graphDraft) {
+      const card=element('fieldset'),legend=element('legend',task.id);card.appendChild(legend);
+      const profile=()=>workerSnapshot.profiles.find(p=>p.tier===(task.worker.profile || 'middle')) || {};
+      const assignment=element('label','Assignment and checks','field'),textarea=document.createElement('textarea');textarea.value=task.description;textarea.rows=3;textarea.addEventListener('input',()=>task.description=textarea.value);assignment.appendChild(textarea);card.appendChild(assignment);
+      card.appendChild(workerInput('Dependencies (comma separated)',(task.dependencies || []).join(', '),v=>task.dependencies=v.split(',').map(x=>x.trim()).filter(Boolean)).wrap);
+      card.appendChild(graphSelect('Profile',workerTiers,task.worker.profile || 'middle',v=>{task.worker={profile:v};renderWorkerRuns();}));
+      const runtime=task.worker.runtime || profile().runtime;
+      card.appendChild(graphSelect('Backend',[['cli','CLI'],['native','Local model']],runtime,v=>{task.worker.runtime=v;task.worker.cli=v==='cli' ? profile().cli || (status.availableCLIs || []).find(c=>c.available && c.capabilities?.managedWorker!==false)?.id || '' : '';task.worker.endpoint=v==='native' ? profile().endpoint || 'http://localhost:11434/v1' : '';renderWorkerRuns();}));
+      if(runtime==='cli') {
+        const cli=task.worker.cli || profile().cli;
+        card.appendChild(graphSelect('CLI',(status.availableCLIs || []).map(c=>[c.id,c.label,!c.available || c.capabilities?.managedWorker===false]),cli,v=>{task.worker.cli=v;task.worker.model='';renderWorkerRuns();}));workerModelChoices(cli);
+        const model=workerInput('Model override (blank inherits profile)',task.worker.model,v=>task.worker.model=v);model.input.placeholder=profile().model || 'Model ID or alias';const list=element('datalist');list.id='graph-models-'+task.id;model.input.setAttribute('list',list.id);for(const name of workerModels[cli] || []) {const option=element('option');option.value=name;list.appendChild(option);}card.appendChild(model.wrap);card.appendChild(list);
+      } else {
+        card.appendChild(workerInput('Local endpoint',task.worker.endpoint || profile().endpoint,v=>task.worker.endpoint=v).wrap);
+        const model=workerInput('Model override (blank inherits profile)',task.worker.model,v=>task.worker.model=v),list=element('datalist');list.id='graph-local-models-'+task.id;model.input.setAttribute('list',list.id);workerModelChoices('praimate-cli');for(const name of workerModels['praimate-cli'] || []) {const option=element('option');option.value=name;list.appendChild(option);}card.appendChild(model.wrap);card.appendChild(list);
+      }
+      card.appendChild(element('p','Provider routing, permissions and limits use the existing backend/profile configuration.','hint'));section.appendChild(card);
+    }
+    section.appendChild(button('Save plan',()=>graphAction('workerGraphSave',{tasks:graphDraft,maxParallel:graphParallel})));
+    section.appendChild(button('Run task graph',()=>post('workerGraphSave',{id:workerSelected,tasks:graphDraft,maxParallel:graphParallel},ok=>{if(ok)graphAction('workerGraphExecute');}),!graphDraft.length));
+  } else {
+    for(const task of graph.tasks || []) {
+      const card=element('article','','card');card.appendChild(element('strong',task.id+' · '+task.status+(task.review ? ' · '+task.review : '')));card.appendChild(element('p',task.description));
+      card.appendChild(element('p','Depends on: '+(task.dependencies || []).join(', '),'hint'));
+      card.appendChild(element('p',(task.worker.profile || 'middle')+' · '+(task.worker.cli || 'Local')+' / '+(task.worker.model || '')+' · '+(task.worker.provider || 'Provider configured by backend'),'hint'));
+      if(task.worktree)card.appendChild(element('pre',task.worktree.path+'\n'+task.worktree.branch));
+      if(task.error)card.appendChild(element('p',task.error,'error'));
+      if(task.output)card.appendChild(graphDetails('Worker result',task.output,workerSelected+task.id+'result'));
+      if(task.result) {
+        card.appendChild(element('p',task.result.baseCommit.slice(0,10)+' → '+task.result.resultCommit.slice(0,10),'hint'));card.appendChild(element('pre',(task.result.changedFiles || []).join(', ') || 'No file changes'));
+        card.appendChild(graphDetails('Git diff'+(task.result.diffTruncated?' (preview)':''),task.result.diff || 'No changes',workerSelected+task.id+'diff'));
+        if(task.review!=='merged') {card.appendChild(button('Accept',()=>graphAction('workerGraphReview',{taskID:task.id,decision:'accepted'}),active));card.appendChild(button('Reject',()=>graphAction('workerGraphReview',{taskID:task.id,decision:'rejected'}),active));}
+      }
+      if(!active && ['failed','blocked','cancelled'].includes(task.status))card.appendChild(button('Discard failed work and reset',()=>graphAction('workerGraphReset',{taskID:task.id})));
+      section.appendChild(card);
+    }
+    if(!active) {
+      if(graph.tasks?.some(t=>t.status==='pending'))section.appendChild(button('Resume pending tasks',()=>graphAction('workerGraphExecute')));
+      section.appendChild(button('Merge accepted changes',()=>graphAction('workerGraphMerge'),!graph.tasks?.some(t=>t.review==='accepted')));
+      section.appendChild(button('Clean reviewed worktrees',()=>graphAction('workerGraphCleanup')));
+    }
+    if(graph.mergeWorktree)section.appendChild(element('pre','Merge worktree: '+graph.mergeWorktree.path));
+  }
+  root.appendChild(section);
+}
 function renderWorkerRuns() {
   const tabs=$('worker-tabs');tabs.replaceChildren();
   if(!workerRuns.length) tabs.appendChild(element('p','No worker chats yet.','empty'));
   for(const run of workerRuns) {const tab=button((run.title || run.task || '').slice(0,48)+' · '+run.status,() => {notice('');workerSelected=run.id;workerRenaming=false;post('workerRefresh',{id:workerSelected});});if(run.id===workerSelected)tab.classList.add('selected');tabs.appendChild(tab);}
   const result=$('worker-result');result.replaceChildren();const lanes=$('worker-lanes');lanes.replaceChildren();
-  $('worker-continue').hidden=!workerSnapshot || workerSnapshot.status==='running';
+  $('worker-continue').hidden=!workerSnapshot || ['running','planning','merging'].includes(workerSnapshot.status) || !!workerSnapshot.dag;
   $('worker-status').textContent=workerSnapshot?.status || '';
   if(!workerSnapshot) {result.appendChild(element('p','Select a saved worker chat or create a new one.','empty'));return;}
   const head=element('div','','worker-chat-head');
@@ -227,27 +291,28 @@ function renderWorkerRuns() {
   } else {
     head.appendChild(element('strong',workerSnapshot.title || workerSnapshot.task));
     head.appendChild(button('Rename',() => {workerRenameDraft=workerSnapshot.title || workerSnapshot.task;workerRenaming=true;renderWorkerRuns();}));
-    head.appendChild(button('Delete',() => post('workerDelete',{id:workerSelected}),workerSnapshot.status==='running'));
+    head.appendChild(button('Delete',() => post('workerDelete',{id:workerSelected}),['running','planning','merging'].includes(workerSnapshot.status)));
   }
   result.appendChild(head);
   result.appendChild(element('p',(workerSnapshot.workspace || '')+' · '+new Date(workerSnapshot.startedAt).toLocaleString(),'hint'));
   const bar=element('div',workerSnapshot.status+' · '+(workerSnapshot.currentTask || workerSnapshot.task),'toolbar');
-  if(workerSnapshot.status==='running') bar.appendChild(button('Stop',() => post('workerCancel',{id:workerSelected})));result.appendChild(bar);
+  if(['running','planning','merging'].includes(workerSnapshot.status)) bar.appendChild(button('Stop',() => post('workerCancel',{id:workerSelected})));result.appendChild(bar);
+  if(workerSnapshot.dag) renderWorkerGraph(result);
   for(const turn of workerSnapshot.turns || []) result.appendChild(element('p','You: '+turn.task+'\nReasoner: '+(turn.result || turn.error || ''),'card'));
   if(workerSnapshot.result) result.appendChild(element('pre',workerSnapshot.result));
   if(workerSnapshot.error) result.appendChild(element('p',workerSnapshot.error,'error'));
   for(const [tier,label] of workerTiers) {
     const lane=element('section','',workerCollapsed[tier]?'closed':''), profile=(workerSnapshot.profiles || []).find(p => p.tier===tier) || {};
-    lane.appendChild(button(label+' · '+(profile.cli || 'Local')+' / '+(profile.model || '—')+(workerCollapsed[tier]?' ▸':' ▾'),() => {workerCollapsed[tier]=!workerCollapsed[tier];renderWorkerRuns();}));
+    lane.appendChild(button(label+(workerSnapshot.dag ? ' · Task-specific routes' : ' · '+(profile.cli || 'Local')+' / '+(profile.model || '—'))+(workerCollapsed[tier]?' ▸':' ▾'),() => {workerCollapsed[tier]=!workerCollapsed[tier];renderWorkerRuns();}));
     const eventKey=workerSelected+':'+tier, events=(workerSnapshot.events || []).filter(event=>event.tier===tier), limit=workerVisible.get(eventKey) || 80;
     if(!workerCollapsed[tier] && events.length>limit) lane.appendChild(button('Show '+Math.min(80,events.length-limit)+' earlier events',()=>{workerVisible.set(eventKey,limit+80);renderWorkerRuns();}));
-    if(!workerCollapsed[tier]) for(const ev of events.slice(-limit)) {const item=element('article','','worker-event');item.appendChild(element('small',ev.kind+' · '+new Date(ev.timestamp).toLocaleTimeString()));item.appendChild(element('pre',ev.text || ''));lane.appendChild(item);}
+    if(!workerCollapsed[tier]) for(const ev of events.slice(-limit)) {const item=element('article','','worker-event');item.appendChild(element('small',(ev.taskID ? ev.taskID+' · ' : '')+ev.kind+' · '+new Date(ev.timestamp).toLocaleTimeString()));item.appendChild(element('pre',ev.text || ''));lane.appendChild(item);}
     lanes.appendChild(lane);
   }
 }
 $('worker-new').addEventListener('click',() => {$('worker-create').hidden=false;renderWorkerProfiles();});
 for(const id of ['worker-create-close','worker-create-cancel']) $(id).addEventListener('click',() => {$('worker-create').hidden=true;});
-$('worker-start').addEventListener('click',() => {const task=$('worker-task').value.trim();if(!task)return;post('workerStart',{config:workerConfig,task},ok => {if(ok) {$('worker-task').value='';$('worker-create').hidden=true;}});});
+$('worker-start').addEventListener('click',() => {const task=$('worker-task').value.trim();if(!task)return;post('workerStart',{config:workerConfig,task,mode:$('worker-mode').value,maxParallel:Number($('worker-parallel').value)},ok => {if(ok) {$('worker-task').value='';$('worker-create').hidden=true;}});});
 $('worker-continue').addEventListener('click',() => {const task=$('worker-followup').value.trim();if(!task || !workerSelected)return;post('workerContinue',{id:workerSelected,task},ok => {if(ok) {$('worker-followup').value='';post('workerRefresh',{id:workerSelected});}});});
 setInterval(() => {if(page==='workers' && status.connected && !workerPollPending) {workerPollPending=true;post('workerRefresh',{id:workerSelected},() => {workerPollPending=false;});}},900);
 const toolLabels = {safe:'Safe / read-only',ask:'Ask for approval',edits:'Apply edits',plan:'Plan',full:'Full / autonomous'};
@@ -346,10 +411,10 @@ window.addEventListener('message',({data:m}) => {
   if(m.type === 'status') {const wasConnected=status.connected; if(status.chatId !== m.status.chatId) notice(''); updateStatus(m.status,m.context); if(!wasConnected && status.connected && page === 'overview') loadUsage();}
   else if(m.type === 'usageDashboard' && m.dashboard.month === $('usage-month').value) renderUsage(m.dashboard);
   else if(m.type === 'workerState') {if(m.config?.profiles?.length) workerConfig=m.config;workerRuns=m.runs || [];if(!workerSelected && workerRuns.length)workerSelected=workerRuns[0].id;renderWorkerProfiles();renderWorkerRuns();if(workerSelected)post('workerRefresh',{id:workerSelected});}
-  else if(m.type === 'workerModels') {workerModels[m.cli]=m.models || [];workerModelPending.delete(m.cli);renderWorkerProfiles();}
+  else if(m.type === 'workerModels') {workerModels[m.cli]=m.models || [];workerModelPending.delete(m.cli);renderWorkerProfiles();if(workerSnapshot?.dag && !document.activeElement?.closest('.worker-graph'))renderWorkerRuns();}
   else if(m.type === 'workerStarted') {workerSelected=m.id;$('worker-status').textContent='Running';$('worker-create').hidden=true;post('workerRefresh',{id:workerSelected});}
   else if(m.type === 'workerDeleted') {workerSelected='';workerSnapshot=null;post('workerRefresh',{id:''});}
-  else if(m.type === 'workerSnapshot') {workerRuns=m.runs || [];workerSelected=m.selectedId || m.snapshot?.id || '';workerSnapshot=m.snapshot || null;renderWorkerRuns();}
+  else if(m.type === 'workerSnapshot') {workerRuns=m.runs || [];workerSelected=m.selectedId || m.snapshot?.id || '';workerSnapshot=m.snapshot || null;const stamp=workerSelected+':'+workerSnapshot?.updatedAt+':'+workerSnapshot?.status;if(stamp!==workerSnapshotStamp){workerSnapshotStamp=stamp;if(!document.activeElement?.closest('.worker-graph') || workerSnapshot?.status!=='draft')renderWorkerRuns();}}
   else if(m.type === 'navigate' && pages[m.page]) navigate(m.page);
   else if(m.type === 'messages') renderMessages(m.messages);
   else if(m.type === 'collection') {collections[m.name] = m; if(page === m.name) renderCollection();}

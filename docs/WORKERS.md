@@ -4,6 +4,78 @@ Workers coordinates three independently configured model profiles: **Reasoner**
 (`primary`), **Middle** and **Fast**. The feature is available in the Desktop
 Workers page and the Studio / VS Code extension's **PrAImate: Workers** view.
 
+## Parallel task graphs
+
+Select **Parallel task graph** when creating a worker chat. The workspace must
+be a clean Git repository root on a checked-out branch with an initial commit.
+The Reasoner returns a draft DAG; it does not modify the project while planning.
+Review task descriptions, dependencies, profile, CLI/local endpoint and model
+before pressing **Run task graph**. Routes reuse the existing backend/model
+registry. A task override takes precedence over its selected profile; provider
+routing follows that backend's existing model ID or configured local endpoint.
+
+The host schedules independent tasks concurrently (default 2, maximum 4 per
+run). Every task receives a separate Git worktree and scoped context. Its
+worktree lives in PrAImate's dedicated user-cache directory outside the project,
+so CLI project discovery sees a normal checkout. Its
+transitive dependencies are cherry-picked into that worktree before execution.
+Workers use the existing JSON tool protocol and profile permissions; delegation
+inside a DAG task is disabled. The host creates a single task commit and its
+diff, including any model-created commits, rather than trusting a worker's
+claimed changes. A no-change task has a saved result without a new commit.
+
+Task cards preserve profile, CLI, provider/model route, branch, worktree path,
+base/result commits, changed files, result and Git diff. Diff previews are capped
+at 256 KiB; the worktree and saved commits provide the complete patch. Live
+events include task IDs in the existing worker panes.
+
+Accept dependencies before accepting their dependent results. **Merge accepted
+changes** cherry-picks the accepted task commits, in dependency order, into a
+separate review worktree based on the current target branch. Only a successful
+integration fast-forwards the target branch. A conflict stops there and reports
+the review worktree path; the original checkout remains unchanged. No automatic
+conflict resolution runs. Return to the recorded target branch with a clean
+workspace before merging. Inspect a failed merge and use **Clean reviewed
+worktrees** before retrying it.
+
+Merged worktrees are removed after integration. Rejected worktrees can be cleaned
+explicitly; saved diffs and private Git result refs preserve review history.
+Deleting a worker chat removes its temporary worktrees and result refs, including
+unmerged work, after a frontend confirmation. Interrupted tasks never restart
+automatically: inspect their worktrees, then explicitly **Discard failed work
+and reset** before resuming pending tasks. Completed descendants prevent resetting
+their dependencies. Task worktrees remain pinned to the original planning base.
+Pending tasks can resume after this run merges its accepted results, including
+after an app restart. Unrelated workspace HEAD changes require a new plan.
+
+Worktrees separate checkouts, not operating-system permissions. They share Git
+metadata, and commands still require the existing host approvals. Each task has
+the existing per-worker turn/request/time bounds. The graph supports up to 32
+tasks; concurrent run limits also remain in place. Plans, task states, activity
+and review results use the same encrypted local chat storage as Workers.
+Task IDs use lowercase letters, numbers, underscores and hyphens (up to 64
+characters); `review-merge` is reserved for the host. Graph checkpoints replace
+the current stored snapshot instead of duplicating all diffs. Retained graph
+activity is capped at 500 events and 1 MiB of event text.
+
+The same operations are available in VS Code and the maintenance CLI:
+
+```sh
+praimate workers plan --config workers.json --workspace /path/to/repo \
+  --task "Implement the feature and its tests" --parallel 2
+praimate workers show --id RUN_ID
+# Optionally edit a tasks JSON array and pass --plan tasks.json.
+praimate workers execute --id RUN_ID
+praimate workers review --id RUN_ID --task-id task-a --decision accepted
+praimate workers merge --id RUN_ID
+```
+
+`workers.json` is the existing `Config` format with `workspace` and the three
+`profiles`; saved defaults are used when `--config` is omitted. CLI execution
+denies approval-dependent tools unless explicitly given `--approve-tools`.
+`reset` and `cleanup` require `--discard`; inspect affected worktrees first.
+The existing hierarchical mode below remains available for non-Git workspaces.
+
 ## Create and resume a worker chat
 
 1. Open **Workers → New worker chat** and enter the task for Reasoner.

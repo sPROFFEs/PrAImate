@@ -318,6 +318,28 @@ test('Workers view keeps separate models for the same CLI and renders live event
   assert.equal(fast.children[1].children[1].innerHTML,'');
 });
 
+test('parallel worker drafts keep independent backend overrides and display Git diffs safely', () => {
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));
+  h.send({type:'status',status:{connected:true,availableCLIs:[{id:'codex',label:'Codex',available:true},{id:'claude',label:'Claude',available:true}]}});
+  h.eval("navigate('workers')");
+  const tasks=[{id:'a',description:'<img src=x>',dependencies:[],worker:{profile:'middle',cli:'claude',model:'sonnet'},status:'pending'}];
+  const snapshot={id:'dag-run',task:'parallel objective',status:'draft',updatedAt:'one',profiles,events:[],dag:{tasks,maxParallel:2,targetBranch:'main',baseCommit:'1234567890abcdef'}};
+  h.send({type:'workerSnapshot',runs:[{id:'dag-run',status:'draft'}],snapshot});
+  const graph=h.elements.get('worker-result').children.find(e=>e.className==='worker-graph');
+  assert.ok(graph);
+  graph.children.find(e=>e.tag==='button' && e.textContent==='Run task graph').fire('click');
+  const saved=h.posted.at(-1);
+  assert.equal(saved.type,'workerGraphSave');assert.equal(saved.tasks[0].worker.cli,'claude');assert.equal(saved.tasks[0].worker.model,'sonnet');
+  h.send({type:'actionResult',id:saved.requestId,ok:true});assert.equal(h.posted.at(-1).type,'workerGraphExecute');
+  const completed={...tasks[0],status:'completed',review:'pending',result:{baseCommit:'basecommit',resultCommit:'resultcommit',changedFiles:['file.js'],diff:'<script>malicious</script>'}};
+  h.send({type:'workerSnapshot',runs:[{id:'dag-run',status:'review'}],snapshot:{...snapshot,status:'review',updatedAt:'two',dag:{...snapshot.dag,tasks:[completed]}}});
+  const rendered=h.elements.get('worker-result').children.find(e=>e.className==='worker-graph');
+  const card=rendered.children.find(e=>e.tag==='article');
+  const diff=card.children.find(e=>e.tag==='details' && e.children[0].textContent==='Git diff').children[1];
+  assert.equal(diff.textContent,'<script>malicious</script>');assert.equal(diff.innerHTML,'');
+});
+
 test('late action errors stay on the originating page and conversation', () => {
   const h = webviewHarness();
   h.send({type:'status',status:{connected:true,activeCLI:'claude',chatId:'first'}});

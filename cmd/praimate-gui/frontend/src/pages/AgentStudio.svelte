@@ -13,6 +13,7 @@
   import { api, onChatStream, onApproval } from '../lib/api.js'
   import { agentStudio } from '../lib/stores.js'
   import CodeEditor from '../lib/CodeEditor.svelte'
+  import KnowledgeSettings from '../lib/KnowledgeSettings.svelte'
   import ContextMenu from '../lib/ContextMenu.svelte'
   import { langOf as fileLang } from '../lib/langOf.js'
   import { renderMarkdown } from '../lib/markdown.js'
@@ -147,7 +148,7 @@
   let know = null
   let knowBusy = false
   const BACKENDS = [
-    { id: 'native', label: 'PrAImate built-in (offline, no dependencies)' },
+    { id: 'native', label: 'PrAImate built-in (offline or model-enriched)' },
     { id: 'claude-cli', label: 'Claude CLI (no key)' },
     { id: 'local', label: 'Local LLM (Settings)' },
     { id: 'code', label: 'Code-only (AST, no docs)' },
@@ -548,6 +549,19 @@
   }
 
   // --- knowledge actions ---
+  async function knowledgeSettingsSaved() {
+    const id = agentId
+    const d = tabs.find(t => t.isDef)
+    const before = d?.ref?.getValue() ?? d?.content
+    try {
+      const [info, y] = await Promise.all([api.getAgentKnowledge(id), api.agentYAML(id)])
+      if (agentId !== id) return
+      know = info
+      if (d && tabs.includes(d) && !d.dirty && (d.ref?.getValue() ?? d.content) === before) {
+        d.content = y; d.ref?.setExternal(y); tabs = tabs
+      }
+    } catch (e) { if (agentId === id) error = String(e) }
+  }
   async function setKnowMode(mode) {
     if (!agentId) return
     try {
@@ -1163,7 +1177,8 @@
 
     <!-- knowledge / RAG controls -->
     <div class="kctl">
-      {#if know && !know.exists}
+      {#if agentId && know}<KnowledgeSettings id={agentId} {know} disabled={tabs.some(t => t.isDef && t.dirty) || ragRunning} on:saved={knowledgeSettingsSaved} />{/if}
+      {#if know && !know.exists && know.retrievalEngine !== 'remote'}
         <div class="lbl2">Knowledge base</div>
         <div class="hint">This agent has no knowledge folder yet. Enable it to add documents and pick a Raw or RAG mode.</div>
         <button class="btn sm primary" on:click={enableKnow}>＋ Enable knowledge base</button>
@@ -1175,7 +1190,9 @@
         <button class="seg-btn" class:on={know?.mode === 'rag'} on:click={() => setKnowMode('rag')}>RAG</button>
       </div>
 
-      {#if know?.mode === 'rag'}
+      {#if know?.retrievalEngine === 'remote'}
+        <div class="hint">Remote knowledge is queried through the configured service. Index the documents on the server.</div>
+      {:else if know?.mode === 'rag'}
         {#if !know.graphifyInstalled && ragBackend !== 'native'}
           <div class="hint" style="color:var(--warn); line-height: 1.45; border: 1px solid color-mix(in oklch, var(--warn) 30%, transparent); padding: 8px; border-radius: var(--radius-sm); background: color-mix(in oklch, var(--warn) 8%, transparent)">
             Graphify is needed for this external backend. Choose the built-in backend for offline text and code retrieval.
