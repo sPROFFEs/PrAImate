@@ -145,6 +145,8 @@ shared.
 | `opencode` | OpenCode |
 | `praimate-code` | PrAImate Code |
 | `praimate-cli` | Native core provider / terminal frontend |
+| `copilot` | GitHub Copilot CLI |
+| `antigravity` | Antigravity CLI |
 
 The selected CLI must also be installed and authenticated on the computer
 running the agent. A declaration in `supports` does not install an external
@@ -176,19 +178,61 @@ and `knowledge.search` for inspecting and searching the managed knowledge files.
 Raw mode is the simplest choice for a small, focused collection. It requires
 no indexing backend or API key.
 
-### RAG with Graphify
+### Built-in RAG and optional Graphify
 
-Set `knowledge: rag` or select **RAG (graphify)**, install the bundled
-Graphify tool when prompted, then select **Build RAG index**.
+Set `knowledge: rag`, select **PrAImate built-in**, then **Build RAG index**.
+The built-in Go engine runs offline without Python, a model or API keys. It
+indexes UTF-8 documents/code into overlapping excerpts, ranks them with BM25,
+and returns file/line citations. Its graph includes Markdown headings and local
+links, Go declarations, imports and direct calls within the same package.
+Other languages are searchable as text; their ASTs are not parsed yet.
 
-In RAG mode, PrAImate exposes a complete three-tier retrieval model:
-- `knowledge.query`: Graphify-backed conceptual and relational retrieval (default budget: 1200 tokens).
-- `knowledge.search`: Bounded literal text search across knowledge files (excluding `graphify-out/`).
+In RAG mode, PrAImate exposes:
+
+- `knowledge.query`: Ranked excerpts and source-backed relationships (default approximate output budget: 1200 tokens).
+- `knowledge.search`: Bounded literal text search, excluding both index directories.
 - `knowledge.read`: Exact file reading for source verification.
 
-The intended workflow is: Graphify identifies relevant areas and relationships, `knowledge.search` locates exact identifiers or configuration terms, and `knowledge.read` verifies the original source before taking decisions.
+Use retrieval to locate relevant sources, search exact identifiers, then read
+the original files before making decisions. Documents and graph labels are
+reference data, never a source of permission changes.
 
-Available indexing backends are:
+The built-in index lives in `knowledge/.praimate-index/index.json`. On query,
+content hashes detect changed, added or removed files and trigger a rebuild.
+Imported snapshots are checked against the original documents and graph; cached
+validation is invalidated by content changes, including edits that reuse a file's
+timestamp. Concurrent queries in the same process serialize refreshes, and cancellation preserves
+the previous snapshot. An empty corpus returns no matches rather than stale text.
+Indexing is bounded to 10,000 files, 2 MiB per file and 32 MiB of text. Binary,
+non-UTF-8, oversized and symlinked files are reported as skipped. PDF/media and
+semantic extraction remain available through Graphify or Raw mode.
+
+The most recently selected indexing engine is used; switching retains both
+indexes. Without a saved selection, a native index takes precedence. Existing
+Graphify indexes keep using the external query command when it is installed;
+if the command is absent or fails, PrAImate falls back to a local index of the
+source documents. This text fallback does not extract PDF/media. It can enrich
+local retrieval with Graphify node labels and relationships that point to known
+source files, accepting NetworkX `links` and `edges` layouts. It never overwrites
+Graphify output. This is graph-data interoperability, not a clone of every
+Graphify CLI command or extraction backend.
+
+Without managed tools, a CLI agent can use the bundled maintenance executable:
+
+```sh
+praimate knowledge query --root /path/to/knowledge --question "JWT refresh" --budget 1200
+praimate knowledge index --root /path/to/knowledge
+praimate knowledge graph --root /path/to/knowledge > graph.json
+```
+
+The last command exports a NetworkX-compatible node-link graph. Approximate
+budgets use a byte estimate, not the backend model's tokenizer. In VS Code,
+**Agent knowledge → Build offline retrieval index** builds the same core index.
+VS Code indexing runs asynchronously with a cancellable progress notification;
+the ordinary RPC timeout does not interrupt a build.
+
+Optional Graphify indexing backends are:
+
 
 | Backend | Use |
 |---|---|
@@ -206,9 +250,9 @@ Cloud backends send indexed document content to the selected provider and may
 incur token charges.
 
 The RAG index is stored under the agent's knowledge folder and is included in
-a `.praimate-agent` pack. Rebuild the index after changing source files. After
-moving a pack between systems, rebuild if Graphify reports an incompatible or
-stale index.
+a `.praimate-agent` pack. Built-in indexes refresh automatically on query;
+Graphify indexes still need rebuilding after source changes or if Graphify
+reports an incompatible index.
 
 ## Add MCP servers
 
@@ -587,7 +631,7 @@ Runtime capabilities expose additional tools:
   stdio, Streamable HTTP, or legacy SSE, with approval before connection and
   for every call;
 - `knowledge: raw`: contained `knowledge.read`; `knowledge: rag`:
-  `knowledge.query` against the existing Graphify index.
+  `knowledge.query` against built-in retrieval or an optional Graphify index.
 
 Stopped, failed, stalled, and orphaned `running` runs can resume from their
 durable checkpoint in Agent Studio. A tool interrupted without a result is
@@ -638,16 +682,16 @@ Workflow names and IDs referenced elsewhere are case-sensitive.
 
 | Problem | Likely cause and action |
 |---|---|
-| `unknown CLI ... in supports` | Use one of the five exact CLI values in this manual |
+| `unknown CLI ... in supports` | Use one of the supported exact CLI values in this manual |
 | `unknown surface` | Use `chat`, `terminal`, or `editor` |
 | `default_workflow ... does not match` | Match the workflow name exactly, including case |
 | Workflow input is required | Supply a nonblank value or define a nonblank `default` |
 | Workflow template execution fails | Declare every referenced input and check template spelling |
 | Agent launch reports an MCP error | Create the referenced MCP ID locally and enable it, or remove the reference |
-| RAG cannot build | Install Graphify, add files, choose a working backend, and supply the required model/key |
+| RAG cannot build | For built-in retrieval, add UTF-8 text/code within the limits above. For external backends, install Graphify and supply the required model/key |
 | Local RAG reports connection errors | Verify the Local LLM endpoint, exact model name, API key, and OpenAI-compatible API path |
 | Requirements script is unavailable after YAML import | Export/import a `.praimate-agent` pack instead of bare YAML |
-| Imported RAG answers are stale or fail | Rebuild the Graphify index on the receiving system |
+| Imported RAG answers are stale or fail | Built-in indexes validate and refresh on query; Graphify indexes may need rebuilding on the receiving system |
 | An agent does not appear on a launch surface | Add that exact value to `surfaces`, or omit `surfaces` |
 | A value in `tools` has no effect | Expected today: `tools` is metadata, not runtime policy |
 
@@ -664,3 +708,35 @@ Workflow names and IDs referenced elsewhere are case-sensitive.
 - `.praimate-agent` was used when knowledge or a script must travel.
 - The exported artifact was imported into a clean test profile before
   distribution.
+
+## Import and export Markdown agents
+
+The Desktop importer and VS Code accept `.md`/`.markdown` in addition to YAML
+and reviewed `.praimate-agent` packs. Plain Markdown becomes instructions;
+OpenCode/Claude-style YAML frontmatter retains description and external options.
+A filename (or `name`) supplies the initial portable agent ID.
+
+Export as `.md` to use the instructions with OpenCode. External `model`, `mode`,
+`temperature`, `permission`, `tools`, and other fields are retained in the
+native YAML `foreign` mapping. They are metadata only inside PrAImate: configure
+its runtime, model, capabilities and approvals separately. A Markdown export
+also carries a namespaced `praimate` frontmatter block so native workflows,
+skills, surfaces and knowledge mode survive reimport. The document body is the
+authoritative prompt when edited.
+Public frontmatter is authoritative for external options too: deleting a model
+or permission field removes it on reimport. Date scalars preserve their original
+spelling; metadata must contain JSON-compatible values and string mapping keys.
+
+Markdown/YAML export does not bundle knowledge files or `runtime.json`; use a
+pack for those. Conversion preserves external fields but cannot guarantee their
+meaning across different CLIs, provider/model identifiers or permission schemas.
+
+Offline conversion (no database required):
+
+```sh
+praimate agent convert --input review.md --output review.yaml
+praimate agent convert --input review.yaml --output review-export.md
+```
+
+Destination files must not exist. No scripts run and no CLIs are launched during
+conversion. Format reference: https://opencode.ai/docs/agents/#markdown.

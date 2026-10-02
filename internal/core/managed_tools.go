@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/sPROFFEs/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/knowledge"
 )
 
 const (
@@ -772,7 +773,7 @@ func (b *managedToolBroker) searchKnowledge(ctx context.Context, raw json.RawMes
 		BaseDir:     base,
 		Query:       args.Query,
 		MaxResults:  args.MaxResults,
-		SkipDirs:    map[string]bool{"graphify-out": true, ".git": true},
+		SkipDirs:    map[string]bool{"graphify-out": true, knowledge.Directory: true, ".git": true},
 		MaxFileSize: 2 << 20,
 	})
 }
@@ -799,12 +800,11 @@ func (b *managedToolBroker) queryKnowledge(ctx context.Context, raw json.RawMess
 	if err != nil {
 		return "", err
 	}
-	if _, err := os.Stat(filepath.Join(root, "graphify-out", "graph.json")); err != nil {
-		return "", errors.New("Graphify index is missing; build the RAG index in Agent Studio first")
-	}
-	bin, err := findGraphifyBinary()
-	if err != nil {
-		return "", err
+	// Keep existing Graphify indexes usable, and fall back locally when its
+	// executable is absent or fails. An explicit built-in build takes precedence.
+	bin, graphErr := findGraphifyBinary()
+	if knowledge.UseNative(root) || !graphifyIndexPresent(root) || graphErr != nil {
+		return knowledge.Query(ctx, root, args.Question, args.Budget)
 	}
 	qctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
@@ -815,7 +815,18 @@ func (b *managedToolBroker) queryKnowledge(ctx context.Context, raw json.RawMess
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("graphify query failed: %w\n%s", err, strings.TrimSpace(out.String()))
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		fallback, fallbackErr := knowledge.Query(ctx, root, args.Question, args.Budget)
+		if fallbackErr != nil {
+			return "", fmt.Errorf("Graphify query failed: %w; built-in retrieval also failed: %v\n%s", err, fallbackErr, strings.TrimSpace(out.String()))
+		}
+		notice := "Graphify query failed; using built-in text retrieval.\n"
+		if len(notice)+len(fallback) <= args.Budget*4 {
+			fallback = notice + fallback
+		}
+		return fallback, nil
 	}
 	return boundManagedOutput(strings.TrimSpace(out.String())), nil
 }

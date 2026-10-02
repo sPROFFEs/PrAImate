@@ -68,7 +68,7 @@ surfaces:
   - editor
 
 # Optional knowledge base: "raw" (a folder of documents the agent reads
-# directly) or "rag" (the same folder indexed with graphify for
+# directly) or "rag" (the same folder indexed locally, or optionally with Graphify for
 # retrieval). After saving, attach the documents in the Knowledge panel
 # below the editor — they ship inside the exported .praimate-agent pack.
 # knowledge: raw

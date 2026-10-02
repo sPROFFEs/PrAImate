@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -15,7 +17,7 @@ import (
 // matches the supplied id. Callers should check with errors.Is.
 var ErrAgentNotFound = errors.New("agent not found")
 
-// ImportAgent reads an agent YAML file from disk, validates it, and
+// ImportAgent reads an agent YAML or Markdown file, validates it, and
 // upserts it into the DB. The agent's `id` is the primary key; an
 // import with an existing id is treated as an update.
 //
@@ -45,7 +47,7 @@ func (c *Core) ImportAgentYAML(ctx context.Context, body []byte, sourcePath stri
 	return c.upsertAgent(ctx, a)
 }
 
-// ExportAgent writes the named agent back out as YAML at path. The
+// ExportAgent writes YAML or Markdown according to the destination extension. The
 // file is created with 0o644; the caller is responsible for the
 // destination directory existing.
 func (c *Core) ExportAgent(ctx context.Context, id, path string) error {
@@ -53,7 +55,12 @@ func (c *Core) ExportAgent(ctx context.Context, id, path string) error {
 	if err != nil {
 		return err
 	}
-	body, err := MarshalAgentYAML(a)
+	var body []byte
+	if ext := strings.ToLower(filepath.Ext(path)); ext == ".md" || ext == ".markdown" {
+		body, err = MarshalAgentMarkdown(a)
+	} else {
+		body, err = MarshalAgentYAML(a)
+	}
 	if err != nil {
 		return err
 	}
@@ -71,7 +78,13 @@ func (c *Core) GetAgent(ctx context.Context, id string) (*Agent, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %s", ErrAgentNotFound, id)
 	}
-	return a, err
+	if err != nil {
+		return nil, err
+	}
+	if err := c.loadAgentForeign(ctx, a); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 // DeleteAgent removes one agent from the DB. Returns ErrAgentNotFound
@@ -80,15 +93,26 @@ func (c *Core) DeleteAgent(ctx context.Context, id string) error {
 	if c.store == nil {
 		return errors.New("DeleteAgent: no store configured")
 	}
-	res, err := c.store.DB().ExecContext(ctx, `DELETE FROM agents WHERE id = ?`, id)
+	tx, err := c.store.DB().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `DELETE FROM agents WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if n == 0 {
 		return fmt.Errorf("%w: %s", ErrAgentNotFound, id)
 	}
-	return nil
+	if _, err = tx.ExecContext(ctx, `DELETE FROM settings_cli WHERE key = ?`, "agent.foreign:"+id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // listAgentsFromDB is the private query backing ListAgents in core.go.
@@ -106,7 +130,18 @@ func (c *Core) listAgentsFromDB(ctx context.Context) ([]Agent, error) {
 		}
 		out = append(out, *a)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if err := c.loadAgentForeign(ctx, &out[i]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func (c *Core) upsertAgent(ctx context.Context, a *Agent) (*Agent, error) {
@@ -135,7 +170,16 @@ func (c *Core) upsertAgent(ctx context.Context, a *Agent) (*Agent, error) {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = c.store.DB().ExecContext(ctx, agentUpsert,
+	foreign, err := json.Marshal(a.Foreign)
+	if err != nil {
+		return nil, fmt.Errorf("agent foreign metadata: %w", err)
+	}
+	tx, err := c.store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, agentUpsert,
 		a.ID, a.Name, a.Description, nullableText(a.Icon),
 		a.Instructions, string(tools), string(mcps), string(wfs), string(supports),
 		string(surfaces), a.Knowledge, string(requirements), a.DefaultWorkflow, nullableText(a.SourcePath), now, now,
@@ -143,6 +187,12 @@ func (c *Core) upsertAgent(ctx context.Context, a *Agent) (*Agent, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("upsert agent %s: %w", a.ID, err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO settings_cli (key,value_json,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`, "agent.foreign:"+a.ID, string(foreign), now); err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
 	}
 	return c.GetAgent(ctx, a.ID)
 }
@@ -259,3 +309,12 @@ const (
 		skill_config_json = excluded.skill_config_json,
 		skill_lock_json = excluded.skill_lock_json`
 )
+
+// Existing settings storage avoids changing the agents database schema.
+func (c *Core) loadAgentForeign(ctx context.Context, a *Agent) error {
+	raw, err := c.GetSetting(ctx, ScopeCLI, "agent.foreign:"+a.ID)
+	if err != nil || len(raw) == 0 {
+		return err
+	}
+	return json.Unmarshal(raw, &a.Foreign)
+}

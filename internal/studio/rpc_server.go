@@ -252,7 +252,7 @@ func (s *Server) ServeStdio(r io.Reader, w io.Writer) error {
 		}
 		// Execute long requests separately so Stop and approval replies can arrive.
 		// Other requests keep their wire order.
-		if req.ID != nil && (req.Method == "chats.send" || req.Method == "workflows.run" || req.Method == "runs.resume" || req.Method == "clis.install") {
+		if req.ID != nil && (req.Method == "chats.send" || req.Method == "workflows.run" || req.Method == "runs.resume" || req.Method == "clis.install" || req.Method == "agents.knowledge.index") {
 			ctx, err := s.beginRun()
 			if err != nil {
 				s.write(RPCResponse{JSONRPC: "2.0", ID: req.ID, Error: &RPCError{Code: -32000, Message: err.Error()}})
@@ -667,6 +667,33 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 			return nil, err
 		}
 		return true, s.core.ExportAgentPack(ctx, p.ID, p.Path)
+	case "agents.import":
+		var p struct{ Path string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		switch strings.ToLower(filepath.Ext(p.Path)) {
+		case ".md", ".markdown", ".yaml", ".yml":
+			return s.core.ImportAgent(ctx, p.Path)
+		default:
+			return nil, fmt.Errorf("use reviewed pack import for archives")
+		}
+	case "agents.export":
+		var p struct{ ID, Path string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.core.ExportAgent(ctx, p.ID, p.Path)
+	case "agents.knowledge.index":
+		var p struct{ ID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		idx, err := s.core.BuildAgentKnowledge(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"documents": len(idx.Documents), "chunks": len(idx.Chunks), "nodes": len(idx.Graph.Nodes), "skipped": idx.Skipped}, nil
 	case "agents.knowledge.list":
 		var p struct{ ID string }
 		if err := json.Unmarshal(body, &p); err != nil {

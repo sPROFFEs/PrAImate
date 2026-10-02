@@ -35,6 +35,17 @@ test('RPC permits Stop while a long request is pending', async () => {
   input.write('{"id":2,"result":true}\n{"id":1,"error":{"message":"cancelled"}}\n');
   assert.equal(await stop,true); await assert.rejects(run,/cancelled/); client.close();
 });
+test('knowledge indexing survives ordinary RPC timeout and accepts cancellation', async () => {
+  const input = new PassThrough(), output = new PassThrough();
+  const client = new RPCClient(input,output,() => {},() => {},10);
+  const run = client.request('agents.knowledge.index',{id:'review'});
+  const rejected = assert.rejects(run,/cancelled/);
+  await new Promise(resolve => setTimeout(resolve,30));
+  assert.equal(client.pending.size,1);
+  const stop = client.request('runs.cancel');
+  input.write('{"id":2,"result":true}\n{"id":1,"error":{"message":"cancelled"}}\n');
+  assert.equal(await stop,true); await rejected; client.close();
+});
 
 function extensionHarness(platform, trusted = true, descriptor = null) {
   const commands = new Map(), stored = new Map(), requests = [], spawns = [], terminals = [], errors = [];

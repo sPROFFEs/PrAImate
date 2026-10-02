@@ -292,7 +292,7 @@
 
   let know = null // AgentKnowledgeInfo for the agent being edited
   let knowBusy = false
-  let ragBackend = 'claude-cli' // graphify backend for RAG indexing
+  let ragBackend = 'native' // graphify backend for RAG indexing
   let ragKey = ''
   let ragModel = ''
   let ragLog = []
@@ -425,7 +425,7 @@
       const review = await api.reviewAgentImportDialog()
       if (!review) return
       if (!review.review_digest) {
-        notice = `Imported ${review.agent.name}`
+        notice = `Imported ${review.agent.name}` + (Object.keys(review.agent.foreign || {}).length ? '. External model/tool/permission options are preserved for export; configure the PrAImate runtime separately.' : '')
         await load()
         return
       }
@@ -557,21 +557,22 @@
         <button class="btn sm" class:primary={know.mode === 'raw'} on:click={() => setKnowMode('raw')}
           title="The agent reads the documents directly with its file tools — best under a few MB.">Raw documents</button>
         <button class="btn sm" class:primary={know.mode === 'rag'} on:click={() => setKnowMode('rag')}
-          title="A graphify knowledge-graph index over the same folder; the agent queries it for retrieval.">RAG (graphify)</button>
+          title="Built-in local retrieval with optional Graphify indexing.">RAG</button>
       </div>
-      {#if know.mode === 'rag' && !know.graphifyInstalled}
+      {#if know.mode === 'rag' && !know.graphifyInstalled && ragBackend !== 'native'}
         <div class="banner" style="margin-top:8px">
-          RAG mode needs <strong>graphify</strong>.
+          This external backend needs <strong>Graphify</strong>; the built-in backend works without it.
           <button class="btn sm primary" style="margin-left:8px" on:click={installGraphify} disabled={knowBusy}>
             {knowBusy ? 'Installing…' : 'Install bundled graphify'}
           </button>
           <span class="card-sub"> — PrAImate's self-contained build, no Python needed. Until then the agent just reads the files directly.</span>
         </div>
       {/if}
-      {#if know.mode === 'rag' && know.graphifyInstalled}
+      {#if know.mode === 'rag'}
         <label class="lbl" style="margin-top:8px">Indexing backend</label>
         <div class="row">
           <select class="field" style="max-width:320px" bind:value={ragBackend}>
+            <option value="native">PrAImate built-in (offline · no dependencies)</option>
             <option value="claude-cli">Claude CLI (uses your install · no key)</option>
             <option value="code">Code only (no key · skips documents)</option>
             {#if know.localEndpoint}
@@ -582,7 +583,7 @@
             <option value="openai">OpenAI</option>
             <option value="kimi">Kimi (Moonshot)</option>
           </select>
-          {#if !['code', 'claude-cli', 'local', 'local-ollama'].includes(ragBackend)}
+          {#if !['native', 'code', 'claude-cli', 'local', 'local-ollama'].includes(ragBackend)}
             <input class="field grow mono" type="password" placeholder="API key for the backend" bind:value={ragKey} />
           {/if}
         </div>
@@ -596,13 +597,15 @@
               bind:value={ragModel}
             />
           </div>
-        {:else if ragBackend !== 'code' && ragBackend !== 'claude-cli'}
+        {:else if ragBackend !== 'native' && ragBackend !== 'code' && ragBackend !== 'claude-cli'}
           <div class="row" style="margin-top:6px">
             <input class="field grow mono" placeholder="model (optional — blank uses the backend default)" bind:value={ragModel} />
           </div>
         {/if}
         <div class="card-sub" style="margin-top:4px">
-          {#if ragBackend === 'claude-cli'}
+          {#if ragBackend === 'native'}
+            Offline text retrieval, source citations and Go AST relationships. No model or API key. PDF/media need Graphify or Raw mode; skipped files are listed in Agent Studio's indexing log.
+          {:else if ragBackend === 'claude-cli'}
             Uses your installed, signed-in Claude CLI to summarize documents — no API key, no extra cost. Recommended.
           {:else if ragBackend === 'code'}
             Builds a code knowledge-graph (functions, calls, imports) only. Documents/PDFs are skipped — pick an LLM backend to index those.
@@ -629,7 +632,7 @@
           <button class="btn" on:click={() => addKnowFiles(true)}>Add folder…</button>
           {#if know.mode === 'rag'}
             <button class="btn primary" on:click={buildRAG}
-              disabled={knowBusy || !know.graphifyInstalled || ((know.files || []).length === 0)}>
+              disabled={knowBusy || (ragBackend !== 'native' && !know.graphifyInstalled) || ((know.files || []).length === 0)}>
               {knowBusy ? 'Indexing…' : know.hasIndex ? 'Rebuild RAG index' : 'Build RAG index'}
             </button>
             {#if know.hasIndex}<span class="pill ok">index ready</span>{/if}

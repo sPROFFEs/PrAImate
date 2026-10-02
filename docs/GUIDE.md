@@ -233,7 +233,7 @@ quality.
 
 ## Agents
 
-The Agents page manages reusable YAML agents. The old legacy-template import
+The Agents page manages reusable YAML agents and imports Markdown agent definitions. The old legacy-template import
 button is not part of the current UI.
 
 An agent can define:
@@ -282,7 +282,7 @@ Managed Autonomous execution provides explicit lifecycle completion, bounded
 context/output, per-run working memory, artifacts, checkpoints, and live
 events. Its policy broker exposes only capabilities declared by the agent:
 contained project access, Git, argv-only commands, bounded network GET,
-Raw/Graphify knowledge, and configured MCP tools. File writes, mutating Git,
+Raw/indexed knowledge, and configured MCP tools. File writes, mutating Git,
 commands, network requests, and MCP connection/tool calls require GUI approval. The underlying
 CLI stays in safe mode and never receives those host tools directly.
 
@@ -315,14 +315,18 @@ Each agent can keep files under:
 Modes:
 
 - **raw**: the agent is instructed to read relevant files directly;
-- **rag**: Graphify indexes the folder and the agent queries that index.
+- **rag**: built-in offline retrieval indexes text/code; Graphify remains optional for semantic extraction and PDF/media.
 
 The GUI can add files or folders, edit supported text files, remove entries,
-choose a Graphify indexing backend, and rebuild the index.
+choose the built-in or a Graphify indexing backend, and rebuild the index.
+Built-in queries refresh changed files automatically and include source citations.
+See [Agent guide](AGENT_GUIDE.md#built-in-rag-and-optional-graphify) for limits.
 
 ### Agent packs
 
-Exporting an agent produces either YAML or a `.praimate-agent` pack. Packs can
+Exporting an agent produces YAML, OpenCode-compatible Markdown, or a `.praimate-agent` pack.
+Markdown preserves external frontmatter without granting its permissions to PrAImate.
+Use a pack to include knowledge files and the runtime manifest. Packs can
 contain:
 
 ```text
@@ -336,8 +340,8 @@ requirements/**
 with native-runtime behavior, so a stale advanced configuration cannot survive
 an import invisibly.
 
-Import validates a staged copy before replacing live agent data. Graphify
-output may travel with the pack, so an indexed agent can arrive pre-indexed.
+Import validates a staged copy before replacing live agent data. Built-in and
+Graphify output may travel with the pack, so an indexed agent can arrive pre-indexed.
 
 Reviewed agent packs can embed exact locked skill versions and resources.
 Import installs and approves the bundled digests; new sessions from that agent
@@ -672,8 +676,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.15
-scripts/build.sh --version=1.2.15 --with-code --with-graphify
+scripts/build.sh --version=1.2.16
+scripts/build.sh --version=1.2.16 --with-code --with-graphify
 ```
 
 Build only the GUI:

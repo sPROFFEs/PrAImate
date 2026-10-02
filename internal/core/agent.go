@@ -37,11 +37,15 @@ type Agent struct {
 	// Knowledge is the agent's knowledge-base mode: "" (none), "raw"
 	// (a folder of documents under the agent's managed dir that the
 	// agent reads with its own file tools), "rag" (the same folder
-	// plus a graphify knowledge-graph index built into
-	// knowledge/.graphify, queried with `graphify query`). The folder
+	// plus a built-in or optional Graphify index, queried through
+	// knowledge.query or the CLI maintenance command). The folder
 	// path is identical for both modes, so the format can change after
 	// the agent exists without breaking anything.
 	Knowledge string `json:"knowledge,omitempty"`
+
+	// Foreign preserves Markdown frontmatter for export. These options are
+	// data only: they never grant PrAImate permissions or select a model.
+	Foreign map[string]any `json:"foreign,omitempty"`
 
 	// Requirements describes an optional, user-triggered environment setup
 	// script carried by a .praimate-agent pack. It is never run on import.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,5 +129,43 @@ func TestAgentRequirementsCanBeCancelled(t *testing.T) {
 	case <-ctx.Done():
 	case <-time.After(time.Second):
 		t.Fatal("CancelAgentRequirements did not cancel the active script")
+	}
+}
+
+func TestAgentRAGBuiltInUsesCoreAndReportsIndex(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	a := assistantAppFixture(t)
+	a.ctx = context.Background()
+	a.ragCancels = map[string]*ragRun{}
+	raw := []byte("schema: praimate.agent/v1\nid: offline-rag\nname: Offline RAG\ninstructions: Review source material.\nsupports: [praimate-cli]\nknowledge: rag\n")
+	if _, err := a.core.ImportAgentYAML(a.ctx, raw, ""); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := core.AgentKnowledgeDir("offline-rag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, "guide.md"), []byte("# JWT\nRefresh every 900 seconds."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = a.BuildAgentRAG("offline-rag", "native", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	info, err := a.GetAgentKnowledge("offline-rag")
+	if err != nil || !info.NativeIndex || !info.HasIndex || len(info.Files) != 1 {
+		t.Fatalf("knowledge info: %#v %v", info, err)
+	}
+	if err = os.Remove(filepath.Join(dir, ".praimate-index", "index.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(filepath.Join(dir, "graphify-out"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	info, err = a.GetAgentKnowledge("offline-rag")
+	if err != nil || info.HasIndex || info.RetrievalEngine != "native" {
+		t.Fatalf("empty graph directory marked ready: %#v %v", info, err)
 	}
 }

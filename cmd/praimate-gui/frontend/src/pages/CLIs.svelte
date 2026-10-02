@@ -326,7 +326,7 @@
             <span class="pill" class:ok={t.installed} class:err={!t.installed}>{t.installed ? 'installed' : 'not installed'}</span>
           </div>
           <div class="card-sub mono">{t.binary}{t.version ? ' · ' + t.version : ''}</div>
-          {#if t.id === 'graphify'}<div class="card-sub" style="font-size:11.5px; margin-top:2px">Knowledge-graph RAG engine for agents. Required for agents using RAG knowledge mode.</div>{/if}
+          {#if t.id === 'graphify'}<div class="card-sub" style="font-size:11.5px; margin-top:2px">Knowledge-graph RAG engine for agents. Optional: extends the built-in RAG engine with semantic extraction and PDF/media support.</div>{/if}
         </div>
         <button class="btn" class:primary={!t.installed} on:click={() => showToolMethods(t)}>
           {t.installed ? 'Update…' : 'Install…'}

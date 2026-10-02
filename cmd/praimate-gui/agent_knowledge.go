@@ -25,6 +25,7 @@ import (
 
 	"github.com/sPROFFEs/PrAImate/internal/core"
 	"github.com/sPROFFEs/PrAImate/internal/installer"
+	"github.com/sPROFFEs/PrAImate/internal/knowledge"
 	"github.com/sPROFFEs/PrAImate/internal/launcher"
 	"github.com/sPROFFEs/PrAImate/internal/ollama"
 )
@@ -197,6 +198,8 @@ type AgentKnowledgeInfo struct {
 	Files             []string `json:"files"`
 	GraphifyInstalled bool     `json:"graphifyInstalled"`
 	HasIndex          bool     `json:"hasIndex"`
+	NativeIndex       bool     `json:"nativeIndex"`
+	RetrievalEngine   string   `json:"retrievalEngine"`
 	// LocalEndpoint is the saved Local-LLM endpoint (Local LLM tab), so
 	// the RAG panel can offer "Local LLM" indexing without retyping it.
 	LocalEndpoint string `json:"localEndpoint"`
@@ -221,6 +224,14 @@ func (a *App) GetAgentKnowledge(id string) (*AgentKnowledgeInfo, error) {
 		return nil, err
 	}
 	_, gOK := installer.ResolveGraphify()
+	nativeIndex := knowledge.HasIndex(dir)
+	graphifyIndex := knowledge.HasGraphifyIndex(dir)
+	retrievalEngine := "graphify"
+	hasIndex := graphifyIndex
+	if knowledge.UseNative(dir) || !graphifyIndex || !gOK {
+		retrievalEngine = "native"
+		hasIndex = nativeIndex
+	}
 	localCfg, _ := launcher.LoadConfig()
 	localEndpoint := ""
 	if localCfg != nil {
@@ -232,7 +243,9 @@ func (a *App) GetAgentKnowledge(id string) (*AgentKnowledgeInfo, error) {
 		Exists:            dirExists(dir),
 		Files:             files,
 		GraphifyInstalled: gOK,
-		HasIndex:          dirExists(dir + "/graphify-out"),
+		HasIndex:          hasIndex,
+		NativeIndex:       nativeIndex,
+		RetrievalEngine:   retrievalEngine,
 		LocalEndpoint:     localEndpoint,
 	}, nil
 }
@@ -475,6 +488,30 @@ var backendEnvKey = map[string]string{
 // fallback even if the user's PATH graphify changed. On failure the real
 // graphify error is surfaced (not a bare "exit status 1").
 func (a *App) BuildAgentRAG(id, backend, apiKey, model string) error {
+	if backend == "native" {
+		c, err := a.requireCore()
+		if err != nil {
+			return err
+		}
+		ctx, done, err := a.beginRAG(id)
+		if err != nil {
+			return err
+		}
+		defer done()
+		idx, err := c.BuildAgentKnowledge(ctx, id)
+		if err != nil {
+			return err
+		}
+		// The core can also be exercised without a Wails event runtime.
+		if a.ctx != nil && a.ctx.Value("events") != nil {
+			w := installLogWriter{ctx: a.ctx, cli: "graphify:" + id}
+			fmt.Fprintf(w, "Built-in index: %d documents, %d chunks, %d graph nodes\n", len(idx.Documents), len(idx.Chunks), len(idx.Graph.Nodes))
+			for _, warning := range idx.Skipped {
+				fmt.Fprintln(w, "Skipped:", warning)
+			}
+		}
+		return nil
+	}
 	graphifyBin, ok := installer.ResolveGraphify()
 	if !ok {
 		return fmt.Errorf("graphify is not installed — install it from the CLIs tab (Managed tools) first")
@@ -635,7 +672,7 @@ func (a *App) BuildAgentRAG(id, backend, apiKey, model string) error {
 		}
 		return fmt.Errorf("graphify extract failed: %w%s", err, hint)
 	}
-	return nil
+	return knowledge.SetEngine(dir, "graphify")
 }
 
 type ragRun struct {
@@ -811,12 +848,13 @@ func (a *App) ExportAgentPackDialog(id string) (string, error) {
 		Filters: []wruntime.FileFilter{
 			{DisplayName: "PrAImate agent pack", Pattern: "*" + core.AgentPackExt},
 			{DisplayName: "Agent YAML only", Pattern: "*.yaml;*.yml"},
+			{DisplayName: "OpenCode-compatible Markdown", Pattern: "*.md"},
 		},
 	})
 	if err != nil || path == "" {
 		return "", err
 	}
-	if strings.HasSuffix(strings.ToLower(path), ".yaml") || strings.HasSuffix(strings.ToLower(path), ".yml") {
+	if ext := strings.ToLower(filepath.Ext(path)); ext == ".yaml" || ext == ".yml" || ext == ".md" || ext == ".markdown" {
 		return path, c.ExportAgent(a.ctx, id, path)
 	}
 	return path, c.ExportAgentPack(a.ctx, id, path)

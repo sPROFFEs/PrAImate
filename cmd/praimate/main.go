@@ -32,6 +32,12 @@ var (
 )
 
 func run(args []string) int {
+	if len(args) > 0 && args[0] == "knowledge" {
+		return runKnowledge(args[1:])
+	}
+	if len(args) > 1 && args[0] == "agent" && args[1] == "convert" {
+		return runAgentConvert(args[2:])
+	}
 	if len(args) >= 1 && args[0] == "code" {
 		return runCode(args[1:])
 	}
@@ -100,6 +106,8 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "  serve [options]            Run PrAImate Core JSON-RPC daemon")
 		fmt.Fprintln(os.Stderr, "  agent run [options]        Execute an agent headless/non-interactively")
 		fmt.Fprintln(os.Stderr, "  agent status [options]     Check durable agent run status")
+		fmt.Fprintln(os.Stderr, "  agent convert [options]    Convert agent Markdown and YAML (--input, --output)")
+		fmt.Fprintln(os.Stderr, "  knowledge [action]        Offline index, query or graph export (--root)")
 		fmt.Fprintln(os.Stderr, "  model check [options]      Check model connectivity and permissions")
 		fmt.Fprintln(os.Stderr, "\nGeneral Options:")
 		fmt.Fprintln(os.Stderr, "  --version, -v              Print version and exit")

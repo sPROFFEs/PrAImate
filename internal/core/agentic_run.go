@@ -347,11 +347,7 @@ func validateManagedKnowledge(agent *Agent) error {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return fmt.Errorf("managed %s knowledge directory is unavailable; add knowledge in Agent Studio", agent.Knowledge)
 	}
-	if agent.Knowledge == "rag" {
-		if info, err := os.Stat(filepath.Join(dir, "graphify-out", "graph.json")); err != nil || info.IsDir() {
-			return errors.New("managed Graphify index is unavailable; build the RAG index in Agent Studio")
-		}
-	}
+
 	return nil
 }
 

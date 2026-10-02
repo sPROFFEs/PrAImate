@@ -147,13 +147,14 @@
   let know = null
   let knowBusy = false
   const BACKENDS = [
+    { id: 'native', label: 'PrAImate built-in (offline, no dependencies)' },
     { id: 'claude-cli', label: 'Claude CLI (no key)' },
     { id: 'local', label: 'Local LLM (Settings)' },
     { id: 'code', label: 'Code-only (AST, no docs)' },
     { id: 'openai', label: 'OpenAI (key)' },
     { id: 'claude', label: 'Claude API (key)' },
   ]
-  let ragBackend = 'claude-cli'
+  let ragBackend = 'native'
   let ragKey = ''
   let ragModel = ''
   let ragLocalModels = []
@@ -203,7 +204,7 @@
   let askSel = null
   const ASK_ACTIONS = ['Improve the wording', 'Make it more concise', 'Explain this', 'Suggest a workflow for this', 'Find issues']
 
-  $: keyNeeded = !['claude-cli', 'local', 'code', ''].includes(ragBackend)
+  $: keyNeeded = !['native', 'claude-cli', 'local', 'code', ''].includes(ragBackend)
   $: selectedCliInfo = clis.find((c) => c.id === helperCli)
   $: helperModelSupported = !!selectedCliInfo?.modelHint
   $: activeTab = tabs.find((t) => t.key === active)
@@ -217,7 +218,7 @@
 
   function fileMenu(ev, n) {
     ev.preventDefault()
-    if (n.isIndex) return // RAG-index files are managed by graphify; don't expose dangerous ops
+    if (n.isIndex) return // RAG-index files are managed by the indexing engines; don't expose dangerous ops
     ctx = {
       x: ev.clientX,
       y: ev.clientY,
@@ -364,6 +365,7 @@
       creationChoice = false
       await loadAll(imported.id)
       await bootHelperChat()
+      if (Object.keys(imported.foreign || {}).length) notice = 'External model/tool/permission options are preserved for export; configure the PrAImate runtime separately.'
     } catch (e) { error = String(e) }
     finally { creating = false }
   }
@@ -1033,7 +1035,7 @@
         <p class="sub">Documents are attached after creation and travel inside the portable agent package.</p>
         <label class="choice"><input type="radio" bind:group={guidedForm.knowledge} value="" /> No additional knowledge</label>
         <label class="choice"><input type="radio" bind:group={guidedForm.knowledge} value="raw" /> Raw documents — the CLI reads files directly</label>
-        <label class="choice"><input type="radio" bind:group={guidedForm.knowledge} value="rag" /> Indexed knowledge — Graphify retrieval</label>
+        <label class="choice"><input type="radio" bind:group={guidedForm.knowledge} value="rag" /> Indexed knowledge — built-in retrieval or optional Graphify</label>
       {:else if guidedStep === 3}
         <h2>Capabilities</h2>
         <p class="sub">These are explicit declarations, not hidden permission grants. Native runs use CLI permissions; Autonomous runs use PrAImate's approval broker.</p>
@@ -1174,14 +1176,15 @@
       </div>
 
       {#if know?.mode === 'rag'}
-        {#if !know.graphifyInstalled}
+        {#if !know.graphifyInstalled && ragBackend !== 'native'}
           <div class="hint" style="color:var(--warn); line-height: 1.45; border: 1px solid color-mix(in oklch, var(--warn) 30%, transparent); padding: 8px; border-radius: var(--radius-sm); background: color-mix(in oklch, var(--warn) 8%, transparent)">
-            ⚠️ <strong>Graphify is required</strong> for RAG knowledge indexing and retrieval. Without Graphify installed on your system, the agent cannot query its embedded knowledge graph.
+            Graphify is needed for this external backend. Choose the built-in backend for offline text and code retrieval.
           </div>
+          <button class="btn sm" on:click={() => ragBackend = 'native'}>Use built-in retrieval</button>
           <button class="btn sm primary" disabled={knowBusy} on:click={installGraphify}>{knowBusy ? 'Installing…' : 'Install graphify'}</button>
         {:else}
           <div class="hint" style="font-size: 11px; color: var(--text-dim); margin-bottom: 4px;">
-            💡 RAG index powered by <strong>graphify</strong>. Graphify must remain installed on your system for agents to query this knowledge graph at runtime.
+            Built-in retrieval indexes UTF-8 documents and code locally, with Go AST relationships. Graphify remains optional for richer semantic extraction and PDF/media. Skipped files are listed in the indexing log.
           </div>
           <div class="lbl2">RAG backend</div>
           <select class="field sm" bind:value={ragBackend}>{#each BACKENDS as b}<option value={b.id}>{b.label}</option>{/each}</select>
@@ -1209,16 +1212,16 @@
               {:else if know.hasIndex}✓ index ready ({ragElapsed.toFixed(1)}s)
               {:else}done ({ragElapsed.toFixed(1)}s){/if}
             </div>
-            <div class="rag-log-head"><span>Graphify log</span><button class="btn sm" on:click={copyRAGLog} disabled={ragLog.length === 0}>Copy log</button></div>
-            <pre class="rag-log">{ragLog.join('\n') || '(waiting for graphify output…)'}</pre>
+            <div class="rag-log-head"><span>Indexing log</span><button class="btn sm" on:click={copyRAGLog} disabled={ragLog.length === 0}>Copy log</button></div>
+            <pre class="rag-log">{ragLog.join('\n') || '(waiting for indexing output…)'}</pre>
           {:else if know.hasIndex}
-            <div class="hint" style="color:var(--ok)">✓ RAG index present (see graphify-out above).</div>
+            <div class="hint" style="color:var(--ok)">✓ {know.retrievalEngine === 'native' ? 'Built-in' : 'Graphify'} index present.</div>
           {/if}
         {/if}
       {:else if know?.mode === 'raw'}
         <div class="hint">Raw mode: the CLI reads these files directly — no indexing.</div>
       {:else}
-        <div class="hint">Pick Raw (read files directly) or RAG (graphify-indexed retrieval) to give this agent a knowledge base.</div>
+        <div class="hint">Pick Raw (read files directly) or RAG (indexed retrieval) to give this agent a knowledge base.</div>
       {/if}
       {/if}
     </div>

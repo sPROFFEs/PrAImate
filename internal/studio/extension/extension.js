@@ -531,7 +531,7 @@ async function newAgent() {
   const name = await vscode.window.showInputBox({prompt:'Agent name'}); if (!name) return;
   const purpose = await vscode.window.showInputBox({prompt:'What should this agent do?'}); if (!purpose) return;
   const preset = await vscode.window.showQuickPick([{label:'Simple',id:'simple'},{label:'Tool enabled',id:'tool-enabled'},{label:'Autonomous managed run',id:'autonomous'}],{placeHolder:'Runtime preset'}); if (!preset) return;
-  const knowledge = await vscode.window.showQuickPick([{label:'No managed knowledge',id:''},{label:'Raw files',id:'raw'},{label:'Graphify RAG',id:'rag'}]); if (!knowledge) return;
+  const knowledge = await vscode.window.showQuickPick([{label:'No managed knowledge',id:''},{label:'Raw files',id:'raw'},{label:'Indexed RAG (built-in, optional Graphify)',id:'rag'}]); if (!knowledge) return;
   const options = [{label:'Read project',id:'read_project'},{label:'Analyze code',id:'analyze_code'},{label:'Use Git',id:'use_git'},{label:'Execute commands',id:'execute_commands'},
     {label:'Modify files',id:'modify_files'},{label:'Network',id:'network'},{label:'External services',id:'external_services'}];
   const selected = await vscode.window.showQuickPick(options,{canPickMany:true,placeHolder:'Allowed capabilities'}); if (!selected) return;
@@ -556,11 +556,12 @@ async function deleteAgent(id) {
   currentStatus.agents = await call('agents.list'); refresh(); provider.notifyStatus();
 }
 async function importAgentPack() {
-  const picked = await vscode.window.showOpenDialog({title:'Import PrAImate agent',canSelectMany:false,filters:{'PrAImate agents':['praimate-agent','yaml','yml']}});
+  const picked = await vscode.window.showOpenDialog({title:'Import PrAImate agent',canSelectMany:false,filters:{'PrAImate agents':['praimate-agent','yaml','yml','md','markdown']}});
   if (!picked?.length) return;
   const selected = picked[0].fsPath;
-  if (/\.ya?ml$/i.test(selected)) {
-    await call('agents.save',{yaml:fs.readFileSync(selected,'utf8')});
+  if (/\.(ya?ml|md|markdown)$/i.test(selected)) {
+    await call('agents.import',{path:selected});
+    if (/\.(md|markdown)$/i.test(selected)) vscode.window.showInformationMessage('Imported Markdown. External model/tool/permission options are retained for export; configure the PrAImate runtime separately.');
   } else {
     const review = await call('agents.pack.inspect',{path:selected});
     await showJSON(review);
@@ -570,12 +571,13 @@ async function importAgentPack() {
   currentStatus.agents = await call('agents.list'); refresh(); provider.notifyStatus();
 }
 async function exportAgentPack(id) {
-  const target = await vscode.window.showSaveDialog({title:'Export portable PrAImate agent',defaultUri:vscode.Uri.file(path.join(workspace(),id+'.praimate-agent')),filters:{'PrAImate agent':['praimate-agent']}});
-  if (target) await call('agents.pack.export',{id,path:target.fsPath});
+  const target = await vscode.window.showSaveDialog({title:'Export portable PrAImate agent',defaultUri:vscode.Uri.file(path.join(workspace(),id+'.praimate-agent')),filters:{'PrAImate agent':['praimate-agent'],'OpenCode-compatible Markdown':['md'],'Agent YAML':['yaml']}});
+  if (target) await call(/\.(ya?ml|md|markdown)$/i.test(target.fsPath) ? 'agents.export' : 'agents.pack.export',{id,path:target.fsPath});
 }
 async function manageKnowledge(id) {
   const rows = await call('agents.knowledge.list',{id});
   const action = await vscode.window.showQuickPick([{label:'$(add) Add files…',action:'add'},{label:'$(trash) Remove a file…',action:'remove',disabled:!rows.length},
+    {label:'$(database) Build offline retrieval index',action:'index'},
     {label:'$(export) Export portable agent…',action:'export'}],{placeHolder:'Agent knowledge and distribution'});
   if (!action) return;
   if (action.action === 'add') {
@@ -584,7 +586,27 @@ async function manageKnowledge(id) {
   } else if (action.action === 'remove') {
     const selected = await vscode.window.showQuickPick(rows,{placeHolder:'Remove managed knowledge file'});
     if (selected && await vscode.window.showWarningMessage('Remove '+selected+'?',{modal:true},'Remove') === 'Remove') await call('agents.knowledge.delete',{id,path:selected});
-  } else await exportAgentPack(id);
+  } else if (action.action === 'index') {
+    if (provider.busy) throw new Error('Stop the active operation before indexing knowledge');
+    const indexRPC = rpc;
+    if (!indexRPC) throw new Error('PrAImate Core is offline');
+    provider.busy = true;
+    provider.notifyStatus();
+    try {
+      await vscode.window.withProgress({location:vscode.ProgressLocation.Notification,title:'Indexing knowledge locally',cancellable:true},async (_,token) => {
+        const cancellation = token.onCancellationRequested(() => {
+          indexRPC.request('runs.cancel').catch(err => output.appendLine('Index cancellation: '+err.message));
+        });
+        try {
+          const result = await indexRPC.request('agents.knowledge.index',{id});
+          if (!token.isCancellationRequested) await showJSON(result);
+        } catch (err) {
+          if (!token.isCancellationRequested) throw err;
+        } finally { cancellation.dispose(); }
+      });
+    } finally { provider.busy = false; provider.notifyStatus(); }
+  }
+  else await exportAgentPack(id);
 }
 async function skillLibrary(request) { return call('skills.library',request); }
 async function ensureSkillLibrary() {

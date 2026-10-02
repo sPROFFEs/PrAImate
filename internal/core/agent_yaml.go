@@ -2,9 +2,11 @@ package core
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sPROFFEs/PrAImate/internal/agentic"
@@ -38,6 +40,7 @@ type agentYAML struct {
 	Surfaces        []string                 `yaml:"surfaces,omitempty"`
 	Knowledge       string                   `yaml:"knowledge,omitempty"`
 	Requirements    *AgentRequirements       `yaml:"requirements,omitempty"`
+	Foreign         map[string]any           `yaml:"foreign,omitempty"`
 }
 
 type workflowYAML struct {
@@ -96,7 +99,19 @@ func ParseAgentYAMLForSchema(r io.Reader, maxSchema string) (*Agent, error) {
 	}
 	d := yaml.NewDecoder(bytes.NewReader(body))
 	d.KnownFields(sentinel.Schema == AgentSchemaV2)
-	if err := d.Decode(&raw); err != nil {
+	var node yaml.Node
+	if err := d.Decode(&node); err != nil {
+		return nil, fmt.Errorf("parse agent yaml: %w", err)
+	}
+	preserveFrontmatterScalars(&node, map[*yaml.Node]bool{})
+	// Decode through a decoder again to retain KnownFields validation for v2.
+	normalized, err := yaml.Marshal(&node)
+	if err != nil {
+		return nil, fmt.Errorf("parse agent yaml: %w", err)
+	}
+	validated := yaml.NewDecoder(bytes.NewReader(normalized))
+	validated.KnownFields(sentinel.Schema == AgentSchemaV2)
+	if err := validated.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("parse agent yaml: %w", err)
 	}
 	var extra yaml.Node
@@ -106,7 +121,7 @@ func ParseAgentYAMLForSchema(r io.Reader, maxSchema string) (*Agent, error) {
 	return raw.toAgent()
 }
 
-// LoadAgentFile is a thin convenience around ParseAgentYAML that also
+// LoadAgentFile selects the YAML or Markdown parser by extension and also
 // records the source path on the returned Agent.
 func LoadAgentFile(path string) (*Agent, error) {
 	f, err := os.Open(path)
@@ -114,7 +129,12 @@ func LoadAgentFile(path string) (*Agent, error) {
 		return nil, err
 	}
 	defer f.Close()
-	a, err := ParseAgentYAML(f)
+	var a *Agent
+	if ext := strings.ToLower(filepath.Ext(path)); ext == ".md" || ext == ".markdown" {
+		a, err = ParseAgentMarkdown(f, path)
+	} else {
+		a, err = ParseAgentYAML(f)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -143,6 +163,7 @@ func MarshalAgentYAML(a *Agent) ([]byte, error) {
 		Surfaces:        a.Surfaces,
 		Knowledge:       a.Knowledge,
 		Requirements:    a.Requirements,
+		Foreign:         a.Foreign,
 	}
 	if a.Schema == AgentSchemaV2 {
 		out.Schema = AgentSchemaV2
@@ -194,6 +215,7 @@ func (raw *agentYAML) toAgent() (*Agent, error) {
 		a.Schema = raw.Schema
 	}
 	a.Skills = raw.Skills
+	a.Foreign = raw.Foreign
 	a.SkillsLock = raw.SkillsLock
 
 	// Standardize MCP Server IDs (snake_case, kebab-case, mixed-case -> kebab-case slug)
@@ -232,6 +254,9 @@ func (raw *agentYAML) toAgent() (*Agent, error) {
 // is one this binary understands. Returns the FIRST problem found so
 // users iterate one fix at a time rather than getting a paragraph.
 func (a *Agent) Validate() error {
+	if _, err := json.Marshal(a.Foreign); err != nil {
+		return fmt.Errorf("foreign metadata must use JSON-compatible values and string mapping keys: %w", err)
+	}
 	if a.Schema == AgentSchemaV2 && (len(a.ID) > 128 || sanitizeAgentID(a.ID) != a.ID || a.ID == "") {
 		return fmt.Errorf("v2 agent id must be a portable lowercase slug")
 	}

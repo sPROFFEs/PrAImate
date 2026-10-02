@@ -165,7 +165,7 @@ func (a *App) AgentKnowledgeTree(id string) ([]AgentFileNode, error) {
 			Rel:     rel,
 			Name:    d.Name(),
 			IsDir:   d.IsDir(),
-			IsIndex: rel == "graphify-out" || strings.HasPrefix(rel, "graphify-out/"),
+			IsIndex: rel == "graphify-out" || strings.HasPrefix(rel, "graphify-out/") || rel == ".praimate-index" || strings.HasPrefix(rel, ".praimate-index/"),
 			Depth:   strings.Count(rel, "/"),
 		})
 		return nil

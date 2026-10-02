@@ -32,7 +32,7 @@ class RPCClient {
     return new Promise((resolve, reject) => {
       const id = this.nextID++;
       // Runs may legitimately take hours; cancellation is a separate RPC.
-      const longRunning = method === 'chats.send' || method === 'workflows.run' || ['assistant.send','assistant.health','assistant.artifacts.install','assistant.artifacts.verify','voice.begin','voice.transcribe'].includes(method);
+      const longRunning = method === 'chats.send' || method === 'workflows.run' || method === 'agents.knowledge.index' || ['assistant.send','assistant.health','assistant.artifacts.install','assistant.artifacts.verify','voice.begin','voice.transcribe'].includes(method);
       const timer = longRunning ? undefined : setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(method + ' timed out'));

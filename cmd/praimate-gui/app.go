@@ -928,9 +928,9 @@ func (a *App) ImportAgentDialog() (*core.Agent, error) {
 		return nil, err
 	}
 	path, err := wruntime.OpenFileDialog(a.ctx, wruntime.OpenDialogOptions{
-		Title: "Import agent (YAML or pack)",
+		Title: "Import agent (Markdown, YAML or pack)",
 		Filters: []wruntime.FileFilter{
-			{DisplayName: "Agents", Pattern: "*.yaml;*.yml;*" + core.AgentPackExt + ";*.zip"},
+			{DisplayName: "Agents", Pattern: "*.md;*.markdown;*.yaml;*.yml;*" + core.AgentPackExt + ";*.zip"},
 		},
 	})
 	if err != nil || path == "" {
@@ -949,7 +949,7 @@ func (a *App) ReviewAgentImportDialog() (*core.AgentPackReview, error) {
 	}
 	path, err := wruntime.OpenFileDialog(a.ctx, wruntime.OpenDialogOptions{
 		Title:   "Import agent",
-		Filters: []wruntime.FileFilter{{DisplayName: "Agents", Pattern: "*.yaml;*.yml;*" + core.AgentPackExt + ";*.zip"}},
+		Filters: []wruntime.FileFilter{{DisplayName: "Agents", Pattern: "*.md;*.markdown;*.yaml;*.yml;*" + core.AgentPackExt + ";*.zip"}},
 	})
 	if err != nil || path == "" {
 		return nil, err
@@ -958,7 +958,7 @@ func (a *App) ReviewAgentImportDialog() (*core.AgentPackReview, error) {
 	case core.AgentPackExt, ".zip":
 		return c.InspectAgentPack(a.ctx, path)
 	default:
-		agent, err := c.ImportAgent(a.ctx, path)
+		agent, err := c.ImportAgentAuto(a.ctx, path)
 		if err != nil {
 			return nil, err
 		}
@@ -988,7 +988,8 @@ func (a *App) ExportAgentDialog(agentID string) (string, error) {
 		return "", err
 	}
 	path, err := wruntime.SaveFileDialog(a.ctx, wruntime.SaveDialogOptions{
-		Title:           "Export agent YAML",
+		Title:           "Export agent (YAML or Markdown)",
+		Filters:         []wruntime.FileFilter{{DisplayName: "Agent YAML", Pattern: "*.yaml;*.yml"}, {DisplayName: "OpenCode-compatible Markdown", Pattern: "*.md"}},
 		DefaultFilename: agentID + ".yaml",
 	})
 	if err != nil || path == "" {
