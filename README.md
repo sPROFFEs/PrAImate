@@ -321,8 +321,10 @@ The database backup consists of:
 - `.praimate-state/db.sqlite` — encrypted snapshot;
 - `.praimate-state/db.sqlite.key` — password-protected key envelope.
 
-A second installation can import it when opened with the same
-database password. Workspace files, transcripts, native session slices, and
+A second installation can import it with the backup's original password.
+If this differs from the local database password, Settings asks for it and
+preserves the local password and conversations. Pending restores pause uploads
+to protect the downloaded snapshot. Workspace files, transcripts, native session slices, and
 per-chat `MEMORY.md` files are normal Git objects, not encrypted vault content.
 
 Important for upgrades: older backup commits may contain plaintext SQLite

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/url"
@@ -11,6 +12,126 @@ import (
 
 	"github.com/zalando/go-keyring"
 )
+
+func TestOpenSnapshotWithAlreadyUnlockedKeyDoesNotRequireEnvelope(t *testing.T) {
+	st := openTestStore(t, filepath.Join(t.TempDir(), "db.sqlite"))
+	snapshot := filepath.Join(t.TempDir(), "db.sqlite")
+	if err := st.Snapshot(context.Background(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	db, legacy, err := st.OpenSnapshot(snapshot, snapshot+".key")
+	if err != nil {
+		t.Fatalf("already unlocked database key could not open its own backup: %v", err)
+	}
+	defer db.Close()
+	if legacy {
+		t.Fatal("encrypted snapshot was treated as plaintext")
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM chats`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemoteSnapshotPasswordIsSeparateAndSessionOnly(t *testing.T) {
+	source := openTestStore(t, filepath.Join(t.TempDir(), "db.sqlite"))
+	targetPath := filepath.Join(t.TempDir(), "db.sqlite")
+	const localPassword = "a different local password"
+	target, err := initializeWithPassword(targetPath, localPassword, kdfParams{time: 1, memoryKiB: 8 * 1024, threads: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = target.Close() })
+	snapshot := filepath.Join(t.TempDir(), "db.sqlite")
+	if err := source.Snapshot(context.Background(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := os.ReadFile(source.EncryptionKeyPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(snapshot+".key", envelope, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	localEnvelope, err := os.ReadFile(target.EncryptionKeyPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := target.OpenSnapshot(snapshot, snapshot+".key"); !errors.Is(err, ErrBackupPasswordRequired) {
+		t.Fatalf("different remote password did not request unlock: %v", err)
+	}
+	if _, _, err := target.OpenSnapshotWithPassword(snapshot, snapshot+".key", "wrong remote password"); !errors.Is(err, ErrInvalidPassword) {
+		t.Fatalf("incorrect backup password was accepted: %v", err)
+	}
+	if len(target.backupKeys) != 0 {
+		t.Fatal("failed authentication cached a key")
+	}
+	db, legacy, err := target.OpenSnapshotWithPassword(snapshot, snapshot+".key", testDatabasePassword)
+	if err != nil || legacy {
+		t.Fatalf("explicit remote unlock: legacy=%v err=%v", legacy, err)
+	}
+	_ = db.Close()
+	db, _, err = target.OpenSnapshot(snapshot, snapshot+".key")
+	if err != nil {
+		t.Fatalf("session did not retain validated remote key: %v", err)
+	}
+	_ = db.Close()
+	if string(target.password) != localPassword {
+		t.Fatal("restore replaced the local password")
+	}
+	after, err := os.ReadFile(target.EncryptionKeyPath())
+	if err != nil || string(after) != string(localEnvelope) {
+		t.Fatal("restore replaced the local envelope")
+	}
+	if err := target.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if len(target.backupKeys) != 0 {
+		t.Fatal("backup keys survived Store.Close")
+	}
+	reopened, err := OpenWithPassword(targetPath, localPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if _, _, err := reopened.OpenSnapshot(snapshot, snapshot+".key"); !errors.Is(err, ErrBackupPasswordRequired) {
+		t.Fatalf("remote key persisted beyond the unlocked session: %v", err)
+	}
+	if err := os.Remove(snapshot + ".key"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := reopened.OpenSnapshot(snapshot, snapshot+".key"); !errors.Is(err, ErrBackupEnvelopeMissing) {
+		t.Fatalf("missing remote key was not distinguished from a password error: %v", err)
+	}
+}
+
+func TestOpenSnapshotRejectsCorruptionBeforeAcceptingKey(t *testing.T) {
+	st := openTestStore(t, filepath.Join(t.TempDir(), "db.sqlite"))
+	snapshot := filepath.Join(t.TempDir(), "db.sqlite")
+	for _, header := range []string{string(sqliteHeader), "unreadable ciphertext"} {
+		if err := os.WriteFile(snapshot, []byte(header+strings.Repeat("invalid data", 100)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		envelope, err := os.ReadFile(st.EncryptionKeyPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(snapshot+".key", envelope, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if db, _, err := st.OpenSnapshot(snapshot, snapshot+".key"); err == nil {
+			_ = db.Close()
+			t.Fatal("unreadable snapshot was accepted as a usable backup")
+		}
+		if db, _, err := st.OpenSnapshotWithPassword(snapshot, snapshot+".key", testDatabasePassword); err == nil {
+			_ = db.Close()
+			t.Fatal("correct password hid a corrupt snapshot")
+		}
+		if len(st.backupKeys) != 0 {
+			t.Fatal("unverified snapshot cached a key")
+		}
+	}
+}
 
 func TestSQLiteURIsPreserveWindowsDrivePath(t *testing.T) {
 	// filepath.ToSlash produces this form from the native backslash path when

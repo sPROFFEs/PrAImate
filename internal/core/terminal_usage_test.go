@@ -82,6 +82,24 @@ func TestTerminalUsageOpenCodeConfigAndCleanup(t *testing.T) {
 	}
 }
 
+func TestTerminalUsageCodexLaunchUsesAuthenticatedOTLPEnvironment(t *testing.T) {
+	u, err := beginUsageReceiver(context.Background(), nil, "codex", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer u.Close()
+	if u.Env["OTEL_EXPORTER_OTLP_LOGS_HEADERS"] != "Authorization=Bearer "+u.token {
+		t.Fatal("Codex launch is missing its authenticated OTLP logs header")
+	}
+	args := strings.Join(u.Args, " ")
+	if strings.Contains(args, u.token) || strings.Contains(args, "${") {
+		t.Fatal("Codex usage header exposes the token or retains an unresolved reference")
+	}
+	if !strings.Contains(args, "otel.exporter.otlp-http.headers={}") || !strings.Contains(args, "otel.log_user_prompt=false") {
+		t.Fatal("Codex launch retained unrelated headers or enabled prompt capture")
+	}
+}
+
 func TestOpenCodeUsagePluginPostsOnlyCompletedStepCounters(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -122,6 +140,9 @@ func TestTerminalUsageParsesOnlyProviderReports(t *testing.T) {
 		input, output   int
 	}{
 		{"codex", "logs", `{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"timeUnixNano":"1","attributes":[{"key":"event.name","value":{"stringValue":"codex.sse_event"}},{"key":"event.kind","value":{"stringValue":"response.completed"}},{"key":"input_token_count","value":{"intValue":"100"}},{"key":"output_token_count","value":{"intValue":"20"}}]}]}]}]}`, 100, 20},
+		// Codex 0.160.0 emits these totals as stringValue, with cache and
+		// reasoning subtotals already included. WebSocket uses the same fields.
+		{"codex", "logs", `{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"timeUnixNano":"2","body":null,"attributes":[{"key":"event.name","value":{"stringValue":"codex.websocket_event"}},{"key":"event.kind","value":{"stringValue":"response.completed"}},{"key":"input_token_count","value":{"stringValue":"120"}},{"key":"output_token_count","value":{"stringValue":"40"}},{"key":"cached_token_count","value":{"intValue":"50"}},{"key":"reasoning_token_count","value":{"intValue":"10"}}]}]}]}]}`, 120, 40},
 		{"claude", "logs", `{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"timeUnixNano":"1","attributes":[{"key":"event.name","value":{"stringValue":"api_request"}},{"key":"input_tokens","value":{"intValue":"100"}},{"key":"output_tokens","value":{"intValue":"20"}},{"key":"cache_read_tokens","value":{"intValue":"50"}}]}]}]}]}`, 150, 20},
 		{"opencode", "usage", `{"id":"step","model":"test","tokens":{"input":100,"output":20,"reasoning":10,"cache":{"read":50,"write":5}}}`, 155, 30},
 	} {

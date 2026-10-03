@@ -96,6 +96,9 @@ func (a *App) DeleteAllStoredData(projectsRoot, phrase string) error {
 		}
 	}
 	backup.SetStateSyncer(nil)
+	a.backupRestoreMu.Lock()
+	a.backupRestoreDir, a.backupRestoreErr = "", nil
+	a.backupRestoreMu.Unlock()
 	a.stopBackgroundWork()
 	if a.terms != nil {
 		a.terms.closeAll()

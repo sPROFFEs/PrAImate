@@ -142,16 +142,61 @@ var mergeTables = []mergeTableSpec{
 // schema drift) are tolerated and counted; the import keeps going so
 // one bad row can't block a whole machine's chats from arriving.
 func (c *Core) ImportBackupState(ctx context.Context, repoDir string) error {
+	return c.importBackupState(ctx, repoDir, "", false)
+}
+
+// ImportBackupStateWithPassword unlocks a remote whose envelope uses a different
+// password. It preserves the local database credentials and existing rows.
+func (c *Core) ImportBackupStateWithPassword(ctx context.Context, repoDir, password string) error {
+	return c.importBackupState(ctx, repoDir, password, true)
+}
+
+// ValidateBackupState checks that an existing snapshot can be decrypted without
+// merging its rows. Export preflight must not resurrect locally deleted chats
+// from the previous snapshot or revert local changes before creating a new one.
+func (c *Core) ValidateBackupState(ctx context.Context, repoDir string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	snap, _, err := c.openBackupState(repoDir, "", false)
+	if err != nil {
+		return err
+	}
+	if snap != nil {
+		return snap.Close()
+	}
+	return nil
+}
+
+func (c *Core) openBackupState(repoDir, password string, explicit bool) (*sql.DB, bool, error) {
 	if c.store == nil {
-		return nil
+		return nil, false, nil
 	}
 	snapPath := filepath.Join(repoDir, BackupStateDir, "db.sqlite")
 	if _, err := os.Stat(snapPath); err != nil {
-		return nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("import backup state: inspect snapshot: %w", err)
 	}
-	snap, legacyPlaintext, err := c.store.OpenSnapshot(snapPath, snapPath+".key")
+	var snap *sql.DB
+	var legacyPlaintext bool
+	var err error
+	if explicit {
+		snap, legacyPlaintext, err = c.store.OpenSnapshotWithPassword(snapPath, snapPath+".key", password)
+	} else {
+		snap, legacyPlaintext, err = c.store.OpenSnapshot(snapPath, snapPath+".key")
+	}
 	if err != nil {
-		return fmt.Errorf("import backup state: open snapshot: %w", err)
+		return nil, false, fmt.Errorf("import backup state: open snapshot: %w", err)
+	}
+	return snap, legacyPlaintext, nil
+}
+
+func (c *Core) importBackupState(ctx context.Context, repoDir, password string, explicit bool) error {
+	snap, legacyPlaintext, err := c.openBackupState(repoDir, password, explicit)
+	if err != nil || snap == nil {
+		return err
 	}
 	defer snap.Close()
 

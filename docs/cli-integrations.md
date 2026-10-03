@@ -69,6 +69,34 @@ accepts zero and string request IDs, including OpenCode's initialization request
 Reference: [OpenCode 1.18.34 release](https://github.com/anomalyco/opencode/releases/tag/v1.18.34)
 and its [run command implementation](https://github.com/anomalyco/opencode/blob/v1.18.34/packages/opencode/src/cli/cmd/run.ts).
 
+### Codex terminal usage
+
+Terminal usage is collected from Codex's completed-response OpenTelemetry logs,
+using an authenticated receiver on localhost. The launcher passes the complete
+authorization header through `OTEL_EXPORTER_OTLP_LOGS_HEADERS` and clears the
+previous exporter's configured headers for this launch. The token stays out of
+command-line arguments; prompt capture remains disabled.
+
+The previous launcher passed `Bearer ${PRAIMATE_USAGE_TOKEN}` through a Codex
+`-c` override. Codex 0.160.0 sent this text literally, so the receiver rejected
+the reports and no terminal tokens reached the dashboard. Install the corrected
+PrAImate build and reopen the terminal; an already-running CLI retains its old
+launch configuration. Previously rejected reports are not reconstructed from
+Codex histories.
+
+The optional installed-binary regression test uses a localhost Responses fixture,
+ephemeral authentication, read-only execution and temporary runtime state. It
+checks Codex's real exporter against the encrypted usage dashboard, including
+model attribution and cache/reasoning totals without duplicate counting:
+
+```sh
+PRAIMATE_TEST_CODEX_BINARY=/absolute/path/to/codex go test ./internal/core -run '^TestCodexInstalledTerminalUsageCompatibility$' -count=1 -v
+```
+
+The test was verified with Codex 0.160.0 and requires its isolation flags. No real
+account or subscription is used. Ordinary test runs skip it when the environment
+variable is absent. See the official [Codex telemetry configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#observability-and-telemetry).
+
 ### GitHub Copilot CLI
 
 - Install the official `@github/copilot` npm package from **CLIs**; Node/npm are prerequisites.

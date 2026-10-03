@@ -283,6 +283,8 @@ export const api = {
   installPraimateCode: () => call('InstallPraimateCode'),
 
   backupStatus: () => call('BackupStatus'),
+
+  restoreBackupState: (password) => call('RestoreBackupState', password || ''),
   setBackupEnabled: (on) => call('SetBackupEnabled', on),
   configureBackup: (mode, remoteURL) => call('ConfigureBackup', mode, remoteURL || ''),
   setBackupRemote: (url) => call('SetBackupRemote', url),

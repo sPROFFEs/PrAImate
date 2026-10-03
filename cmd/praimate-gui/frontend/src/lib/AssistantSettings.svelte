@@ -47,6 +47,9 @@
       <label>Selected model <select bind:value={config.model_id} on:change={selectModel}>
         <option value="lfm-efficient">LFM2.5 350M · Efficient</option><option value="qwen-quality">Qwen3.5 0.8B · Quality</option><option value="existing">Existing Local LLM endpoint</option>
       </select></label>
+      {#if config.model_id === 'lfm-efficient'}
+        <p class="card-sub">Best for brief replies and greetings. Choose Quality for more reliable application actions.</p>
+      {/if}
       {#if config.model_id === 'existing'}
         <p class="subtitle">Use a configured Local LLM host URL and exact model ID. Saved host credentials stay in the backend.</p>
         {#if hosts.length}<label>Saved Local LLM profile <select on:change={chooseHost}><option value="">Choose a saved profile…</option>{#each hosts as host}<option value={host.id}>{host.name}</option>{/each}</select></label>{/if}

@@ -2,6 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte'
   import { api } from '../lib/api.js'
   import AssistantSettings from '../lib/AssistantSettings.svelte'
+  import { focusDialog } from '../lib/focusDialog.js'
   import { showToast } from '../lib/stores.js'
   import {
     ACCENT_PRESETS,
@@ -140,6 +141,9 @@
   let bkRemote = ''        // remote URL input
   let bkDiverged = null    // {localCommits, remoteCommits} when resolution needed
   let bkSetupMode = 'new'  // 'new' | 'existing'
+  let bkRestoreDialog = false
+  let bkRestorePassword = ''
+  let bkRestoreError = ''
 
   function fmtDate(s) {
     try { return new Date(s).toLocaleString() } catch { return s }
@@ -149,9 +153,36 @@
     try {
       bk = await api.backupStatus()
       bkRemote = bk?.remoteUrl || ''
+      if (bk?.restorePending && bk.restorePasswordRequired) bkRestoreDialog = true
     } catch (e) {
       bk = null
       error = String(e)
+    }
+  }
+
+  function closeBackupRestore() {
+    if (bkBusy) return
+    bkRestorePassword = ''
+    bkRestoreDialog = false
+  }
+
+  async function bkRestore() {
+    if (bkBusy) return
+    bkBusy = 'Restore'
+    bkRestoreError = ''
+    const password = bkRestorePassword
+    bkRestorePassword = ''
+    try {
+      bk = await api.restoreBackupState(password)
+      bkRestoreDialog = false
+      bkDiverged = null
+      error = ''
+      bkMsg = 'Backup restored. Local conversations and database password were preserved.'
+    } catch (e) {
+      bkRestoreError = String(e).replace(/^Error:\s*/, '')
+      await bkLoad()
+    } finally {
+      bkBusy = ''
     }
   }
 
@@ -167,6 +198,7 @@
       bkMsg = label + ' ✓'
     } catch (e) {
       error = String(e)
+      await bkLoad()
     } finally {
       bkBusy = ''
     }
@@ -183,6 +215,7 @@
       applyBackupResult(res)
     } catch (e) {
       error = String(e)
+      await bkLoad()
     } finally {
       bkBusy = ''
     }
@@ -524,7 +557,7 @@
         </div>
       {#if bk.lastSyncAt}<div class="card-sub">last sync: {fmtDate(bk.lastSyncAt)}{#if bk.machineId} · machine: <span class="mono">{bk.machineId}</span>{/if}</div>{/if}
       <div class="card-sub" style="margin-top:6px">
-        Database snapshots use your PrAImate database password. Restoring on another system requires the same password; workspace files remain normal Git content.
+        Database snapshots use the password of the installation that created them. If it differs from your local password, PrAImate asks for the backup password. Workspace files remain normal Git content.
       </div>
       </div>
       {#if bk.initialized}
@@ -535,16 +568,27 @@
       {/if}
     </div>
 
+    {#if bk.restorePending}
+      <div class="card" role="status" style="margin-top:12px; border-color:var(--warn)">
+        <div class="card-title">Finish restoring the downloaded backup</div>
+        <p class="card-sub">{bk.restoreError}</p>
+        <p class="card-sub">Sync and upload are paused to protect the downloaded snapshot. Your local database password and existing conversations stay intact.</p>
+        <button class="btn primary" disabled={!!bkBusy} on:click={() => { bkRestoreError = ''; bkRestoreDialog = true }}>
+          {bk.restorePasswordRequired ? 'Enter backup password' : 'Retry restore'}
+        </button>
+      </div>
+    {/if}
+
     {#if bk.enabled}
       <label class="lbl" for="backup-remote-url">Remote URL (HTTPS or SSH — uses your Git credentials)</label>
       <div class="row">
         <input id="backup-remote-url" class="field grow mono" placeholder="git@github.com:you/praimate-backup.git" bind:value={bkRemote} />
         <button class="btn" disabled={!!bkBusy || !bkRemote.trim()} on:click={bkTest}>Test</button>
-        <button class="btn" disabled={!!bkBusy} on:click={() => bkOp('Save remote', () => api.setBackupRemote(bkRemote))}>Save</button>
+        <button class="btn" disabled={!!bkBusy || bk.restorePending} on:click={() => bkOp('Save remote', () => api.setBackupRemote(bkRemote))}>Save</button>
       </div>
 
       <div class="row" style="margin-top:12px">
-        <button class="btn primary" disabled={!!bkBusy || !bk.remoteUrl} on:click={bkSync}>
+        <button class="btn primary" disabled={!!bkBusy || !bk.remoteUrl || bk.restorePending} on:click={bkSync}>
           {bkBusy === 'Sync' ? 'Syncing…' : 'Sync now'}
         </button>
         <button class="btn" disabled={!!bkBusy}
@@ -558,9 +602,9 @@
           </button>
         {/if}
         <div class="grow"></div>
-        <button class="btn danger" disabled={!!bkBusy || !bk.remoteUrl}
+        <button class="btn danger" disabled={!!bkBusy || !bk.remoteUrl || bk.restorePending}
           on:click={() => confirm('Force-push local state over the remote?') && bkOp('Force push', api.backupForcePush)}>Force push</button>
-        <button class="btn danger" disabled={!!bkBusy || !bk.remoteUrl}
+        <button class="btn danger" disabled={!!bkBusy || !bk.remoteUrl || bk.restorePending}
           on:click={() => confirm('Discard ALL local changes and reset to the remote?') && confirm('Really? Local commits and uncommitted changes will be lost.') && bkOp('Reset from remote', api.backupResetFromRemote)}>Reset from remote</button>
         <button class="btn danger" disabled={!!bkBusy || !bk.remoteUrl}
           on:click={() => bkOp('Disconnect', api.backupDisconnect)}>Disconnect</button>
@@ -568,7 +612,7 @@
 
       {#if bkMsg}<div class="card-sub" style="margin-top:8px">{bkMsg}</div>{/if}
 
-      {#if bkDiverged}
+      {#if bkDiverged && !bk.restorePending}
         <div class="card" style="margin-top:10px; border-color: var(--warn)">
           <div class="card-title">Diverged — local and remote both have new commits</div>
           <div class="row" style="align-items: flex-start; margin-top:8px">
@@ -742,6 +786,12 @@
     width: 100%;
     box-sizing: border-box;
   }
+  .backup-restore-modal {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-bright);
+    box-shadow: var(--shadow-overlay);
+    width: min(460px, 100%);
+  }
   .password-backup-note {
     margin: 14px 0 0;
     padding: 10px 12px;
@@ -753,6 +803,31 @@
     line-height: 1.5;
   }
 </style>
+
+{#if bkRestoreDialog && bk?.restorePending}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="modal-backdrop" on:click|self={closeBackupRestore}>
+    <div class="modal-content password-modal backup-restore-modal" role="dialog" aria-modal="true" aria-labelledby="backup-restore-title" use:focusDialog={{ onClose: closeBackupRestore }}>
+      <h2 id="backup-restore-title">Restore encrypted backup</h2>
+      <p class="subtitle">Enter the password used on the installation that created this backup. Your local database password will stay the same.</p>
+      <form on:submit|preventDefault={bkRestore}>
+        {#if bk.restorePasswordRequired}
+          <label class="lbl" for="backup-restore-password">Backup password</label>
+          <input id="backup-restore-password" class="field" type="password" autocomplete="off" bind:value={bkRestorePassword} disabled={!!bkBusy} />
+        {:else}
+          <p class="card-sub">{bk.restoreError}</p>
+        {/if}
+        {#if bkRestoreError}<p class="error" role="alert">{bkRestoreError}</p>{/if}
+        <p class="password-backup-note">The password is not saved. A verified backup key stays in memory until PrAImate closes. Restore imports the downloaded snapshot without repeating Git operations.</p>
+        <div class="row" style="justify-content:flex-end; margin-top:16px">
+          <button class="btn" type="button" on:click={closeBackupRestore} disabled={!!bkBusy}>Later</button>
+          <button class="btn primary" type="submit" disabled={!!bkBusy || (bk.restorePasswordRequired && !bkRestorePassword)}>{bkBusy === 'Restore' ? 'Restoring…' : 'Restore backup'}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
 
 {#if changePasswordModal}
   <!-- svelte-ignore a11y-click-events-have-key-events -->

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -41,6 +42,42 @@ func TestHTTPStructuredFallbackAndUsage(t *testing.T) {
 	}
 	if calls != 2 || input != 17 || output != 8 {
 		t.Fatalf("calls %d usage %d/%d", calls, input, output)
+	}
+}
+
+func TestHTTPIncludesExecutedActionDialogue(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []struct{ Role, Content string }
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if len(body.Messages) != 4 || body.Messages[1].Content != "Open settings" || body.Messages[2].Role != "assistant" || body.Messages[3].Role != "user" || !strings.Contains(body.Messages[3].Content, `"opened":"settings"`) {
+			t.Error("actual action/result was not delivered as dialogue")
+		}
+		w.Write([]byte(`{"choices":[{"message":{"content":"{\"type\":\"final\",\"message\":\"Opened settings\"}"},"finish_reason":"stop"}]}`))
+	}))
+	defer server.Close()
+	p := HTTPProvider{Endpoint: server.URL, Model: "assistant", Managed: true}
+	_, err := p.Generate(context.Background(), Request{Config: DefaultConfig(), Message: "Open settings", Observations: []Observation{{Decision: Decision{Type: "action", Action: "ui.navigate", Arguments: map[string]any{"page": "settings"}}, Result: `{"ok":true,"result":{"opened":"settings"}}`}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManagedRuntimeNeverDropsDecisionConstraints(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"response_format unsupported"}`))
+	}))
+	defer server.Close()
+	p := HTTPProvider{Endpoint: server.URL, Model: "assistant", Managed: true}
+	if _, err := p.Generate(context.Background(), Request{Config: DefaultConfig()}); err == nil || calls != 1 {
+		t.Fatal("managed runtime silently disabled structured decoding")
 	}
 }
 func TestHTTPRejectsPartialAction(t *testing.T) {
@@ -120,5 +157,51 @@ func TestHTTPExistingEndpointOptionalParameters(t *testing.T) {
 	}
 	if calls != 3 {
 		t.Fatalf("calls %d", calls)
+	}
+}
+
+func TestManagedSchemaConstrainsDiscoveredNamesAndArguments(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Format struct {
+				Definition struct {
+					Schema struct {
+						Branches []struct {
+							Properties struct {
+								Type   struct{ Const string }
+								Action struct {
+									Const string
+									Type  string
+								}
+								Arguments struct {
+									Properties           map[string]struct{ Type string }
+									Required             []string
+									AdditionalProperties bool
+								}
+							}
+						} `json:"oneOf"`
+					}
+				} `json:"json_schema"`
+			} `json:"response_format"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		branches := body.Format.Definition.Schema.Branches
+		if len(branches) != 2 || branches[0].Properties.Type.Const != "final" {
+			t.Fatalf("missing conversation choice or extra undiscovered actions: %+v", branches)
+		}
+		action := branches[1].Properties
+		if action.Action.Const != "ui.navigate" || action.Action.Type != "" || action.Arguments.AdditionalProperties || len(action.Arguments.Properties) != 1 || action.Arguments.Properties["page"].Type != "string" || len(action.Arguments.Required) != 1 || action.Arguments.Required[0] != "page" {
+			t.Error("schema permits invented actions or invalid arguments")
+		}
+		w.Write([]byte(`{"choices":[{"message":{"content":"{\"type\":\"final\",\"message\":\"Hola\"}"},"finish_reason":"stop"}]}`))
+	}))
+	defer server.Close()
+	p := HTTPProvider{Endpoint: server.URL, Model: "assistant", Managed: true}
+	_, err := p.Generate(context.Background(), Request{Config: DefaultConfig(), Actions: []Action{{Name: "ui.navigate", Fields: map[string]Field{"page": {Type: "string", Required: true}}}}})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

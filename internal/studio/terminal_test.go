@@ -59,6 +59,9 @@ func TestTerminalPlanUsesSelectedCLIAndModelWithoutMutatingSession(t *testing.T)
 		if plan.Env["PATH"] != dir || plan.Env["PRAIMATE_STUDIO_TOKEN"] != "" {
 			t.Fatal("terminal exposed unexpected environment")
 		}
+		if cli == "codex" && plan.Env["OTEL_EXPORTER_OTLP_LOGS_HEADERS"] != "Authorization=Bearer "+plan.Env["PRAIMATE_USAGE_TOKEN"] {
+			t.Fatal("Codex terminal lost its authenticated usage exporter")
+		}
 		if cli != "praimate-cli" && cli != "antigravity" && plan.UsageID == "" {
 			t.Fatal("missing terminal usage receiver")
 		}

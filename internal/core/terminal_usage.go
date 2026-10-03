@@ -64,8 +64,12 @@ func beginUsageReceiver(ctx context.Context, c *Core, cli, model string, base ma
 	u.server = &http.Server{Handler: http.HandlerFunc(u.receive), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, MaxHeaderBytes: 16 << 10}
 	u.Env["PRAIMATE_USAGE_TOKEN"] = u.token
 	if cli == "codex" {
+		// Codex's -c header overrides keep ${VAR} references literal. Let its
+		// OTLP exporter read the actual header from the signal-specific env,
+		// and clear inherited headers when redirecting logs to our receiver.
+		u.Env["OTEL_EXPORTER_OTLP_LOGS_HEADERS"] = "Authorization=Bearer " + u.token
 		// Scalar overrides also survive Windows batch launch quoting.
-		u.Args = []string{"-c", "otel.exporter.otlp-http.endpoint=" + u.endpoint + "/v1/logs", "-c", "otel.exporter.otlp-http.protocol=json", "-c", "otel.exporter.otlp-http.headers.Authorization=Bearer ${PRAIMATE_USAGE_TOKEN}", "-c", "otel.log_user_prompt=false"}
+		u.Args = []string{"-c", "otel.exporter.otlp-http.endpoint=" + u.endpoint + "/v1/logs", "-c", "otel.exporter.otlp-http.protocol=json", "-c", "otel.exporter.otlp-http.headers={}", "-c", "otel.log_user_prompt=false"}
 	} else if cli == "opencode" || cli == "praimate-code" {
 		dir, err := os.MkdirTemp("", "praimate-usage-")
 		if err != nil {

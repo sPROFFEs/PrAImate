@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -13,18 +14,22 @@ import (
 
 	"github.com/sPROFFEs/PrAImate/internal/backup"
 	"github.com/sPROFFEs/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/store"
 )
 
 // BackupState is everything the Backup settings section renders:
 // config toggles + live repo status.
 type BackupState struct {
-	Supported  bool   `json:"supported"` // false when no workspaces root configured
-	Enabled    bool   `json:"enabled"`
-	RemoteURL  string `json:"remoteUrl"`
-	AutoSync   bool   `json:"autoSync"`
-	ForceLocal bool   `json:"forceLocal"`
-	LastSyncAt string `json:"lastSyncAt"` // RFC3339, "" = never
-	MachineID  string `json:"machineId"`
+	Supported               bool   `json:"supported"` // false when no workspaces root configured
+	Enabled                 bool   `json:"enabled"`
+	RemoteURL               string `json:"remoteUrl"`
+	AutoSync                bool   `json:"autoSync"`
+	ForceLocal              bool   `json:"forceLocal"`
+	LastSyncAt              string `json:"lastSyncAt"` // RFC3339, "" = never
+	MachineID               string `json:"machineId"`
+	RestorePending          bool   `json:"restorePending"`
+	RestorePasswordRequired bool   `json:"restorePasswordRequired"`
+	RestoreError            string `json:"restoreError,omitempty"`
 
 	Initialized    bool   `json:"initialized"`
 	Clean          bool   `json:"clean"`
@@ -98,7 +103,59 @@ func (a *App) backupState(ctx context.Context) (*BackupState, error) {
 	if backup.IsGitRepo(dir) {
 		st, _ = backup.CurrentStatus(ctx, dir) // best-effort (offline OK)
 	}
-	return backupStateFrom(cfg, st), nil
+	out := backupStateFrom(cfg, st)
+	a.backupRestoreMu.Lock()
+	out.RestorePending = a.backupRestoreDir != ""
+	out.RestorePasswordRequired = errors.Is(a.backupRestoreErr, store.ErrBackupPasswordRequired) || errors.Is(a.backupRestoreErr, store.ErrInvalidPassword)
+	if a.backupRestoreErr != nil {
+		out.RestoreError = a.backupRestoreErr.Error()
+	}
+	a.backupRestoreMu.Unlock()
+	return out, nil
+}
+
+// RestoreBackupState retries only the downloaded snapshot import, without
+// rerunning Git reset, merge, or pull. The password never enters config or argv.
+func (a *App) RestoreBackupState(password string) (*BackupState, error) {
+	if a.core == nil {
+		return nil, errors.New("unlock the local database before restoring a backup")
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 120*time.Second)
+	defer cancel()
+	a.backupRestoreMu.Lock()
+	dir := a.backupRestoreDir
+	if dir == "" {
+		a.backupRestoreMu.Unlock()
+		return nil, errors.New("no backup restore is pending")
+	}
+	var err error
+	if password == "" {
+		err = a.core.ImportBackupState(ctx, dir)
+	} else {
+		err = a.core.ImportBackupStateWithPassword(ctx, dir, password)
+	}
+	if err == nil {
+		err = applyBackupConfig(dir)
+	}
+	if err != nil {
+		a.backupRestoreErr = err
+	} else {
+		a.backupRestoreDir, a.backupRestoreErr = "", nil
+	}
+	a.backupRestoreMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return a.backupState(ctx)
+}
+
+func (a *App) requireCompletedBackupRestore() error {
+	a.backupRestoreMu.Lock()
+	defer a.backupRestoreMu.Unlock()
+	if a.backupRestoreDir != "" {
+		return fmt.Errorf("backup restore is pending; finish it in Settings before syncing: %w", a.backupRestoreErr)
+	}
+	return nil
 }
 
 // BackupStatus returns the current backup config + live repo status.
@@ -201,6 +258,9 @@ func (a *App) ConfigureBackup(mode, remoteURL string) (*BackupSyncResult, error)
 // SetBackupRemote saves the remote URL and (when the repo exists)
 // points origin at it immediately.
 func (a *App) SetBackupRemote(url string) (*BackupState, error) {
+	if err := a.requireCompletedBackupRestore(); err != nil {
+		return nil, err
+	}
 	cfg, dir, err := a.backupConfig()
 	if err != nil || cfg == nil {
 		return &BackupState{Supported: false}, err
@@ -237,6 +297,9 @@ func (a *App) TestBackupRemote(url string) (string, error) {
 // nothing. On divergence it returns the two commit lists so the
 // frontend can offer merge / rebase / force-push / reset.
 func (a *App) BackupSyncNow() (*BackupSyncResult, error) {
+	if err := a.requireCompletedBackupRestore(); err != nil {
+		return nil, err
+	}
 	cfg, dir, err := a.backupConfig()
 	if err != nil || cfg == nil {
 		return nil, fmt.Errorf("backup unavailable: no workspaces root configured")
@@ -280,6 +343,9 @@ func (a *App) BackupSyncNow() (*BackupSyncResult, error) {
 // back as errors naming the strategy; the merge/rebase attempt is
 // aborted so the repo isn't left mid-operation.
 func (a *App) ResolveBackupDivergence(strategy string) (*BackupState, error) {
+	if err := a.requireCompletedBackupRestore(); err != nil {
+		return nil, err
+	}
 	cfg, dir, err := a.backupConfig()
 	if err != nil || cfg == nil {
 		return nil, fmt.Errorf("backup unavailable")
@@ -325,6 +391,9 @@ func (a *App) ResolveBackupDivergence(strategy string) (*BackupState, error) {
 // BackupForcePush commits local changes and force-pushes over the
 // remote. The frontend confirms before calling.
 func (a *App) BackupForcePush() (*BackupState, error) {
+	if err := a.requireCompletedBackupRestore(); err != nil {
+		return nil, err
+	}
 	cfg, dir, err := a.backupConfig()
 	if err != nil || cfg == nil {
 		return nil, fmt.Errorf("backup unavailable")
@@ -347,6 +416,9 @@ func (a *App) BackupForcePush() (*BackupState, error) {
 // BackupResetFromRemote discards local state in favor of the remote.
 // DESTRUCTIVE — the frontend double-confirms before calling.
 func (a *App) BackupResetFromRemote() (*BackupState, error) {
+	if err := a.requireCompletedBackupRestore(); err != nil {
+		return nil, err
+	}
 	cfg, dir, err := a.backupConfig()
 	if err != nil || cfg == nil {
 		return nil, fmt.Errorf("backup unavailable")

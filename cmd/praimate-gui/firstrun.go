@@ -99,8 +99,10 @@ func (a *App) CompleteFirstRun(root string, seedSamples bool, seedAgents bool, c
 		// A new machine must adopt the encrypted DB snapshot before it creates
 		// a local password/key. The next screen then asks for the backup's
 		// existing password and opens the restored DB directly.
-		if err := a.installClonedDatabase(root); err != nil {
-			return err
+		if a.st == nil {
+			if err := a.installClonedDatabase(root); err != nil {
+				return err
+			}
 		}
 		cfg.BackupEnabled = true
 		cfg.BackupRemoteURL = cloneURL
@@ -129,7 +131,7 @@ func (a *App) CompleteFirstRun(root string, seedSamples bool, seedAgents bool, c
 		if c, err := core.New(core.Options{Store: a.st, WorkspacesRoot: root}); err == nil {
 			a.core = c
 			c.SetApprovalProvider(a.approvalProvider)
-			backup.SetStateSyncer(coreStateSyncer{core: c})
+			backup.SetStateSyncer(coreStateSyncer{core: c, app: a})
 		}
 	}
 
@@ -162,8 +164,20 @@ func (a *App) installClonedDatabase(root string) error {
 	if snapshotErr != nil {
 		return fmt.Errorf("restore backup database: %w", snapshotErr)
 	}
+	legacyPlaintext := false
 	if envelopeErr != nil {
-		return fmt.Errorf("restore backup password envelope: %w", envelopeErr)
+		if errors.Is(envelopeErr, os.ErrNotExist) {
+			needsKey, err := store.BackupNeedsKeyEnvelope(snapshot)
+			if err != nil {
+				return fmt.Errorf("inspect backup database: %w", err)
+			}
+			if needsKey {
+				return store.ErrBackupEnvelopeMissing
+			}
+			legacyPlaintext = true
+		} else {
+			return fmt.Errorf("restore backup password envelope: %w", envelopeErr)
+		}
 	}
 	if snapshotInfo.IsDir() {
 		return errors.New("restore backup database: snapshot is a directory")
@@ -180,9 +194,11 @@ func (a *App) installClonedDatabase(root string) error {
 	if err := copyNewPrivateFile(snapshot, a.dbPath); err != nil {
 		return fmt.Errorf("restore backup database: %w", err)
 	}
-	if err := copyNewPrivateFile(envelope, store.KeyPath(a.dbPath)); err != nil {
-		_ = os.Remove(a.dbPath) // rollback the DB created by this function
-		return fmt.Errorf("restore backup password envelope: %w", err)
+	if !legacyPlaintext {
+		if err := copyNewPrivateFile(envelope, store.KeyPath(a.dbPath)); err != nil {
+			_ = os.Remove(a.dbPath) // rollback the DB created by this function
+			return fmt.Errorf("restore backup password envelope: %w", err)
+		}
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -201,6 +202,34 @@ func TestImportBackupState_RejectsDifferentDatabasePassword(t *testing.T) {
 	}
 	if err := target.ImportBackupState(ctx, repo); err == nil {
 		t.Fatal("encrypted backup opened with a different database password")
+	}
+	remoteChat, err := source.CreateChat(ctx, CreateChatRequest{Title: "remote password restore", CLIAgent: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localChat, err := target.CreateChat(ctx, CreateChatRequest{Title: "local password preserved", CLIAgent: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := source.ExportBackupState(ctx, repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := target.ImportBackupStateWithPassword(ctx, repo, "wrong backup password"); !errors.Is(err, store.ErrInvalidPassword) {
+		t.Fatalf("wrong remote password accepted: %v", err)
+	}
+	if _, err := target.GetChat(ctx, remoteChat.ID); err == nil {
+		t.Fatal("failed authentication imported remote rows")
+	}
+	if err := target.ImportBackupStateWithPassword(ctx, repo, "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{remoteChat.ID, localChat.ID} {
+		if _, err := target.GetChat(ctx, id); err != nil {
+			t.Fatalf("restore lost chat %s: %v", id, err)
+		}
+	}
+	if err := target.ImportBackupState(ctx, repo); err != nil {
+		t.Fatalf("session auto-import: %v", err)
 	}
 }
 

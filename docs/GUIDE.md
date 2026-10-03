@@ -591,9 +591,28 @@ Before a backup commit, PrAImate writes:
 ```
 
 The snapshot remains encrypted and the adjacent file remains a
-password-protected envelope. A second Windows or Linux installation can merge
-the snapshot only when its local database is unlocked with the same password.
+password-protected envelope. A fresh Windows or Linux installation adopts the
+snapshot and asks for its original password. An installation with existing
+data can use its own password: when the remote uses a different one, Settings
+asks for the backup password and merges the downloaded snapshot without changing
+the local password or deleting local chats. A successfully verified backup key
+is retained only in memory until the app closes; the backup password is not saved.
 The password and raw key are not committed.
+
+An unfinished restore blocks snapshot exports and uploads so Sync cannot replace
+the downloaded copy. Enter its password in **Settings → Git backup → Enter backup
+password** to retry the import without repeating Git reset/pull/merge. This also
+protects an unreadable remote snapshot after restarting PrAImate.
+
+Old plaintext SQLite snapshots do not need an envelope and are encrypted during
+first-run password setup. An encrypted snapshot whose key is already unlocked
+can also be read locally without its envelope. To restore that snapshot on a new
+machine, `.praimate-state/db.sqlite.key` is required: retrieve it from the original
+installation or a complete backup. A new key cannot decrypt an existing snapshot.
+
+Background Git commands, including the auxiliary origin probe, suppress Windows
+console creation. Git credential helpers may still show their own authentication
+dialogs when sign-in is required.
 
 The encrypted snapshot preserves structured credentials so a restore is
 complete. Anyone with the repository can attempt offline password guessing,

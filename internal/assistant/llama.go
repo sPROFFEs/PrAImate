@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -71,8 +70,12 @@ func (p *LlamaProvider) Start(ctx context.Context) error {
 	args := []string{"-m", p.ModelPath, "--host", "127.0.0.1", "--port", strconv.Itoa(port), "-c", strconv.Itoa(p.Config.Context), "-t", strconv.Itoa(p.Config.Threads), "-ngl", strconv.Itoa(p.Config.GPULayers), "-b", strconv.Itoa(p.Config.Batch), "--parallel", "1", "--alias", "assistant"}
 	cmd := exec.Command(p.Runtime, args...)
 	cmd.Dir = filepath.Dir(p.Runtime)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	if err := prepareRuntimeCommand(cmd); err != nil {
+		return err
+	}
+	var diagnostic runtimeDiagnostic
+	cmd.Stdout = &diagnostic
+	cmd.Stderr = &diagnostic
 	// Authentication stays outside argv/logs and is never part of model context.
 	for _, env := range os.Environ() {
 		if !strings.HasPrefix(env, "LLAMA_API_KEY=") && !strings.HasPrefix(env, "LLAMA_ARG_") {
@@ -81,7 +84,7 @@ func (p *LlamaProvider) Start(ctx context.Context) error {
 	}
 	cmd.Env = append(cmd.Env, "LLAMA_API_KEY="+key)
 	if err := cmd.Start(); err != nil {
-		return err
+		return fmt.Errorf("start managed Assistant runtime: %w", err)
 	}
 	p.cmd = cmd
 	p.done = make(chan struct{})
@@ -92,22 +95,24 @@ func (p *LlamaProvider) Start(ctx context.Context) error {
 	defer cancel()
 	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()
+	var lastHealth error
 	for {
 		select {
 		case <-done:
 			p.cmd = nil
 			p.http = nil
-			return errors.New("managed Assistant runtime exited before becoming ready; verify runtime/model compatibility")
+			return fmt.Errorf("managed Assistant runtime exited before becoming ready (%s)%s", runtimeExitDescription(cmd.ProcessState.ExitCode()), diagnostic.detail(key))
 		case <-readyCtx.Done():
 			_ = cmd.Process.Kill()
 			<-done
 			p.cmd = nil
 			p.http = nil
-			return readyCtx.Err()
+			return fmt.Errorf("managed Assistant runtime did not become ready: %w; last health check: %v%s", readyCtx.Err(), lastHealth, diagnostic.detail(key))
 		case <-ticker.C:
 			probeCtx, cancel := context.WithTimeout(readyCtx, time.Second)
 			err := p.http.Health(probeCtx)
 			cancel()
+			lastHealth = err
 			if err == nil {
 				return nil
 			}

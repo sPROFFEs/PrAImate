@@ -69,11 +69,17 @@ func originTargetsInternalHost(ctx context.Context, dir string, args []string) b
 	if strings.TrimSpace(workdir) == "" {
 		return false
 	}
-	out, err := exec.CommandContext(ctx, "git", "-C", workdir, "config", "--get", "remote.origin.url").Output()
+	out, err := originCommand(ctx, workdir).Output()
 	if err != nil {
 		return false
 	}
 	return ContainsInternalHost(string(out))
+}
+
+func originCommand(ctx context.Context, workdir string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "git", "-C", workdir, "config", "--get", "remote.origin.url")
+	hideConsole(cmd)
+	return cmd
 }
 
 func gitWorkDir(dir string, args []string) string {

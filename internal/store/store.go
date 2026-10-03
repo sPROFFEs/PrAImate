@@ -11,6 +11,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
 	"errors"
@@ -40,6 +41,7 @@ type Store struct {
 	key          []byte
 	credentialMu sync.RWMutex
 	password     []byte
+	backupKeys   map[[32]byte][]byte // validated envelope keys, this unlocked session only
 }
 
 // openWithKey opens (or creates) the database with an already-unwrapped key.
@@ -125,6 +127,10 @@ func (s *Store) Close() error {
 	zeroBytes(s.password)
 	s.key = nil
 	s.password = nil
+	for hash, key := range s.backupKeys {
+		zeroBytes(key)
+		delete(s.backupKeys, hash)
+	}
 	return err
 }
 
@@ -171,15 +177,44 @@ func (s *Store) Snapshot(ctx context.Context, dest string) error {
 	return nil
 }
 
-// OpenSnapshot opens either a current encrypted backup snapshot (using its
-// adjacent envelope and this Store's in-memory password) or a legacy plaintext
-// snapshot. The boolean is true only for the legacy plaintext format.
+var (
+	ErrBackupPasswordRequired = errors.New("backup password required; enter the password used to create this backup")
+	ErrBackupEnvelopeMissing  = errors.New("encrypted backup key envelope is missing; restore db.sqlite.key from the original installation or a complete backup")
+)
+
+// BackupNeedsKeyEnvelope distinguishes old plaintext SQLite backups from
+// encrypted snapshots before a first-run restore installs any local files.
+func BackupNeedsKeyEnvelope(path string) (bool, error) {
+	header, err := readDatabaseHeader(path)
+	if err != nil {
+		return false, err
+	}
+	return !bytes.Equal(header, sqliteHeader), nil
+}
+
+// OpenSnapshot uses an already unlocked key, a session-only backup key, or the
+// local database password. A remote with a different password requires an
+// explicit OpenSnapshotWithPassword call. The boolean identifies legacy plaintext.
 func (s *Store) OpenSnapshot(path, envelopePath string) (*sql.DB, bool, error) {
+	return s.openSnapshot(path, envelopePath, "", false)
+}
+
+// OpenSnapshotWithPassword authenticates a remote envelope without changing the
+// live database's key or password. Only a successfully verified key is retained
+// in memory for this unlocked session; the supplied password is not stored.
+func (s *Store) OpenSnapshotWithPassword(path, envelopePath, password string) (*sql.DB, bool, error) {
+	return s.openSnapshot(path, envelopePath, password, true)
+}
+
+func (s *Store) openSnapshot(path, envelopePath, password string, explicit bool) (*sql.DB, bool, error) {
 	if s == nil {
 		return nil, false, errors.New("store.OpenSnapshot: nil store")
 	}
-	s.credentialMu.RLock()
-	defer s.credentialMu.RUnlock()
+	s.credentialMu.Lock()
+	defer s.credentialMu.Unlock()
+	if s.db == nil {
+		return nil, false, errors.New("store.OpenSnapshot: store is closed")
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, false, err
@@ -192,25 +227,85 @@ func (s *Store) OpenSnapshot(path, envelopePath string) (*sql.DB, bool, error) {
 	}
 	if n == len(sqliteHeader) && bytes.Equal(header, sqliteHeader) {
 		db, err := sql.Open("sqlite3", plainDSN(path, true))
-		return db, true, err
+		if err != nil {
+			return nil, true, err
+		}
+		var tables int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master`).Scan(&tables); err != nil {
+			_ = db.Close()
+			return nil, true, fmt.Errorf("open legacy backup snapshot: %w", err)
+		}
+		return db, true, nil
 	}
-	if len(s.password) == 0 {
-		return nil, false, errors.New("backup password required; unlock the database with its password")
+	if !explicit {
+		// A snapshot from this database remains readable after changing its
+		// password and even when an older backup omitted the envelope.
+		if db, err := verifiedSnapshot(path, s.key); err == nil {
+			return db, false, nil
+		}
 	}
-	key, err := unlockEnvelopeFile(envelopePath, string(s.password))
+	raw, err := os.ReadFile(envelopePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, ErrBackupEnvelopeMissing
+	}
 	if err != nil {
+		return nil, false, fmt.Errorf("read backup key envelope: %w", err)
+	}
+	hash := sha256.Sum256(raw)
+	if !explicit {
+		if key, ok := s.backupKeys[hash]; ok {
+			db, err := verifiedSnapshot(path, key)
+			return db, false, err
+		}
+		password = string(s.password)
+	}
+	if password == "" {
+		return nil, false, ErrBackupPasswordRequired
+	}
+	key, err := unlockEnvelope(raw, password)
+	if err != nil {
+		if !explicit && errors.Is(err, ErrInvalidPassword) {
+			return nil, false, ErrBackupPasswordRequired
+		}
 		return nil, false, fmt.Errorf("unlock backup key envelope: %w", err)
 	}
 	defer zeroBytes(key)
-	db, err := openSQLDatabase(path, key, true)
+	db, err := verifiedSnapshot(path, key)
 	if err != nil {
 		return nil, false, err
 	}
-	if err := db.Ping(); err != nil {
-		_ = db.Close()
-		return nil, false, fmt.Errorf("open encrypted backup snapshot: %w", err)
+	if explicit {
+		if s.backupKeys == nil {
+			s.backupKeys = make(map[[32]byte][]byte)
+		}
+		// Bound session secrets when attaching several backups. Never cache a
+		// key before validating the corresponding encrypted snapshot.
+		if len(s.backupKeys) >= 4 {
+			for hash, old := range s.backupKeys {
+				zeroBytes(old)
+				delete(s.backupKeys, hash)
+			}
+		}
+		zeroBytes(s.backupKeys[hash])
+		s.backupKeys[hash] = append([]byte(nil), key...)
 	}
 	return db, false, nil
+}
+
+func verifiedSnapshot(path string, key []byte) (*sql.DB, error) {
+	db, err := openSQLDatabase(path, key, true)
+	if err != nil {
+		return nil, err
+	}
+	// Ping only opens a connection in the SQLite WASM driver; it does not
+	// read encrypted pages. Read the schema to verify the key before accepting
+	// or caching it, rather than silently importing zero tables with a wrong key.
+	var tables int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master`).Scan(&tables); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open encrypted backup snapshot: %w", err)
+	}
+	return db, nil
 }
 
 func encryptedDSN(path string, key []byte, readOnly bool) string {

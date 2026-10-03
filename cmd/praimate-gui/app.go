@@ -40,13 +40,16 @@ import (
 // App carries the shared Core plus the Wails context used for dialogs
 // and event emission.
 type App struct {
-	ctx      context.Context
-	st       *store.Store
-	core     *core.Core
-	dbPath   string
-	initErr  string
-	quit     func(context.Context)
-	unlockMu sync.Mutex
+	ctx              context.Context
+	st               *store.Store
+	core             *core.Core
+	dbPath           string
+	initErr          string
+	quit             func(context.Context)
+	unlockMu         sync.Mutex
+	backupRestoreMu  sync.Mutex
+	backupRestoreDir string
+	backupRestoreErr error
 
 	// daemonMu guards the daemon handles — Wails dispatches each
 	// binding call on its own goroutine, so two watcher mutations can
@@ -228,7 +231,7 @@ func (a *App) initializeUnlockedStore(ctx context.Context, st *store.Store) erro
 	// From here on, every backup commit snapshots the DB + shareable
 	// config, and every pull/merge/reset row-merges the remote's
 	// snapshot back in. Must precede any Backup-tab binding call.
-	backup.SetStateSyncer(coreStateSyncer{core: c})
+	backup.SetStateSyncer(coreStateSyncer{core: c, app: a})
 	// "Ask" Tools level: chats route mid-turn permission requests to
 	// the GUI's Allow/Deny card (claude/openclaude only; see
 	// approval_broker.go).
