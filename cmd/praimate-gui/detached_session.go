@@ -498,7 +498,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 }
 
 func (a *App) emitTerminalEvent(name string, payload any) {
-	wailsruntime.EventsEmit(a.ctx, name, payload)
+	a.emitUIEvent(name, payload)
 	if a.detached == nil {
 		return
 	}

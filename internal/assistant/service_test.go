@@ -14,6 +14,78 @@ type fakeProvider struct {
 	index     int
 }
 
+func TestRelevantActionsAreAvailableBeforeDiscoveryAndKeepApproval(t *testing.T) {
+	c := DefaultConfig()
+	c.Enabled = true
+	r := NewRegistry()
+	executed, approved := 0, 0
+	r.Register(Action{Name: "agents.create", Description: "Create an agent persona", Capability: "agents", Fields: map[string]Field{"name": {Type: "string", Required: true}}, Execute: func(context.Context, map[string]any) (any, error) {
+		executed++
+		return map[string]any{"id": "test"}, nil
+	}})
+	p := &fakeProvider{responses: []string{`{"type":"action","action":"agents.create","arguments":{"name":"test"}}`, `{"type":"final","message":"Created test"}`}}
+	state := State{}
+	s := New(Options{Registry: r, Config: func(context.Context) (Config, error) { return c, nil }, Provider: func(context.Context, Config) (Provider, error) { return p, nil }, Load: func(context.Context) (State, error) { return state, nil }, Save: func(_ context.Context, v State) error { state = v; return nil }, Approve: func(_ context.Context, action string, _ map[string]any) (bool, error) {
+		if action != "agents.create:agents" {
+			t.Fatalf("wrong approval: %s", action)
+		}
+		approved++
+		return true, nil
+	}})
+	result, err := s.Run(context.Background(), "Crea un agente llamado test", nil)
+	if err != nil || result.Task.Status != "completed" || executed != 1 || approved != 1 || !containsAction(p.requests[0].Actions, "agents.create") {
+		t.Fatalf("initial routing skipped action or approval: result=%+v err=%v executed=%d approved=%d", result, err, executed, approved)
+	}
+}
+
+func TestCompletedMutationIsNotExecutedTwice(t *testing.T) {
+	c := DefaultConfig()
+	c.Enabled, c.Permissions = true, Preset("full")
+	r := NewRegistry()
+	executed := 0
+	r.Register(Action{Name: "agents.create", Capability: "agents", Fields: map[string]Field{"name": {Type: "string", Required: true}}, Execute: func(context.Context, map[string]any) (any, error) {
+		executed++
+		return map[string]any{"id": "test"}, nil
+	}})
+	p := &fakeProvider{responses: []string{`{"type":"action","action":"agents.create","arguments":{"name":"test"}}`, `{"type":"action","action":"agents.create","arguments":{"name":"test"}}`, `{"type":"final","message":"Created test"}`}}
+	state := State{}
+	s := New(Options{Registry: r, Config: func(context.Context) (Config, error) { return c, nil }, Provider: func(context.Context, Config) (Provider, error) { return p, nil }, Load: func(context.Context) (State, error) { return state, nil }, Save: func(_ context.Context, v State) error { state = v; return nil }})
+	result, err := s.Run(context.Background(), "Create an agent named test", nil)
+	if err != nil || executed != 1 || len(result.Task.Steps) != 1 || !strings.Contains(p.requests[2].Observations[1].Result, "already succeeded") || len(p.requests[2].Actions) != 0 {
+		t.Fatalf("repeated a successful mutation: executed=%d result=%+v error=%v", executed, result, err)
+	}
+}
+
+func TestNoOperationReceiptRequiresInput(t *testing.T) {
+	c := DefaultConfig()
+	c.Enabled = true
+	p := &fakeProvider{responses: []string{`{"type":"final","message":"Agent created."}`}}
+	state := State{}
+	s := New(Options{Registry: NewRegistry(), Config: func(context.Context) (Config, error) { return c, nil }, Provider: func(context.Context, Config) (Provider, error) { return p, nil }, Load: func(context.Context) (State, error) { return state, nil }, Save: func(_ context.Context, v State) error { state = v; return nil }})
+	result, err := s.Run(context.Background(), "Create an agent", nil)
+	if err != nil || result.Task.Status != "needs_input" || len(result.Task.Steps) != 0 {
+		t.Fatalf("operation without receipt marked complete: %+v error=%v", result, err)
+	}
+}
+
+func TestNavigationDoesNotCompleteTerminalRequest(t *testing.T) {
+	c := DefaultConfig()
+	c.Enabled = true
+	r := NewRegistry()
+	r.Register(Action{Name: "code.start", Description: "Open a code terminal", Capability: "chats", Execute: func(context.Context, map[string]any) (any, error) {
+		t.Fatal("unexpected terminal launch")
+		return nil, nil
+	}})
+	r.Register(Action{Name: "ui.navigate", Description: "Open a code page", Capability: "navigate", Fields: map[string]Field{"page": {Type: "string", Required: true}}, Execute: func(context.Context, map[string]any) (any, error) { return map[string]any{"opened": "code"}, nil }})
+	p := &fakeProvider{responses: []string{`{"type":"action","action":"ui.navigate","arguments":{"page":"code"}}`, `{"type":"final","message":"Terminal opened."}`}}
+	state := State{}
+	s := New(Options{Registry: r, Config: func(context.Context) (Config, error) { return c, nil }, Provider: func(context.Context, Config) (Provider, error) { return p, nil }, Load: func(context.Context) (State, error) { return state, nil }, Save: func(_ context.Context, v State) error { state = v; return nil }})
+	result, err := s.Run(context.Background(), "Open a code terminal", nil)
+	if err != nil || result.Task.Status != "needs_input" || !strings.HasPrefix(result.Messages[len(result.Messages)-1].Text, "No Code terminal was started.") {
+		t.Fatalf("page navigation was reported as a new terminal: %+v err=%v", result, err)
+	}
+}
+
 func TestDiscoveryAloneDoesNotCompleteUserOperation(t *testing.T) {
 	c := DefaultConfig()
 	c.Enabled = true
@@ -30,6 +102,9 @@ func TestDiscoveryAloneDoesNotCompleteUserOperation(t *testing.T) {
 	}
 	if result.Task.Status != "needs_input" || !strings.Contains(result.Messages[len(result.Messages)-1].Text, "no app operation was executed") {
 		t.Fatalf("discovery was misreported as task completion: %+v", result)
+	}
+	if result.Task.Steps[0].Detail != "Available actions: chats.list" {
+		t.Fatalf("discovery displayed a serialized schema instead of its matches: %s", result.Task.Steps[0].Detail)
 	}
 }
 

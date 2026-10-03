@@ -15,3 +15,10 @@ export function codeReopenPayload(chat, termId = '') {
     label: chat.Title || chat.CLIAgent,
   }
 }
+
+// Navigation alone must not be interpreted as a terminal having been started.
+export function assistantCodePayload(event) {
+  if (event?.page !== 'code' || !event.term_id || !event.chat_id) return null
+  return { termId: event.term_id, chatId: event.chat_id, cli: event.cli,
+    cwd: event.workspace, model: event.model || '', label: event.cli }
+}

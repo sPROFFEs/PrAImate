@@ -46,6 +46,7 @@ type App struct {
 	dbPath           string
 	initErr          string
 	quit             func(context.Context)
+	emit             func(context.Context, string, ...any)
 	unlockMu         sync.Mutex
 	backupRestoreMu  sync.Mutex
 	backupRestoreDir string
@@ -132,6 +133,7 @@ func NewApp() *App {
 		ragCancels:          map[string]*ragRun{},
 		requirementsCancels: map[string]*requirementsRun{},
 		quit:                wruntime.Quit,
+		emit:                wruntime.EventsEmit,
 	}
 	if detachedProcessMode.active {
 		a.terms = nil
@@ -140,6 +142,14 @@ func NewApp() *App {
 		a.detached = newDetachedCoordinator(a)
 	}
 	return a
+}
+
+func (a *App) emitUIEvent(name string, payload any) {
+	if a.emit != nil {
+		a.emit(a.ctx, name, payload)
+	} else {
+		wruntime.EventsEmit(a.ctx, name, payload)
+	}
 }
 
 // startup opens the shared DB and seeds builtins. Failures are

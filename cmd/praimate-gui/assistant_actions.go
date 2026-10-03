@@ -10,7 +10,6 @@ import (
 	"github.com/sPROFFEs/PrAImate/internal/core"
 	"github.com/sPROFFEs/PrAImate/internal/orchestrator"
 	"github.com/sPROFFEs/PrAImate/internal/studio"
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func textArg(args map[string]any, key string) string { s, _ := args[key].(string); return s }
@@ -35,11 +34,11 @@ func (a *App) assistantActions() *assistant.Registry {
 		}
 		return map[string]any{"updated": true}, nil
 	}
-	register("actions.search", "Discover available actions by English keywords, for example chats workers agents skills mcp settings command network", "read", map[string]assistant.Field{"query": field("English keywords", true)}, func(ctx context.Context, args map[string]any) (any, error) {
+	register("actions.search", "Find other application actions using Spanish or English keywords", "read", map[string]assistant.Field{"query": field("Short task keywords", true)}, func(ctx context.Context, args map[string]any) (any, error) {
 		return r.Search(textArg(args, "query"), 6), nil
 	})
 	register("app.search", "Search chats/messages, agents, workers, skills, MCP, projects and terminal sessions on demand", "read", map[string]assistant.Field{"query": field("Search text", true), "types": {Type: "array", Description: "Optional chat, agent, worker, skill, mcp, project, session", Required: false}}, a.assistantSearch)
-	register("ui.navigate", "Open dashboard, chats, workers, agents, skills, mcp, settings, code, studio or documents. Optional chat ID opens a conversation.", "navigate", map[string]assistant.Field{"page": field("Page name", true), "chat_id": field("Chat ID", false), "agent_id": field("Agent ID to open in Studio", false), "worker_id": field("Worker execution ID", false)}, func(ctx context.Context, args map[string]any) (any, error) {
+	register("ui.navigate", "Open an application page. Optional chat ID opens a conversation.", "navigate", map[string]assistant.Field{"page": {Type: "string", Description: "Application page", Required: true, Enum: []string{"dashboard", "chats", "workers", "agents", "skills", "mcp", "settings", "code", "studio", "documents"}}, "chat_id": field("Chat ID", false), "agent_id": field("Agent ID to open in Studio", false), "worker_id": field("Worker execution ID", false)}, func(ctx context.Context, args map[string]any) (any, error) {
 		page := textArg(args, "page")
 		valid := false
 		for _, p := range []string{"dashboard", "chats", "workers", "agents", "skills", "mcp", "settings", "code", "studio", "documents"} {
@@ -68,7 +67,7 @@ func (a *App) assistantActions() *assistant.Registry {
 		if a.ctx == nil {
 			return nil, errors.New("application UI is unavailable")
 		}
-		wruntime.EventsEmit(a.ctx, "assistant:navigate", args)
+		a.emitUIEvent("assistant:navigate", args)
 		studio.PublishDesktopAssistant(a.core, "assistant.navigate", args)
 		return map[string]any{"opened": page}, nil
 	})
@@ -133,14 +132,24 @@ func (a *App) assistantActions() *assistant.Registry {
 		}
 		return map[string]any{"id": agent.ID, "name": agent.Name, "description": agent.Description, "instructions": agent.Instructions, "supports": agent.Supports, "tools": agent.Tools, "mcp_servers": agent.MCPServers}, nil
 	})
-	register("agents.create", "Create an agent persona. Does not enable autonomous runtime, run setup scripts or grant tools.", "agents", map[string]assistant.Field{"id": field("New agent identifier", true), "name": field("Display name", true), "description": field("Short description", true), "instructions": field("Persona instructions", true), "cli": field("Supported CLI", true)}, func(ctx context.Context, args map[string]any) (any, error) {
+	register("agents.create", "Create a saved agent persona by name. Optional fields have defaults; no tools, MCP, scripts or autonomous runtime are enabled.", "agents", map[string]assistant.Field{"id": field("New identifier; defaults to a slug of name", false), "name": field("New agent display name", true), "description": field("Optional short description", false), "instructions": field("Persona instructions; defaults to a helpful assistant", false), "cli": field("Supported CLI; defaults to praimate-cli", false)}, func(ctx context.Context, args map[string]any) (any, error) {
 		id := textArg(args, "id")
+		if id == "" {
+			id = core.MCPSlug(textArg(args, "name"))
+		}
 		if _, err := a.core.GetAgent(ctx, id); err == nil {
 			return nil, errors.New("agent already exists")
 		} else if !errors.Is(err, core.ErrAgentNotFound) {
 			return nil, err
 		}
-		agent := &core.Agent{Schema: "praimate.agent/v1", ID: id, Name: textArg(args, "name"), Description: textArg(args, "description"), Instructions: textArg(args, "instructions"), Supports: []string{textArg(args, "cli")}, Tools: []string{}, MCPServers: []string{}}
+		instructions, cli := textArg(args, "instructions"), textArg(args, "cli")
+		if instructions == "" {
+			instructions = "You are a helpful assistant. Follow the user's instructions and ask for clarification when needed."
+		}
+		if cli == "" {
+			cli = "praimate-cli"
+		}
+		agent := &core.Agent{Schema: "praimate.agent/v1", ID: id, Name: textArg(args, "name"), Description: textArg(args, "description"), Instructions: instructions, Supports: []string{cli}, Tools: []string{}, MCPServers: []string{}}
 		raw, err := core.MarshalAgentYAML(agent)
 		if err != nil {
 			return nil, err
@@ -235,7 +244,7 @@ func (a *App) assistantActions() *assistant.Registry {
 		}
 		return map[string]any{"workspace": config.Workspace, "profiles": profiles}, nil
 	})
-	register("workers.set_model", "Change the model for an existing worker tier, preserving its CLI and permissions", "workers", map[string]assistant.Field{"tier": field("primary, middle or fast", true), "model": field("Exact model identifier", true)}, func(ctx context.Context, args map[string]any) (any, error) {
+	register("workers.set_model", "Change the model for an existing worker tier, preserving its CLI and permissions", "workers", map[string]assistant.Field{"tier": {Type: "string", Description: "primary=reasoner; middle=intermediate; fast=small worker", Required: true, Enum: []string{"primary", "middle", "fast"}}, "model": field("Exact model identifier from the user or configured models", true)}, func(ctx context.Context, args map[string]any) (any, error) {
 		config, err := a.WorkerConfig()
 		if err != nil {
 			return nil, err
@@ -254,7 +263,10 @@ func (a *App) assistantActions() *assistant.Registry {
 		if err != nil {
 			return nil, err
 		}
-		return ok(a.SaveWorkerConfig(string(raw)))
+		if err := a.SaveWorkerConfig(string(raw)); err != nil {
+			return nil, err
+		}
+		return map[string]any{"updated": true, "tier": textArg(args, "tier"), "model": textArg(args, "model")}, nil
 	})
 	register("delegate.workers", "Start a background task through the configured reasoner, middle and fast workers; task must specify goal, constraints and expected output. Inspect workers.read, never assume completion.", "delegate", map[string]assistant.Field{"task": field("Concrete delegated goal and expected output", true), "tier": field("primary (deep reasoning), middle (implementation) or fast (simple scoped work)", false)}, func(ctx context.Context, args map[string]any) (any, error) {
 		tier := orchestrator.Tier(textArg(args, "tier"))
@@ -291,7 +303,7 @@ func (a *App) assistantActions() *assistant.Registry {
 	register("mcp.set_enabled", "Enable or disable an existing MCP server", "mcp", map[string]assistant.Field{"id": field("MCP server ID", true), "enabled": {Type: "boolean", Description: "Enable server", Required: true}}, func(ctx context.Context, args map[string]any) (any, error) {
 		return ok(a.SetMCPEnabled(textArg(args, "id"), boolArg(args, "enabled")))
 	})
-	register("settings.appearance", "Change appearance: theme is light, dark or system", "settings", map[string]assistant.Field{"theme": field("light, dark or system", true)}, func(ctx context.Context, args map[string]any) (any, error) {
+	register("settings.appearance", "Change the appearance theme", "settings", map[string]assistant.Field{"theme": {Type: "string", Description: "light=claro; dark=oscuro; system=follow OS", Required: true, Enum: []string{"light", "dark", "system"}}}, func(ctx context.Context, args map[string]any) (any, error) {
 		theme := textArg(args, "theme")
 		if theme != "light" && theme != "dark" && theme != "system" {
 			return nil, errors.New("invalid theme")
@@ -299,7 +311,7 @@ func (a *App) assistantActions() *assistant.Registry {
 		if a.ctx == nil {
 			return nil, errors.New("UI is unavailable")
 		}
-		wruntime.EventsEmit(a.ctx, "assistant:appearance", theme)
+		a.emitUIEvent("assistant:appearance", theme)
 		return map[string]any{"theme": theme}, nil
 	})
 	register("system.command", "Execute one command in a project. Requires separate system permission. No shell expansion; provide an executable and argument array.", "system", map[string]assistant.Field{"workspace": field("Absolute project directory", true), "command": field("Executable", true), "args": {Type: "array", Description: "String arguments", Required: true}}, func(ctx context.Context, args map[string]any) (any, error) {
@@ -323,6 +335,7 @@ func (a *App) assistantActions() *assistant.Registry {
 		return a.core.ExecuteApplicationTool(ctx, textArg(args, "workspace"), "network.get", map[string]any{"url": url})
 	})
 	a.registerAssistantExtras(r)
+	a.registerAssistantCode(r)
 	a.registerAssistantTasks(r)
 	return r
 }

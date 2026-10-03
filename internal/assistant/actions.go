@@ -6,14 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 )
 
 type Field struct {
-	Type        string `json:"type"`
-	Description string `json:"description,omitempty"`
-	Required    bool   `json:"required,omitempty"`
+	Type        string   `json:"type"`
+	Description string   `json:"description,omitempty"`
+	Required    bool     `json:"required,omitempty"`
+	Enum        []string `json:"enum,omitempty"`
+	InputSource string   `json:"-"` // trusted request binding, e.g. project folder
 }
 type Action struct {
 	Name              string                                             `json:"name"`
@@ -34,42 +35,6 @@ func (r *Registry) Register(a Action) {
 		panic("duplicate Assistant action")
 	}
 	r.actions[a.Name] = a
-}
-func (r *Registry) Search(query string, limit int) []Action {
-	if limit < 1 || limit > 6 {
-		limit = 6
-	}
-	type match struct {
-		a     Action
-		score int
-	}
-	found := []match{}
-	for _, a := range r.actions {
-		score := 0
-		hay := strings.ToLower(a.Name + " " + a.Description)
-		for _, term := range strings.Fields(strings.ToLower(query)) {
-			if strings.Contains(hay, term) {
-				score++
-			}
-		}
-		if score > 0 || query == "" {
-			found = append(found, match{a, score})
-		}
-	}
-	sort.Slice(found, func(i, j int) bool {
-		if found[i].score == found[j].score {
-			return found[i].a.Name < found[j].a.Name
-		}
-		return found[i].score > found[j].score
-	})
-	out := []Action{}
-	for _, m := range found {
-		if len(out) >= limit {
-			break
-		}
-		out = append(out, m.a)
-	}
-	return out
 }
 func (r *Registry) Get(name string) (Action, bool) { a, ok := r.actions[name]; return a, ok }
 func (a Action) Validate(input map[string]any) error {
@@ -97,6 +62,16 @@ func (a Action) Validate(input map[string]any) error {
 		}
 		if !valid {
 			return fmt.Errorf("invalid %s argument %s", field.Type, key)
+		}
+		if len(field.Enum) > 0 {
+			value, ok := v.(string)
+			allowed := false
+			for _, choice := range field.Enum {
+				allowed = allowed || ok && value == choice
+			}
+			if !allowed {
+				return fmt.Errorf("argument %s must be one of %s", key, strings.Join(field.Enum, ", "))
+			}
 		}
 	}
 	for key, field := range a.Fields {

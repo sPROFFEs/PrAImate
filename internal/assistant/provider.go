@@ -181,7 +181,14 @@ func decisionSchema(actions []Action) map[string]any {
 		fields := map[string]any{}
 		required := []string{}
 		for name, field := range a.Fields {
-			fields[name] = map[string]any{"type": field.Type}
+			definition := map[string]any{"type": field.Type}
+			if field.Description != "" {
+				definition["description"] = field.Description
+			}
+			if len(field.Enum) > 0 {
+				definition["enum"] = field.Enum
+			}
+			fields[name] = definition
 			if field.Required {
 				required = append(required, name)
 			}

@@ -1,7 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { api, onApproval } from './lib/api.js'
-  import { activePage, pageRevision, prefetchCLIs, agentStudio, openChatId, openWorkerId } from './lib/stores.js'
+  import { activePage, pageRevision, prefetchCLIs, agentStudio, openChatId, openWorkerId, pendingTerm } from './lib/stores.js'
+  import { assistantCodePayload } from './lib/codeReopen.js'
   import { initTheme, themeMode, setThemeMode } from './lib/theme.js'
   import logo from './assets/monke-icon.png'
   import mascot from './assets/monke-mascot.png'
@@ -283,7 +284,7 @@
     if (window.runtime?.EventsOn) {
       cleanup.push(window.runtime.EventsOn('assistant:config', config => assistantConfig.set(config)))
       cleanup.push(window.runtime.EventsOn('assistant:appearance', theme => setThemeMode(theme)))
-      cleanup.push(window.runtime.EventsOn('assistant:navigate', event => { agentStudio.set(event.agent_id ? {id:event.agent_id} : null); if (event.chat_id) openChatId.set(event.chat_id); activePage.set(event.page); pageRevision.update(value => value + 1); if (event.worker_id) openWorkerId.set(event.worker_id) }))
+      cleanup.push(window.runtime.EventsOn('assistant:navigate', event => { const terminal = assistantCodePayload(event); if (terminal) pendingTerm.set(terminal); agentStudio.set(event.agent_id ? {id:event.agent_id} : null); if (event.chat_id) openChatId.set(event.chat_id); activePage.set(event.page); pageRevision.update(value => value + 1); if (event.worker_id) openWorkerId.set(event.worker_id) }))
       cleanup.push(window.runtime.EventsOn('assistant:event', event => { assistantPhase = event.phase; if (['completed','failed','cancelled'].includes(event.phase)) workerApprovals = workerApprovals.filter(request => !request.chatId?.startsWith('assistant-')) }))
       cleanup.push(window.runtime.EventsOn('praimate:close-blocked', (event) => { closeBlocked = event }))
     }
