@@ -68,11 +68,16 @@ func TestRunProfileUpdatesPersistWithoutRelabellingActivity(t *testing.T) {
 
 type retryPlanAdapter struct {
 	dagAdapter
-	models []string
+	models  []string
+	efforts []string
+	bounded []bool
 }
 
-func (a *retryPlanAdapter) SingleShot(_ context.Context, opts core.SingleShotOpts) (*core.Reply, error) {
+func (a *retryPlanAdapter) SingleShot(ctx context.Context, opts core.SingleShotOpts) (*core.Reply, error) {
 	a.models = append(a.models, opts.Model)
+	a.efforts = append(a.efforts, opts.ReasoningEffort)
+	_, deadline := ctx.Deadline()
+	a.bounded = append(a.bounded, deadline)
 	if len(a.models) == 1 {
 		return nil, context.DeadlineExceeded
 	}
@@ -118,6 +123,7 @@ func TestFailedPlanningRetriesOnlyWhenRequestedAndUsesSavedProfiles(t *testing.T
 	}
 	config.Profiles[0].Model = "new-reasoner"
 	config.Profiles[0].TimeoutSeconds = 0
+	config.Profiles[0].ReasoningEffort = "medium"
 	if err = m.UpdateRunConfig(id, config); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +131,7 @@ func TestFailedPlanningRetriesOnlyWhenRequestedAndUsesSavedProfiles(t *testing.T
 		t.Fatal(err)
 	}
 	draft := waitGraph(t, m, id, "draft")
-	if len(draft.DAG.Tasks) != 1 || len(adapter.models) != 2 || adapter.models[1] != "new-reasoner" || draft.Error != "" {
+	if len(draft.DAG.Tasks) != 1 || len(adapter.models) != 2 || adapter.models[1] != "new-reasoner" || adapter.efforts[1] != "medium" || !adapter.bounded[0] || adapter.bounded[1] || draft.Error != "" {
 		t.Fatalf("retry lost updated route: %+v %v", draft, adapter.models)
 	}
 	if err = m.RetryPlanning(id); err == nil {

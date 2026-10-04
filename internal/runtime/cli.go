@@ -50,7 +50,7 @@ func (c CLI) Execute(ctx context.Context, req Request) (*Result, error) {
 	defer cancel()
 	opts := core.SingleShotOpts{
 		Cwd: req.WorkspaceRoot, Message: req.Task, SystemPrompt: req.SystemPrompt,
-		Model: req.Model, Tools: func() string {
+		Model: req.Model, ReasoningEffort: req.ReasoningEffort, Tools: func() string {
 			if c.AllowEdits {
 				return "edits"
 			}
@@ -73,6 +73,14 @@ func (c CLI) Execute(ctx context.Context, req Request) (*Result, error) {
 			}
 			if event.Type == "text" && event.Text != "" {
 				req.Progress(ProgressEvent{Kind: "stream", Text: event.Text})
+			} else if event.Type == "status" {
+				req.Progress(ProgressEvent{Kind: "backend_status", Text: event.Detail})
+			} else if event.Type == "step_start" || event.Type == "step_finish" {
+				label := "Backend step started"
+				if event.Type == "step_finish" {
+					label = "Backend step finished"
+				}
+				req.Progress(ProgressEvent{Kind: "backend_status", Text: label + ": " + event.Detail})
 			} else if event.Type == "reasoning" && event.Text != "" {
 				req.Progress(ProgressEvent{Kind: "reasoning", Text: event.Text})
 			} else if event.Type == "tool_start" {
@@ -100,8 +108,15 @@ func (c CLI) Execute(ctx context.Context, req Request) (*Result, error) {
 	if err != nil {
 		return result, err
 	}
-	if reply == nil || reply.ExitCode != 0 {
-		return result, fmt.Errorf("CLI worker %q failed", c.Adapter.Name())
+	if reply == nil {
+		return result, fmt.Errorf("CLI worker %q returned no reply", c.Adapter.Name())
+	}
+	if reply.ExitCode != 0 {
+		detail := result.Content
+		if len(detail) > 1200 {
+			detail = detail[:1200] + "…"
+		}
+		return result, fmt.Errorf("CLI worker %q failed (exit code %d): %s", c.Adapter.Name(), reply.ExitCode, detail)
 	}
 	return result, nil
 }

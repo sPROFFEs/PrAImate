@@ -111,11 +111,20 @@ the backend sends no progress. Historical snapshots without these fields remain
 readable, using their saved task/profile routes.
 
 **Run settings** edits profiles on an inactive saved run: CLI, model, instructions,
+Codex reasoning effort (CLI default or an explicitly supported level),
 permissions and limits. Changes affect future calls and survive app restarts;
 recorded invocation routes and explicit task overrides retain their values.
 The workspace cannot be changed. A failed planning call without tasks can be
 retried explicitly with **Retry planning** after reviewing partial activity and
 adjusting its settings. Existing tasks use their review/reset controls instead.
+For a planning deadline with a positive timeout, **Retry with no reasoner timeout**
+saves 0 for Reasoner and starts a new planning attempt; other profiles and prior
+activity remain intact. Stop is still available. In parallel mode, Middle and Fast
+wait until the plan is ready and the user reviews and runs its tasks.
+Codex process/session/turn startup, exposed reasoning summaries, tool calls and
+backend errors appear in the activity feed. A started process alone does not prove
+the backend accepted a model request. Reconnect errors can be recoverable;
+`turn.failed` and nonzero CLI exit codes are failures, even with partial output.
 Timeout failures report the worker, CLI/model and phase. No failed mutation is
 automatically retried. Pending approvals remain available in the main window
 and are recovered when opening the independent monitor.
@@ -156,7 +165,9 @@ Each tier has at most 16 model turns per invocation, with a shared maximum of
 64 host dispatches. There is no additional fixed ten-minute deadline for the
 whole run. Each model call uses its profile timeout (0–3600 seconds); 0 disables
 that timeout, while explicit Stop and parent cancellation remain available.
-New GUI profiles default to 600 seconds for Reasoner and 300 for other workers;
+New CLI profiles default to no host call timeout; native API profiles default to
+600 seconds for Reasoner and 300 for other workers. A positive timeout is a wall
+clock limit for the entire dispatch, including CLI startup, reasoning and tools;
 saved profiles keep their configured values. An external CLI can make several
 provider calls within one dispatch. A malformed response or failed read
 gets one correction opportunity; consecutive failures stop that invocation.

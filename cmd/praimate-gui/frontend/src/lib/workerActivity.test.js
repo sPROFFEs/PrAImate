@@ -46,3 +46,14 @@ test('approval ownership recognizes both hierarchical and parallel run identifie
   assert.equal(isWorkerRun('worker-one'),true); assert.equal(isWorkerRun('workers-two'),true)
   assert.equal(isWorkerRun('chat-one'),false); assert.equal(isWorkerRun(undefined),false)
 })
+
+test('startup and provider errors update reported activity without pretending the worker finished', () => {
+  const run={status:'planning',profiles:[{tier:'primary',reasoningEffort:'high'}],events:[
+    {workerID:'planning',tier:'primary',kind:'input',reasoningEffort:'medium',timestamp:'2026-10-04T10:00:00Z'},
+    {workerID:'planning',tier:'primary',kind:'backend_status',text:'Codex process started.',timestamp:'2026-10-04T10:00:01Z'},
+    {workerID:'planning',tier:'primary',kind:'error',text:'Reconnecting',timestamp:'2026-10-04T10:00:02Z'},
+  ]}
+  const [worker]=workerExecutions(run)
+  assert.equal(worker.status,'running');assert.equal(worker.lastProgressAt,'2026-10-04T10:00:02Z')
+  assert.equal(worker.reasoningEffort,'medium');assert.equal(workerEventLabel(worker.events[1]),'Backend activity')
+})

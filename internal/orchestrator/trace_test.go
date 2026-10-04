@@ -71,6 +71,30 @@ func TestBackendDeadlineDoesNotInventAHostTimeout(t *testing.T) {
 	}
 }
 
+func TestReasoningEffortIsValidatedAndDoesNotLeakIntoOtherBackends(t *testing.T) {
+	config := testConfig(t)
+	config.Profiles[1].Runtime = "cli"
+	config.Profiles[1].CLI = "codex"
+	config.Profiles[1].Endpoint = ""
+	config.Profiles[1].MaxOutputTokens = 0
+	config.Profiles[1].ReasoningEffort = "medium"
+	if err := config.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	profile, _, err := resolveTaskProfile(config, WorkerConfig{ProfileID: Middle, CLI: "opencode", Model: "local/model"})
+	if err != nil || profile.ReasoningEffort != "" {
+		t.Fatalf("Codex effort leaked into OpenCode: %+v %v", profile, err)
+	}
+	profile, _, err = resolveTaskProfile(config, WorkerConfig{ProfileID: Middle, Runtime: "native", Model: "local-model", Endpoint: "http://localhost:11434/v1"})
+	if err != nil || profile.ReasoningEffort != "" {
+		t.Fatalf("Codex effort leaked into a native model: %+v %v", profile, err)
+	}
+	config.Profiles[1].ReasoningEffort = "unsupported"
+	if config.Validate() == nil {
+		t.Fatal("invalid Codex effort was accepted")
+	}
+}
+
 func TestWorkerRunDoesNotImposeHiddenGlobalDeadline(t *testing.T) {
 	config := testConfig(t)
 	for i := range config.Profiles {

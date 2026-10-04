@@ -28,6 +28,7 @@ type Profile struct {
 	Runtime         string `json:"runtime"` // "cli" or "native"
 	CLI             string `json:"cli,omitempty"`
 	Model           string `json:"model"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"` // Codex only; empty uses CLI default
 	Endpoint        string `json:"endpoint,omitempty"`
 	Instructions    string `json:"instructions,omitempty"`
 	AllowEdits      bool   `json:"allowEdits,omitempty"`
@@ -69,6 +70,16 @@ func (c Config) Validate() error {
 		seen[p.Tier] = true
 		if strings.TrimSpace(p.Model) == "" {
 			return fmt.Errorf("%s worker requires a model", p.Tier)
+		}
+		if p.ReasoningEffort != "" {
+			if p.Runtime != "cli" || p.CLI != "codex" {
+				return fmt.Errorf("%s worker reasoning effort is supported only by Codex", p.Tier)
+			}
+			switch p.ReasoningEffort {
+			case "low", "medium", "high", "xhigh", "max", "ultra":
+			default:
+				return fmt.Errorf("%s worker has an unsupported reasoning effort", p.Tier)
+			}
 		}
 		if len(p.Instructions) > 8<<10 {
 			return fmt.Errorf("%s worker instructions exceed 8192 bytes", p.Tier)

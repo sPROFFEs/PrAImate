@@ -58,6 +58,14 @@
   async function saveSettings() {
     await action(async () => { await api.updateWorkerRunConfig(snapshot.id, settings); settings = null })
   }
+  async function retryWithoutTimeout() {
+    const id = snapshot.id
+    const config = { workspace: snapshot.workspace, profiles: snapshot.profiles.map(p => ({ ...p, timeoutSeconds: p.tier === 'primary' ? 0 : p.timeoutSeconds })) }
+    await action(async () => {
+      await api.updateWorkerRunConfig(id, config)
+      await api.retryWorkerPlanning(id)
+    })
+  }
   async function continueRun() {
     if (!draft.trim()) return
     await action(async () => { await api.continueWorkerRun(snapshot.id, draft); draft = '' })
@@ -69,7 +77,8 @@
     <div class="run-state"><span class:live={active} class:failed={snapshot.status === 'failed'} class="dot"></span><strong>{snapshot.status === 'planning' ? 'Reasoner is preparing the task plan' : snapshot.status}</strong><span class="muted">{tasks.length ? `${tasks.filter(t => t.status === 'completed').length}/${tasks.length} tasks complete` : `${executions.length} worker assignments`}</span></div>
     <div class="buttons"><label><input type="checkbox" bind:checked={focusActive} /> Follow active worker</label><button disabled={busy || active} on:click={openSettings}>Run settings</button>{#if active}<button class="stop" disabled={busy} on:click={() => action(() => api.cancelWorkerRun(snapshot.id))}>Stop execution</button>{/if}</div>
   </div>
-  {#if snapshot.error}<div class="failure" role="alert"><strong>Execution needs attention</strong><p>{snapshot.error}</p><small>Partial activity and task changes are retained. Inspect them before retrying.</small>{#if snapshot.dag && !tasks.length && !active}<div class="buttons"><button disabled={busy} on:click={openSettings}>Adjust reasoner settings</button><button disabled={busy} on:click={() => action(() => api.retryWorkerPlanning(snapshot.id))}>Retry planning</button></div>{/if}</div>{/if}
+  {#if snapshot.error}<div class="failure" role="alert"><strong>Execution needs attention</strong><p>{snapshot.error}</p><small>Partial activity and task changes are retained. Inspect them before retrying.</small>{#if snapshot.dag && !tasks.length && !active}<div class="buttons"><button disabled={busy} on:click={openSettings}>Adjust reasoner settings</button><button disabled={busy} on:click={() => action(() => api.retryWorkerPlanning(snapshot.id))}>Retry planning</button>{#if snapshot.profiles?.some(p => p.tier === 'primary' && p.timeoutSeconds > 0) && /deadline|timeout/i.test(snapshot.error)}<button disabled={busy} on:click={retryWithoutTimeout}>Retry with no reasoner timeout</button>{/if}</div>{/if}</div>{/if}
+  {#if snapshot.dag && !tasks.length}<p class="muted">Planning stage: only Reasoner runs. Middle and Fast start after a plan is ready and you review and run its tasks.</p>{/if}
   {#if error}<p class="failure" role="alert">{error}</p>{/if}
   <div class="profiles">
     {#each workerTiers as tier}
@@ -105,7 +114,7 @@
     </nav>
     <div class="console">
       {#if current}
-        <header class="console-head"><div><strong>{workerLabel(current.tier)} · {current.cli || 'Local / API'}</strong><p>{current.model} · {current.status} · {current.phase || 'activity'}{current.step ? ` · call ${current.step}` : ''}</p></div><span>{elapsed(current.startedAt, ['running','waiting'].includes(current.status) ? now : new Date(current.updatedAt).getTime())}</span></header>
+        <header class="console-head"><div><strong>{workerLabel(current.tier)} · {current.cli || 'Local / API'}</strong><p>{current.model}{current.reasoningEffort ? ` · effort ${current.reasoningEffort}` : ''} · {current.status} · {current.phase || 'activity'}{current.step ? ` · call ${current.step}` : ''}</p></div><span>{elapsed(current.startedAt, ['running','waiting'].includes(current.status) ? now : new Date(current.updatedAt).getTime())}</span></header>
         <details class="assignment"><summary>Assignment, workspace and handoff</summary><p>{current.assignment}</p><code>{current.workspace}</code>{#if current.parentID}<p>Delegated by {workerLabel(executions.find(e => e.id === current.parentID)?.tier)}. Results return to that worker.</p>{/if}</details>
         <div class="filters" role="group" aria-label="Activity filter">
           {#each [['all','Activity'],['io','Input / output'],['reasoning','Reported reasoning'],['delegation','Handoffs'],['errors','Errors']] as [value,label]}<button class:selected={filter === value} on:click={() => filter = value}>{label}</button>{/each}

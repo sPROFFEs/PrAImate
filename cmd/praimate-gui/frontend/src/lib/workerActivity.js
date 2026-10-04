@@ -25,6 +25,7 @@ export function workerExecutions(run) {
       groups.set(key, { id: key, taskID: event.taskID || '', parentID: event.parentID || '', tier: event.tier,
         cli: runtime === 'native' ? '' : event.cli || route.cli || '', model: event.model || route.model || '',
         runtime, workspace: event.workspace || task?.worktree?.path || run.workspace,
+        reasoningEffort: event.workerID ? event.reasoningEffort || '' : profile.reasoningEffort || '',
         timeoutSeconds: event.workerID ? event.timeoutSeconds || 0 : profile.timeoutSeconds, startedAt: event.timestamp, updatedAt: event.timestamp,
         assignment: task?.description || (['started', 'input', 'request'].includes(event.kind) ? event.text : ''),
         status: activeWorkerRun(run) ? 'running' : run.status, phase: event.phase || '', step: 0, events: [] })
@@ -38,7 +39,7 @@ export function workerExecutions(run) {
     else if (event.kind === 'delegation') group.status = 'waiting'
     else if (['request', 'input', 'delegated_result', 'delegated_error'].includes(event.kind)) group.status = 'running'
     if (event.kind === 'request' || event.kind === 'input') group.callStartedAt = event.timestamp
-    if (['stream', 'reasoning', 'tool_start', 'tool_end'].includes(event.kind)) group.lastProgressAt = event.timestamp
+    if (['stream', 'reasoning', 'tool_start', 'tool_end', 'backend_status', 'error'].includes(event.kind)) group.lastProgressAt = event.timestamp
   }
   for (const group of groups.values()) {
     // Cancellation/interruption can precede an invocation's final event.
@@ -49,7 +50,7 @@ export function workerExecutions(run) {
 
 export function workerEventLabel(event) {
   return ({ started: 'Assignment started', request: 'Model input', input: 'Planning input', stream: 'Model output', reasoning: 'Reported reasoning',
-    response: 'Model response', output: 'Plan response', tool_start: 'Tool started', tool_end: 'Tool finished', tool: 'Tool result',
+    response: 'Model response', output: 'Plan response', backend_status: 'Backend activity', tool_start: 'Tool started', tool_end: 'Tool finished', tool: 'Tool result',
     delegation: `Delegated to ${workerLabel(event.target)}`, delegated_result: `Returned from ${workerLabel(event.target)}`,
     delegated_error: 'Delegation failed', error: 'Operation error', failed: 'Worker failed', completed: 'Assignment completed',
     cancelled: 'Worker stopped', edited: 'File changed', inspect: 'File inspected', list: 'Directory listed' })[event.kind] || event.kind

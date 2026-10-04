@@ -171,7 +171,7 @@ function renderCollection() {
 }
 function options(id,entries,value) { $(id).replaceChildren(...entries.map(([key,label,disabled]) => {const o = document.createElement('option'); o.value = key; o.textContent = label; o.disabled = !!disabled; return o;})); $(id).value = value; }
 const workerTiers = [['primary','Reasoner'],['middle','Middle'],['fast','Fast']];
-const workerDefault = (tier,cli,runtime='cli') => ({tier,runtime,cli:runtime === 'cli' ? cli : '',model:'',endpoint:runtime === 'native' ? 'http://localhost:11434/v1' : '',instructions:'',allowEdits:false,allowCommands:false,timeoutSeconds:tier === 'primary' ? 600 : 300,maxInputBytes:65536,maxOutputTokens:runtime === 'native' ? 2048 : 0});
+const workerDefault = (tier,cli,runtime='cli') => ({tier,runtime,cli:runtime === 'cli' ? cli : '',model:'',reasoningEffort:'',endpoint:runtime === 'native' ? 'http://localhost:11434/v1' : '',instructions:'',allowEdits:false,allowCommands:false,timeoutSeconds:runtime === 'cli' ? 0 : tier === 'primary' ? 600 : 300,maxInputBytes:65536,maxOutputTokens:runtime === 'native' ? 2048 : 0});
 let workerConfig = {workspace:'',profiles:[workerDefault('primary','codex'),workerDefault('middle','claude'),workerDefault('fast','praimate-cli')]};
 let workerRuns = [], workerSnapshot = null, workerSelected = '', workerModels = {}, workerModelPending = new Set(), workerCollapsed = {}, workerPollPending = false, workerRenaming = false, workerRenameDraft = '';
 function workerInput(label,value,change,type='text') {
@@ -190,12 +190,12 @@ function renderWorkerProfiles() {
     const box = document.createElement('fieldset'), legend = element('legend',label); box.appendChild(legend);
     const runtime = element('label','Runtime','field'), runtimeSelect = document.createElement('select');
     for(const [id,name] of [['cli','CLI'],['native','Local / compatible API']]) {const option = document.createElement('option'); option.value=id; option.textContent=name; runtimeSelect.appendChild(option);}
-    runtimeSelect.value=p.runtime; runtimeSelect.addEventListener('change',() => {p.runtime=runtimeSelect.value;p.cli=p.runtime === 'cli' ? 'praimate-cli' : '';p.endpoint=p.runtime === 'native' ? 'http://localhost:11434/v1' : '';p.maxOutputTokens=p.runtime === 'native' ? 2048 : 0;p.allowEdits=false;p.allowCommands=false;renderWorkerProfiles();}); runtime.appendChild(runtimeSelect); box.appendChild(runtime);
+    runtimeSelect.value=p.runtime; runtimeSelect.addEventListener('change',() => {p.runtime=runtimeSelect.value;p.cli=p.runtime === 'cli' ? 'praimate-cli' : '';p.reasoningEffort='';p.endpoint=p.runtime === 'native' ? 'http://localhost:11434/v1' : '';p.maxOutputTokens=p.runtime === 'native' ? 2048 : 0;p.timeoutSeconds=p.runtime === 'cli' ? 0 : tier === 'primary' ? 600 : 300;p.allowEdits=false;p.allowCommands=false;renderWorkerProfiles();}); runtime.appendChild(runtimeSelect); box.appendChild(runtime);
     if(p.runtime === 'cli') {
       const cliField=element('label','CLI','field'), cliSelect=document.createElement('select');
       for(const cli of status.availableCLIs || []) {const option=document.createElement('option');option.value=cli.id;option.textContent=cli.label+(cli.capabilities?.managedWorker === false ? ' (managed workers unsupported)' : cli.available?'':' (unavailable)');option.disabled=!cli.available || cli.capabilities?.managedWorker === false;cliSelect.appendChild(option);}
       if(![...cliSelect.options].some(option => option.value === p.cli)) {const option=document.createElement('option');option.value=p.cli;option.textContent=p.cli || 'Choose CLI';cliSelect.appendChild(option);}
-      cliSelect.value=p.cli;cliSelect.addEventListener('change',() => {p.cli=cliSelect.value;p.model='';p.allowEdits=false;p.allowCommands=false;workerModelChoices(p.cli);renderWorkerProfiles();});cliField.appendChild(cliSelect);box.appendChild(cliField);workerModelChoices(p.cli);
+      cliSelect.value=p.cli;cliSelect.addEventListener('change',() => {p.cli=cliSelect.value;p.model='';p.reasoningEffort='';p.allowEdits=false;p.allowCommands=false;workerModelChoices(p.cli);renderWorkerProfiles();});cliField.appendChild(cliSelect);box.appendChild(cliField);workerModelChoices(p.cli);
     } else {
       box.appendChild(workerInput('Endpoint',p.endpoint,value => p.endpoint=value).wrap);
       box.appendChild(workerInput('Output token limit',p.maxOutputTokens,value => p.maxOutputTokens=value,'number').wrap);
@@ -203,10 +203,17 @@ function renderWorkerProfiles() {
     const model=workerInput('Model',p.model,value => p.model=value), list=document.createElement('datalist');list.id='worker-models-'+tier;
     for(const name of workerModels[p.cli] || []) {const option=document.createElement('option');option.value=name;list.appendChild(option);}
     model.input.setAttribute('list',list.id);model.wrap.appendChild(list);box.appendChild(model.wrap);
+    if(p.runtime === 'cli' && p.cli === 'codex') {
+      const effortField=element('label','Reasoning effort','field'), effortSelect=document.createElement('select');
+      for(const value of ['','low','medium','high','xhigh','max','ultra']) {const option=document.createElement('option');option.value=value;option.textContent=value || 'CLI default';effortSelect.appendChild(option);}
+      effortSelect.value=p.reasoningEffort || '';effortSelect.addEventListener('change',()=>p.reasoningEffort=effortSelect.value);effortField.appendChild(effortSelect);box.appendChild(effortField);
+      box.appendChild(element('p','Use an effort level supported by the selected model. Higher effort can take longer before reporting output.','hint'));
+    }
     box.appendChild(workerInput('Allow workspace edits',p.allowEdits,value => p.allowEdits=value,'checkbox').wrap);
     box.appendChild(workerInput('Allow commands with user approval',p.allowCommands,value => p.allowCommands=value,'checkbox').wrap);
     box.appendChild(workerInput('Additional instructions',p.instructions,value => p.instructions=value).wrap);
     box.appendChild(workerInput('Call timeout (seconds; 0 = disabled)',p.timeoutSeconds,value => p.timeoutSeconds=value,'number').wrap);
+    box.appendChild(element('p','Positive timeouts stop the entire call, including CLI startup and reasoning, even while it is making progress. Stop remains available.','hint'));
     box.appendChild(workerInput('Maximum input bytes',p.maxInputBytes,value => p.maxInputBytes=value,'number').wrap);
     host.appendChild(box);
   }
@@ -302,7 +309,22 @@ function renderWorkerRuns() {
   const bar=element('div',workerSnapshot.status+' · '+(workerSnapshot.currentTask || workerSnapshot.task),'toolbar');
   if(['running','planning','merging'].includes(workerSnapshot.status)) bar.appendChild(button('Stop',() => post('workerCancel',{id:workerSelected})));result.appendChild(bar);
   if(workerSnapshot.dag && workerSnapshot.dag.tasks?.length) renderWorkerGraph(result);
-  if(workerSnapshot.dag && !workerSnapshot.dag.tasks?.length && !active) result.appendChild(button('Retry planning',()=>graphAction('workerPlanRetry')));
+  if(workerSnapshot.dag && !workerSnapshot.dag.tasks?.length) {
+    result.appendChild(element('p','Planning stage: only Reasoner runs. Middle and Fast start after you review and run the plan.','hint'));
+    if(!active) {
+      result.appendChild(button('Retry planning',()=>graphAction('workerPlanRetry')));
+      if(/deadline|timeout/i.test(workerSnapshot.error || '') && workerSnapshot.profiles?.some(p=>p.tier==='primary' && p.timeoutSeconds>0)) {
+        const retry=button('Retry with no reasoner timeout',()=>{
+          retry.disabled=true;
+          const id=workerSelected, config={workspace:workerSnapshot.workspace,profiles:workerSnapshot.profiles.map(p=>({...p,timeoutSeconds:p.tier==='primary'?0:p.timeoutSeconds}))};
+          post('workerRunConfig',{id,config},ok=>{
+            if(ok) post('workerPlanRetry',{id},ok=>{retry.disabled=false;if(ok && workerSelected===id)post('workerRefresh',{id});});
+            else retry.disabled=false;
+          });
+        });result.appendChild(retry);
+      }
+    }
+  }
   for(const turn of workerSnapshot.turns || []) result.appendChild(element('p','You: '+turn.task+'\nReasoner: '+(turn.result || turn.error || ''),'card'));
   if(workerSnapshot.result) result.appendChild(element('pre',workerSnapshot.result));
   if(workerSnapshot.error) result.appendChild(element('p',workerSnapshot.error,'error'));

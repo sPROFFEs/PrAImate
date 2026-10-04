@@ -168,6 +168,40 @@ func TestParseCodexStream_ItemSchema(t *testing.T) {
 	}
 }
 
+func TestParseCodexStream_ReportsStartupReasoningAndBackendFailures(t *testing.T) {
+	stream := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"worker-session"}`,
+		`{"type":"turn.started"}`,
+		`{"type":"item.completed","item":{"id":"reasoning-1","type":"reasoning","text":"Preparing bounded implementation tasks."}}`,
+		`{"type":"error","message":"Reconnecting after a transport error"}`,
+		`{"type":"turn.failed","error":{"message":"Selected model is unavailable"}}`,
+	}, "\n") + "\n"
+	emit, events := collectEvents()
+	result := parseCodexStream(strings.NewReader(stream), emit)
+	if result.SessionID != "worker-session" || result.Text != "" {
+		t.Fatalf("reasoning leaked into the final plan: %+v", result)
+	}
+	var startup, reasoning, failure bool
+	for _, event := range *events {
+		startup = startup || event.Type == "status"
+		reasoning = reasoning || event.Type == "reasoning" && event.Text == "Preparing bounded implementation tasks."
+		failure = failure || event.Type == "error" && event.Detail == "Selected model is unavailable"
+	}
+	if !startup || !reasoning || !failure {
+		t.Fatalf("Codex activity was silently discarded: %+v", *events)
+	}
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "Selected model is unavailable") {
+		t.Fatalf("failed turn was treated as success: %+v", result)
+	}
+}
+
+func TestParseCodexStreamRecoverableErrorsDoNotFailSuccessfulTurn(t *testing.T) {
+	result := parseCodexStream(strings.NewReader("{\"type\":\"error\",\"message\":\"Reconnecting\"}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":2,\"output_tokens\":1}}\n"), nil)
+	if result.Err != nil {
+		t.Fatalf("recoverable reconnect became a failure: %v", result.Err)
+	}
+}
+
 // Unknown event lines and non-JSON noise must be ignored, not fatal — a
 // codex/claude upgrade degrades to fewer live events, never a broken turn.
 func TestParseStreams_TolerateUnknownLines(t *testing.T) {

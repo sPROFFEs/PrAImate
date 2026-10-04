@@ -17,9 +17,7 @@ package core
 // (same file mechanism as the buffered path) with the streamed text as
 // fallback.
 //
-// Only codex implements streaming among the exec adapters; the others
-// return ErrStreamUnsupported and the chat layer falls back to the
-// buffered path.
+// OpenCode-like adapters use their own JSON stream implementation.
 
 import (
 	"bufio"
@@ -32,6 +30,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -57,7 +56,7 @@ func (a *execAdapter) SingleShotStream(ctx context.Context, opts SingleShotOpts,
 	}
 	defer os.RemoveAll(tmpDir)
 
-	args, replyFile := a.build(buildIn{Message: msg, Model: opts.Model, Tools: opts.Tools, TmpDir: tmpDir})
+	args, replyFile := a.build(buildIn{Message: msg, Model: opts.Model, ReasoningEffort: opts.ReasoningEffort, Tools: opts.Tools, TmpDir: tmpDir})
 	// Insert --json right after the "exec" subcommand; the stdin "-"
 	// sentinel must stay last, so we can't just append.
 	args = append([]string{args[0], "--json"}, args[1:]...)
@@ -77,6 +76,9 @@ func (a *execAdapter) SingleShotStream(ctx context.Context, opts SingleShotOpts,
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("codex stream: start: %w", err)
+	}
+	if emit != nil {
+		emit(StreamEvent{Type: "status", Detail: "Codex process started; waiting for a session."})
 	}
 
 	streamed := parseCodexStream(stdout, emit)
@@ -103,6 +105,9 @@ func (a *execAdapter) SingleShotStream(ctx context.Context, opts SingleShotOpts,
 	text = strings.TrimRight(text, "\n")
 	if ctx.Err() != nil {
 		return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, ctx.Err()
+	}
+	if streamed.Err != nil {
+		return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, streamed.Err
 	}
 	if text == "" && exitCode != 0 {
 		text = strings.TrimSpace(stderr.String())
@@ -139,6 +144,9 @@ func (a *execAdapter) codexResumeStream(ctx context.Context, sessionID string, o
 	if opts.Model != "" {
 		args = append(args, "-m", opts.Model)
 	}
+	if opts.ReasoningEffort != "" {
+		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(opts.ReasoningEffort))
+	}
 	args = append(args, codexPermissionArgs(opts.Tools, true)...)
 	args = append(args, sessionID, "-")
 
@@ -157,6 +165,9 @@ func (a *execAdapter) codexResumeStream(ctx context.Context, sessionID string, o
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("codex resume stream: start: %w", err)
+	}
+	if emit != nil {
+		emit(StreamEvent{Type: "status", Detail: "Codex process started; resuming the session."})
 	}
 
 	streamed := parseCodexStream(stdout, emit)
@@ -179,6 +190,9 @@ func (a *execAdapter) codexResumeStream(ctx context.Context, sessionID string, o
 	if ctx.Err() != nil {
 		return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, ctx.Err()
 	}
+	if streamed.Err != nil {
+		return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, streamed.Err
+	}
 	if text == "" && exitCode != 0 {
 		text = strings.TrimSpace(stderr.String())
 	}
@@ -192,10 +206,12 @@ func (a *execAdapter) codexResumeStream(ctx context.Context, sessionID string, o
 // kept as a raw map because its field names have shifted between
 // releases.
 type codexStreamLine struct {
-	Type     string         `json:"type"`
-	Usage    map[string]any `json:"usage"`
-	ThreadID string         `json:"thread_id"`
-	Item     map[string]any `json:"item"`
+	Type     string          `json:"type"`
+	Message  string          `json:"message"`
+	Error    json.RawMessage `json:"error"`
+	Usage    map[string]any  `json:"usage"`
+	ThreadID string          `json:"thread_id"`
+	Item     map[string]any  `json:"item"`
 	Msg      *struct {
 		Type      string          `json:"type"`
 		SessionID string          `json:"session_id"`
@@ -203,12 +219,14 @@ type codexStreamLine struct {
 		Message   string          `json:"message"`
 		Command   json.RawMessage `json:"command"`
 		ExitCode  *int            `json:"exit_code"`
+		Error     json.RawMessage `json:"error"`
 	} `json:"msg"`
 }
 
 type codexStreamResult struct {
 	Text      string
 	SessionID string
+	Err       error
 }
 
 // parseCodexStream consumes the JSONL stream, emitting StreamEvents,
@@ -222,6 +240,7 @@ func parseCodexStream(r io.Reader, emit StreamHandler) codexStreamResult {
 	var acc strings.Builder
 	var sessionID string
 	var sawDelta bool
+	var turnErr error
 	for {
 		raw, err := br.ReadBytes('\n')
 		if len(bytes.TrimSpace(raw)) > 0 {
@@ -230,6 +249,7 @@ func parseCodexStream(r io.Reader, emit StreamHandler) codexStreamResult {
 				switch {
 				case line.Type == "thread.started":
 					sessionID = line.ThreadID
+					emit(StreamEvent{Type: "status", Detail: "Codex session started.", ID: sessionID})
 				case line.Type == "turn.started":
 					emit(StreamEvent{Type: "step_start", Detail: "turn"})
 				case line.Type == "turn.completed":
@@ -237,6 +257,17 @@ func parseCodexStream(r io.Reader, emit StreamHandler) codexStreamResult {
 						emit(StreamEvent{Type: "usage", Usage: usage, OK: true})
 					}
 					emit(StreamEvent{Type: "step_finish", Detail: "turn"})
+				case line.Type == "error" || line.Type == "turn.failed":
+					detail := codexErrorMessage(line.Error, line.Message)
+					if detail == "" {
+						detail = "Codex reported " + line.Type
+					}
+					emit(StreamEvent{Type: "error", Detail: detail})
+					// An error can describe a recoverable reconnect; only a failed
+					// turn establishes failure independently of the exit code.
+					if line.Type == "turn.failed" {
+						turnErr = fmt.Errorf("codex turn failed: %s", detail)
+					}
 				case line.Msg != nil:
 					if line.Msg.SessionID != "" {
 						sessionID = line.Msg.SessionID
@@ -248,7 +279,7 @@ func parseCodexStream(r io.Reader, emit StreamHandler) codexStreamResult {
 			}
 		}
 		if err != nil {
-			return codexStreamResult{Text: acc.String(), SessionID: sessionID}
+			return codexStreamResult{Text: acc.String(), SessionID: sessionID, Err: turnErr}
 		}
 	}
 }
@@ -257,6 +288,14 @@ func parseCodexStream(r io.Reader, emit StreamHandler) codexStreamResult {
 func handleCodexProtoMsg(line *codexStreamLine, acc *strings.Builder, sawDelta *bool, emit StreamHandler) {
 	m := line.Msg
 	switch m.Type {
+	case "session_configured":
+		emit(StreamEvent{Type: "status", Detail: "Codex session started.", ID: m.SessionID})
+	case "agent_reasoning_delta":
+		if m.Delta != "" {
+			emit(StreamEvent{Type: "reasoning", Text: m.Delta})
+		}
+	case "error":
+		emit(StreamEvent{Type: "error", Detail: codexErrorMessage(m.Error, m.Message)})
 	case "agent_message_delta":
 		if m.Delta != "" {
 			*sawDelta = true
@@ -293,19 +332,49 @@ func handleCodexItem(eventType string, item map[string]any, acc *strings.Builder
 	}
 	id, _ := item["id"].(string)
 	switch kind {
+	case "reasoning":
+		if eventType == "item.started" {
+			emit(StreamEvent{Type: "status", Detail: "Codex started reasoning.", ID: id})
+		} else if eventType == "item.completed" {
+			if text, _ := item["text"].(string); text != "" {
+				emit(StreamEvent{Type: "reasoning", Text: text, ID: id})
+			}
+		}
+	case "error":
+		if eventType == "item.completed" {
+			message, _ := item["message"].(string)
+			emit(StreamEvent{Type: "error", Detail: message, ID: id})
+		}
+	case "mcp_tool_call", "web_search":
+		tool, _ := item["tool"].(string)
+		if tool == "" {
+			tool = kind
+		}
+		detail, _ := item["server"].(string)
+		if kind == "web_search" {
+			detail, _ = item["query"].(string)
+		}
+		if eventType == "item.started" {
+			emit(StreamEvent{Type: "tool_start", Tool: tool, Detail: truncate(detail, 160), ID: id})
+		} else if eventType == "item.completed" {
+			status, _ := item["status"].(string)
+			emit(StreamEvent{Type: "tool_end", Tool: tool, ID: id, OK: status != "failed" && item["error"] == nil})
+		}
 	case "command_execution":
 		detail, _ := item["command"].(string)
 		if eventType == "item.started" {
 			emit(StreamEvent{Type: "tool_start", Tool: "shell", Detail: truncate(detail, 160), ID: id})
 		} else if eventType == "item.completed" {
 			status, _ := item["status"].(string)
-			emit(StreamEvent{Type: "tool_end", ID: id, OK: status != "failed"})
+			exitCode, _ := item["exit_code"].(float64)
+			emit(StreamEvent{Type: "tool_end", Tool: "shell", ID: id, OK: status != "failed" && exitCode == 0})
 		}
 	case "file_change", "patch":
 		if eventType == "item.started" {
 			emit(StreamEvent{Type: "tool_start", Tool: "apply_patch", ID: id})
 		} else if eventType == "item.completed" {
-			emit(StreamEvent{Type: "tool_end", ID: id, OK: true})
+			status, _ := item["status"].(string)
+			emit(StreamEvent{Type: "tool_end", Tool: "apply_patch", ID: id, OK: status != "failed"})
 		}
 	case "agent_message":
 		if eventType == "item.completed" && !sawDelta {
@@ -315,6 +384,22 @@ func handleCodexItem(eventType string, item map[string]any, acc *strings.Builder
 			}
 		}
 	}
+}
+
+func codexErrorMessage(raw json.RawMessage, fallback string) string {
+	var message string
+	if json.Unmarshal(raw, &message) != nil {
+		var detail struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(raw, &detail) == nil {
+			message = detail.Message
+		}
+	}
+	if message == "" {
+		message = fallback
+	}
+	return truncate(strings.TrimSpace(message), 1200)
 }
 
 // codexCommandString renders the exec_command_begin command field,

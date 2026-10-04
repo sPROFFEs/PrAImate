@@ -93,6 +93,9 @@ func resolveTaskProfile(config Config, worker WorkerConfig) (Profile, WorkerConf
 	if worker.Endpoint != "" {
 		p.Endpoint = worker.Endpoint
 	}
+	if p.Runtime != "cli" || p.CLI != "codex" {
+		p.ReasoningEffort = ""
+	}
 	clone := config
 	clone.Profiles = append([]Profile(nil), config.Profiles...)
 	for i := range clone.Profiles {
@@ -229,10 +232,13 @@ func (r Runner) Plan(ctx context.Context, config Config, objective string) (plan
 	for attempt := 0; attempt < 2; attempt++ {
 		r.trace.Step = attempt + 1
 		r.emit(Primary, "input", objective, workerruntime.Usage{})
-		result, runErr := worker.Execute(ctx, workerruntime.Request{Model: profile.Model, SystemPrompt: instructions, Task: objective, WorkspaceRoot: config.Workspace, Limits: workerruntime.Limits{MaxInputBytes: profile.MaxInputBytes, MaxOutputTokens: profile.MaxOutputTokens, Timeout: profile.Timeout()}, Progress: func(event workerruntime.ProgressEvent) {
+		result, runErr := worker.Execute(ctx, workerruntime.Request{Model: profile.Model, ReasoningEffort: profile.ReasoningEffort, SystemPrompt: instructions, Task: objective, WorkspaceRoot: config.Workspace, Limits: workerruntime.Limits{MaxInputBytes: profile.MaxInputBytes, MaxOutputTokens: profile.MaxOutputTokens, Timeout: profile.Timeout()}, Progress: func(event workerruntime.ProgressEvent) {
 			r.emit(Primary, event.Kind, event.Text, workerruntime.Usage{})
 		}})
 		if runErr != nil {
+			if result != nil && (result.Content != "" || result.Usage.Source == "provider") {
+				r.emit(Primary, "output", result.Content, result.Usage)
+			}
 			return nil, workerError(ctx, profile, "planning", runErr)
 		}
 		if result == nil {

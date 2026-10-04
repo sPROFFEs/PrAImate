@@ -16,7 +16,7 @@
   const profile = (tier, cli, runtime = 'cli') => ({
     tier, runtime, cli: runtime === 'cli' ? cli : '', model: '',
     endpoint: runtime === 'native' ? 'http://localhost:11434/v1' : '',
-    instructions: '', timeoutSeconds: tier === 'primary' ? 600 : 300, maxInputBytes: 65536,
+    instructions: '', reasoningEffort: '', timeoutSeconds: runtime === 'cli' ? 0 : tier === 'primary' ? 600 : 300, maxInputBytes: 65536,
     allowEdits: false,
     allowCommands: false,
     maxOutputTokens: runtime === 'native' ? 2048 : 0,

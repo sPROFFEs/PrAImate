@@ -31,6 +31,10 @@ type SingleShotOpts struct {
 	// has no model flag ignore it.
 	Model string
 
+	// ReasoningEffort overrides Codex's configured effort for this invocation.
+	// Empty preserves the CLI default; other adapters ignore it.
+	ReasoningEffort string
+
 	// Env extends the parent process environment for the child run.
 	// Used for per-launch routing (e.g. local-LLM endpoint overrides).
 	Env map[string]string
@@ -76,6 +80,8 @@ type ResumeOpts struct {
 	// Model re-pins the model ("" = CLI default). Same semantics as
 	// SingleShotOpts.Model.
 	Model string
+	// ReasoningEffort re-pins a Codex override, same as SingleShotOpts.
+	ReasoningEffort string
 	// Tools re-pins the permission level. Same semantics as
 	// SingleShotOpts.Tools.
 	Tools string

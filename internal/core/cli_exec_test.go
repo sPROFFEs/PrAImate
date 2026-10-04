@@ -3,11 +3,13 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeBinOnPath writes an executable shell script named `name` into a
@@ -144,6 +146,54 @@ func TestCodexAdapter_UsesStdinSentinel(t *testing.T) {
 	args, _ := NewCodexAdapter().build(buildIn{Message: "ignored", TmpDir: t.TempDir()})
 	if args[len(args)-1] != "-" {
 		t.Fatalf("codex argv must end with '-' (read prompt from stdin), got %v", args)
+	}
+}
+
+func TestCodexStreamSubmitsTaskAndPreservesActivityAtDeadline(t *testing.T) {
+	skipOnWindows(t)
+	root := t.TempDir()
+	t.Setenv("PRAIMATE_CODEX_FIXTURE_INPUT", filepath.Join(root, "input"))
+	t.Setenv("PRAIMATE_CODEX_FIXTURE_ARGS", filepath.Join(root, "args"))
+	fakeBinOnPath(t, "codex", `
+printf '%s\n' "$@" > "$PRAIMATE_CODEX_FIXTURE_ARGS"
+cat > "$PRAIMATE_CODEX_FIXTURE_INPUT"
+printf '%s\n' '{"type":"thread.started","thread_id":"started-worker"}' '{"type":"turn.started"}' '{"type":"item.completed","item":{"id":"r","type":"reasoning","text":"Planning task dependencies."}}' '{"type":"item.completed","item":{"id":"m","type":"agent_message","text":"partial plan"}}'
+exec sleep 30
+`)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	emit, events := collectEvents()
+	reply, err := NewCodexAdapter().SingleShotStream(ctx, SingleShotOpts{Cwd: root, Message: "Create the plan", SystemPrompt: "Return task JSON", Model: "gpt-6.1-sol", ReasoningEffort: "medium"}, emit)
+	if !errors.Is(err, context.DeadlineExceeded) || reply == nil || reply.Text != "partial plan" || reply.SessionID != "started-worker" {
+		t.Fatalf("deadline lost partial activity: %+v %v", reply, err)
+	}
+	prompt, readErr := os.ReadFile(filepath.Join(root, "input"))
+	if readErr != nil || string(prompt) != "Return task JSON\n\nCreate the plan" {
+		t.Fatalf("task was not sent over stdin: %q %v", prompt, readErr)
+	}
+	args, readErr := os.ReadFile(filepath.Join(root, "args"))
+	if readErr != nil || !strings.Contains(string(args), "--json\n") || !strings.Contains(string(args), "-m\ngpt-6.1-sol\n") || !strings.Contains(string(args), "model_reasoning_effort=\"medium\"\n") || !strings.Contains(string(args), "--sandbox\nread-only\n") || !strings.HasSuffix(string(args), "-\n") {
+		t.Fatalf("wrong Codex invocation: %q %v", args, readErr)
+	}
+	var started, reasoning bool
+	for _, event := range *events {
+		started = started || event.Type == "status" && strings.Contains(event.Detail, "process started")
+		reasoning = reasoning || event.Type == "reasoning"
+	}
+	if !started || !reasoning {
+		t.Fatalf("missing activity before timeout: %+v", *events)
+	}
+}
+
+func TestCodexStreamFailedTurnCannotReturnSuccessEvenWithPartialOutput(t *testing.T) {
+	skipOnWindows(t)
+	fakeBinOnPath(t, "codex", `
+cat > /dev/null
+printf '%s\n' '{"type":"item.completed","item":{"id":"m","type":"agent_message","text":"partial answer"}}' '{"type":"turn.failed","error":{"message":"Model is unavailable"}}'
+`)
+	reply, err := NewCodexAdapter().SingleShotStream(context.Background(), SingleShotOpts{Cwd: t.TempDir(), Message: "Plan"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "Model is unavailable") || reply == nil || reply.Text != "partial answer" {
+		t.Fatalf("failed turn was reported as successful or lost output: %+v %v", reply, err)
 	}
 }
 

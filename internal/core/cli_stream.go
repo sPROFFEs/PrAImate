@@ -29,8 +29,9 @@ type StreamEvent struct {
 	// Type is one of:
 	//   "text"        — Text holds an assistant output delta (append it)
 	//   "reasoning"   — Text holds a visible thinking/reasoning update
-	//   "step_start"  — one OpenCode agent step started
-	//   "step_finish" — one OpenCode agent step finished
+	//   "status"      — a CLI process/session lifecycle update
+	//   "step_start"  — one CLI agent step started
+	//   "step_finish" — one CLI agent step finished
 	//   "tool_start"  — the agent began a tool call (Tool + Detail set)
 	//   "tool_end"    — a tool call finished (ID matches its start; OK
 	//                   reports success)

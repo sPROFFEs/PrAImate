@@ -11,7 +11,7 @@ import (
 func (r Runner) traced(config Config, profile Profile, phase string) Runner {
 	id, _ := newRunID()
 	r.trace = Event{WorkerID: id, ParentID: r.trace.WorkerID, Tier: profile.Tier,
-		Runtime: profile.Runtime, CLI: profile.CLI, Model: profile.Model,
+		Runtime: profile.Runtime, CLI: profile.CLI, Model: profile.Model, ReasoningEffort: profile.ReasoningEffort,
 		Workspace: config.Workspace, Phase: phase, TimeoutSeconds: profile.TimeoutSeconds}
 	return r
 }

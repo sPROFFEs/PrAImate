@@ -22,22 +22,23 @@ const (
 )
 
 type Event struct {
-	TaskID         string              `json:"taskID,omitempty"`
-	WorkerID       string              `json:"workerID,omitempty"`
-	ParentID       string              `json:"parentID,omitempty"`
-	Runtime        string              `json:"runtime,omitempty"`
-	CLI            string              `json:"cli,omitempty"`
-	Model          string              `json:"model,omitempty"`
-	Workspace      string              `json:"workspace,omitempty"`
-	Phase          string              `json:"phase,omitempty"`
-	Step           int                 `json:"step,omitempty"`
-	Target         Tier                `json:"target,omitempty"`
-	TimeoutSeconds int                 `json:"timeoutSeconds,omitempty"`
-	Tier           Tier                `json:"tier"`
-	Kind           string              `json:"kind"`
-	Text           string              `json:"text"`
-	Usage          workerruntime.Usage `json:"usage"`
-	Timestamp      time.Time           `json:"timestamp"`
+	TaskID          string              `json:"taskID,omitempty"`
+	WorkerID        string              `json:"workerID,omitempty"`
+	ParentID        string              `json:"parentID,omitempty"`
+	Runtime         string              `json:"runtime,omitempty"`
+	CLI             string              `json:"cli,omitempty"`
+	Model           string              `json:"model,omitempty"`
+	ReasoningEffort string              `json:"reasoningEffort,omitempty"`
+	Workspace       string              `json:"workspace,omitempty"`
+	Phase           string              `json:"phase,omitempty"`
+	Step            int                 `json:"step,omitempty"`
+	Target          Tier                `json:"target,omitempty"`
+	TimeoutSeconds  int                 `json:"timeoutSeconds,omitempty"`
+	Tier            Tier                `json:"tier"`
+	Kind            string              `json:"kind"`
+	Text            string              `json:"text"`
+	Usage           workerruntime.Usage `json:"usage"`
+	Timestamp       time.Time           `json:"timestamp"`
 }
 
 type Runner struct {
@@ -469,11 +470,14 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 		r.trace.Phase = "inference"
 		r.emit(tier, "request", input, workerruntime.Usage{})
 		result, err := worker.Execute(ctx, workerruntime.Request{
-			Model: profile.Model, SystemPrompt: instructions + fmt.Sprintf("\nTurns left: %d (run: %d). Finish before this limit.", maxWorkerSteps-step, *remaining+1), Task: input, WorkspaceRoot: config.Workspace,
+			Model: profile.Model, ReasoningEffort: profile.ReasoningEffort, SystemPrompt: instructions + fmt.Sprintf("\nTurns left: %d (run: %d). Finish before this limit.", maxWorkerSteps-step, *remaining+1), Task: input, WorkspaceRoot: config.Workspace,
 			Limits:   workerruntime.Limits{MaxInputBytes: profile.MaxInputBytes, MaxOutputTokens: profile.MaxOutputTokens, Timeout: profile.Timeout()},
 			Progress: func(event workerruntime.ProgressEvent) { r.emit(tier, event.Kind, event.Text, workerruntime.Usage{}) },
 		})
 		if err != nil {
+			if result != nil && (result.Content != "" || result.Usage.Source == "provider") {
+				r.emit(tier, "response", result.Content, result.Usage)
+			}
 			return "", workerError(ctx, profile, "model response", err)
 		}
 		if result == nil || strings.TrimSpace(result.Content) == "" || len(result.Content) > maxWorkerOutputBytes {

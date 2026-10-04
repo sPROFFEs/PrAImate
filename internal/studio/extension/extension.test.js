@@ -335,6 +335,21 @@ test('worker execution panels retain their selected run and settings save agains
   assert.equal(h.posted.at(-1).config.profiles[0].timeoutSeconds,0);
 });
 
+test('planning timeout recovery saves only the reasoner timeout before retrying the original run', () => {
+  const h=webviewHarness();
+  h.send({type:'status',status:{connected:true,activeWorkspace:'/project'}});
+  h.send({type:'navigate',page:'workers',workerID:'timed-out'});
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:tier,timeoutSeconds:120,maxInputBytes:65536,maxOutputTokens:0}));
+  h.send({type:'workerSnapshot',selectedId:'timed-out',runs:[{id:'timed-out',status:'failed'}],snapshot:{id:'timed-out',workspace:'/project',status:'failed',error:'context deadline exceeded',profiles,events:[],dag:{tasks:[]}}});
+  h.elements.get('worker-result').children.find(child=>child.textContent==='Retry with no reasoner timeout').fire('click');
+  const save=h.posted.at(-1);
+  assert.equal(save.type,'workerRunConfig');assert.equal(save.id,'timed-out');
+  assert.deepEqual(save.config.profiles.map(p=>p.timeoutSeconds),[0,120,120]);
+  assert.equal(profiles[0].timeoutSeconds,120);
+  h.send({type:'actionResult',id:save.requestId,ok:true});
+  assert.equal(h.posted.at(-1).type,'workerPlanRetry');assert.equal(h.posted.at(-1).id,'timed-out');
+});
+
 test('parallel worker drafts keep independent backend overrides and display Git diffs safely', () => {
   const h=webviewHarness();
   const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));

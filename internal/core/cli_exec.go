@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/sPROFFEs/PrAImate/internal/appdata"
@@ -39,10 +40,11 @@ import (
 
 // buildIn carries the per-turn inputs to an execAdapter's build func.
 type buildIn struct {
-	Message string
-	Model   string
-	Tools   string // "", "ask", "edits", "full" — see SingleShotOpts.Tools
-	TmpDir  string
+	Message         string
+	Model           string
+	ReasoningEffort string
+	Tools           string // "", "ask", "edits", "full" — see SingleShotOpts.Tools
+	TmpDir          string
 }
 
 type execAdapter struct {
@@ -153,7 +155,7 @@ func (a *execAdapter) SingleShot(ctx context.Context, opts SingleShotOpts) (*Rep
 	}
 	defer os.RemoveAll(tmpDir)
 
-	args, replyFile := a.build(buildIn{Message: msg, Model: opts.Model, Tools: opts.Tools, TmpDir: tmpDir})
+	args, replyFile := a.build(buildIn{Message: msg, Model: opts.Model, ReasoningEffort: opts.ReasoningEffort, Tools: opts.Tools, TmpDir: tmpDir})
 	cmd := exec.CommandContext(ctx, path, args...)
 	hideConsole(cmd)
 	if a.stdinMsg {
@@ -212,6 +214,9 @@ func NewCodexAdapter() *execAdapter {
 			args := []string{"exec", "--skip-git-repo-check", "--output-last-message", out}
 			if in.Model != "" {
 				args = append(args, "-m", in.Model)
+			}
+			if in.ReasoningEffort != "" {
+				args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(in.ReasoningEffort))
 			}
 			args = append(args, codexPermissionArgs(in.Tools, false)...)
 			return append(args, "-"), out

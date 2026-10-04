@@ -13,12 +13,13 @@ import (
 // Request contains only the task context explicitly selected for a worker.
 // A worker never receives the primary chat history through this contract.
 type Request struct {
-	Model         string
-	SystemPrompt  string
-	Task          string
-	WorkspaceRoot string
-	Limits        Limits
-	Progress      func(ProgressEvent)
+	Model           string
+	ReasoningEffort string
+	SystemPrompt    string
+	Task            string
+	WorkspaceRoot   string
+	Limits          Limits
+	Progress        func(ProgressEvent)
 }
 
 type ProgressEvent struct {

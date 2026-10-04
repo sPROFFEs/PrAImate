@@ -9,10 +9,11 @@
     p.cli = p.runtime === 'cli' ? 'praimate-cli' : ''
     p.endpoint = p.runtime === 'native' ? 'http://localhost:11434/v1' : ''
     p.maxOutputTokens = p.runtime === 'native' ? 2048 : 0
+    p.timeoutSeconds = p.runtime === 'cli' ? 0 : p.tier === 'primary' ? 600 : 300
     cliChanged(p)
   }
   function cliChanged(p) {
-    p.model = ''; p.allowEdits = false; p.allowCommands = false
+    p.model = ''; p.reasoningEffort = ''; p.allowEdits = false; p.allowCommands = false
     config = { ...config }
     dispatch('models', p.cli)
   }
@@ -33,9 +34,12 @@
       {/if}
       <label>Model<input list={'profile-models-' + p.tier} bind:value={config.profiles[index].model} placeholder="Model ID or alias" /></label>
       <datalist id={'profile-models-' + p.tier}>{#each models[p.cli] || [] as model}<option value={model}></option>{/each}</datalist>
+      {#if p.runtime === 'cli' && p.cli === 'codex'}
+        <label>Reasoning effort<select value={p.reasoningEffort || ''} on:change={event => config.profiles[index].reasoningEffort = event.target.value}><option value="">CLI default</option>{#each ['low','medium','high','xhigh','max','ultra'] as effort}<option value={effort}>{effort}</option>{/each}</select><small>Use a level supported by the selected model. Higher effort can take longer before reporting output.</small></label>
+      {/if}
       <label class="check"><input type="checkbox" bind:checked={config.profiles[index].allowEdits} /> Allow workspace edits</label>
       <label class="check"><input type="checkbox" bind:checked={config.profiles[index].allowCommands} /> Allow commands with user approval</label>
-      <label>Call timeout (seconds)<input type="number" min="0" max="3600" bind:value={config.profiles[index].timeoutSeconds} /><small>0 disables the call timeout. Stop remains available.</small></label>
+      <label>Call timeout (seconds)<input type="number" min="0" max="3600" bind:value={config.profiles[index].timeoutSeconds} /><small>0 disables the call timeout. A positive value stops the entire CLI call, including startup and reasoning, even while it is making progress. Stop remains available.</small></label>
       <label>Maximum input bytes<input type="number" min="1024" max="1048576" bind:value={config.profiles[index].maxInputBytes} /></label>
       <label>Additional instructions<textarea rows="3" bind:value={config.profiles[index].instructions}></textarea></label>
     </fieldset>

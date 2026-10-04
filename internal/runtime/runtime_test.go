@@ -116,10 +116,10 @@ func TestCLIWorkerForwardsLiveTextAndModel(t *testing.T) {
 	adapter := &fakeStreamCLI{fakeCLI: fakeCLI{safe: true}}
 	var events []ProgressEvent
 	result, err := (CLI{Adapter: adapter}).Execute(context.Background(), Request{
-		Model: "different-model", Task: "task", WorkspaceRoot: t.TempDir(),
+		Model: "different-model", ReasoningEffort: "medium", Task: "task", WorkspaceRoot: t.TempDir(),
 		Progress: func(event ProgressEvent) { events = append(events, event) },
 	})
-	if err != nil || result.Content != "scoped answer" || adapter.seen.Model != "different-model" || len(events) != 1 || events[0].Text != "live" {
+	if err != nil || result.Content != "scoped answer" || adapter.seen.Model != "different-model" || adapter.seen.ReasoningEffort != "medium" || len(events) != 1 || events[0].Text != "live" {
 		t.Fatalf("result=%+v error=%v model=%q events=%+v", result, err, adapter.seen.Model, events)
 	}
 }
@@ -137,6 +137,17 @@ func TestCLIWorkerPreservesReportedReasoningAndToolLifecycle(t *testing.T) {
 		if events[i].Kind != kind {
 			t.Fatalf("lost event type: %+v", events[i])
 		}
+	}
+}
+
+func TestCLIWorkerReportsProcessAndTurnStartupBeforeOutput(t *testing.T) {
+	adapter := &fakeStreamCLI{fakeCLI: fakeCLI{safe: true}, events: []core.StreamEvent{
+		{Type: "status", Detail: "Codex process started."}, {Type: "step_start", Detail: "turn"},
+	}}
+	var events []ProgressEvent
+	_, err := (CLI{Adapter: adapter}).Execute(context.Background(), Request{Task: "Plan", WorkspaceRoot: t.TempDir(), Progress: func(e ProgressEvent) { events = append(events, e) }})
+	if err != nil || len(events) != 2 || events[0].Kind != "backend_status" || events[1].Kind != "backend_status" {
+		t.Fatalf("no evidence of CLI startup reached the worker: %+v %v", events, err)
 	}
 }
 
