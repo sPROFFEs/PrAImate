@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { workerExecutions, workerUsage, workerEventLabel, workerTaskRoute, isWorkerRun } from './workerActivity.js'
+import { workerExecutions, workerUsage, workerEventLabel, workerTaskRoute, workerTaskHasOverrides, isWorkerRun } from './workerActivity.js'
 
 test('concurrent invocations retain their own routes, parents and stream events', () => {
   const run = { status: 'running', workspace: '/project', profiles: [{tier:'middle',cli:'new-cli',model:'new-model'}], events: [
@@ -56,4 +56,37 @@ test('startup and provider errors update reported activity without pretending th
   const [worker]=workerExecutions(run)
   assert.equal(worker.status,'running');assert.equal(worker.lastProgressAt,'2026-10-04T10:00:02Z')
   assert.equal(worker.reasoningEffort,'medium');assert.equal(workerEventLabel(worker.events[1]),'Backend activity')
+})
+
+test('failed tasks inherit updated profiles without relabelling the failed attempt', () => {
+  const task = {id:'retry',status:'failed',requestedWorker:{profile:'middle'},worker:{profile:'middle',runtime:'cli',cli:'praimate-code',model:'agy/broken-model'}}
+  const run = {status:'failed',profiles:[{tier:'middle',runtime:'cli',cli:'codex',model:'replacement'}],dag:{tasks:[task]},events:[
+    {workerID:'old',taskID:'retry',tier:'middle',kind:'failed',text:'Provider unavailable'},
+  ]}
+  assert.deepEqual(workerTaskRoute(task,run),{runtime:'cli',cli:'codex',model:'replacement'})
+  assert.equal(workerTaskHasOverrides(task),false)
+  const [previous] = workerExecutions(run)
+  assert.equal(previous.cli,'praimate-code'); assert.equal(previous.model,'agy/broken-model')
+  task.status='pending'
+  assert.equal(workerTaskRoute(task,run).model,'replacement')
+})
+
+test('explicit task routes override updated profiles until the user chooses inheritance', () => {
+  const task = {status:'failed',requestedWorker:{profile:'middle',cli:'opencode',model:'pinned'},worker:{profile:'middle',cli:'opencode',model:'pinned'}}
+  const run = {profiles:[{tier:'middle',runtime:'cli',cli:'codex',model:'new-model'}]}
+  assert.equal(workerTaskHasOverrides(task),true)
+  assert.equal(workerTaskRoute(task,run).cli,'opencode'); assert.equal(workerTaskRoute(task,run).model,'pinned')
+  task.requestedWorker={profile:'middle'}
+  assert.equal(workerTaskHasOverrides(task),false)
+  assert.equal(workerTaskRoute(task,run).cli,'codex'); assert.equal(workerTaskRoute(task,run,true).cli,'opencode')
+})
+
+test('completed and running tasks show the route that actually executed', () => {
+  const task = {status:'running',requestedWorker:{profile:'middle'},worker:{profile:'middle',runtime:'cli',cli:'codex',model:'old-model'}}
+  const run = {profiles:[{tier:'middle',runtime:'native',endpoint:'http://localhost:11434/v1',model:'local'}]}
+  assert.equal(workerTaskRoute(task,run).cli,'codex'); assert.equal(workerTaskRoute(task,run).model,'old-model')
+  task.status='completed'; task.result={worker:{profile:'middle',runtime:'cli',cli:'claude',model:'actual'}}
+  assert.equal(workerTaskRoute(task,run).model,'actual')
+  task.status='pending'; delete task.result
+  assert.deepEqual(workerTaskRoute(task,run),{runtime:'native',cli:'',model:'local'})
 })

@@ -8,7 +8,8 @@ import (
 )
 
 // UpdateRunConfig affects subsequent invocations, never a running process or
-// the task's saved route/results. Project identity remains fixed for worktrees.
+// the task's recorded attempts/results. Tasks inherit updated profiles unless
+// their requested route explicitly overrides them. Workspace identity is fixed.
 func (m *Manager) UpdateRunConfig(id string, config Config) error {
 	if err := config.Validate(); err != nil {
 		return err
@@ -45,6 +46,44 @@ func (m *Manager) UpdateRunConfig(id string, config Config) error {
 		return err
 	}
 	return nil
+}
+
+// UseDAGTaskProfile removes task-specific routing for its next attempt. Recorded
+// attempts and retained worktrees remain intact; resetting failed work is separate.
+func (m *Manager) UseDAGTaskProfile(id, taskID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	run := m.runs[id]
+	if m.closed || run == nil || run.DAG == nil {
+		return errors.New("task graph unavailable")
+	}
+	if run.cancel != nil {
+		return errors.New("stop execution before changing a task's worker route")
+	}
+	for i := range run.DAG.Tasks {
+		task := &run.DAG.Tasks[i]
+		if task.ID != taskID {
+			continue
+		}
+		if task.Status != "pending" && task.Status != "failed" && task.Status != "cancelled" && task.Status != "blocked" {
+			return errors.New("only pending or unsuccessful tasks can change their worker route")
+		}
+		request := WorkerConfig{ProfileID: task.requestedWorker().ProfileID}
+		if _, _, err := resolveTaskProfile(run.config, request); err != nil {
+			return err
+		}
+		previous := cloneTask(*task)
+		task.RequestedWorker = &request
+		if run.Status == "draft" {
+			task.Worker = request
+		}
+		if err := m.saveDAGLocked(run); err != nil {
+			*task = previous
+			return err
+		}
+		return nil
+	}
+	return errors.New("task not found")
 }
 
 // RetryPlanning is explicit and only repeats a read-only planning call. Once

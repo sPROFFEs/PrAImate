@@ -46,6 +46,8 @@ func (d *detachedCoordinator) callWorker(w *detachedWindow, req detachedRPCReque
 		return nil, a.MergeWorkerDAG(body.ID)
 	case "worker.graph.reset":
 		return nil, a.ResetWorkerDAGTask(body.ID, body.TaskID)
+	case "worker.graph.profile":
+		return nil, a.UseWorkerDAGTaskProfile(body.ID, body.TaskID)
 	case "worker.graph.cleanup":
 		return nil, a.CleanupWorkerDAG(body.ID)
 	default:

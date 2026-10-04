@@ -84,7 +84,17 @@ func TestStudioDAGAndRemoteKnowledgeConfigurationRPC(t *testing.T) {
 	if updatedRun.Profiles[0].TimeoutSeconds != 0 || updatedRun.DAG.Tasks[0].ID != snapshot.DAG.Tasks[0].ID {
 		t.Fatal("run settings changed task identity or lost timeout")
 	}
+	snapshot.DAG.Tasks[0].Worker.Model = "task-specific-model"
 	rpcOK(t, s, "workers.graph.save", map[string]any{"id": id, "tasks": snapshot.DAG.Tasks, "maxParallel": 2})
+	editedRun := rpcOK(t, s, "workers.get", map[string]string{"id": id}).(orchestrator.Run)
+	if editedRun.DAG.Tasks[0].RequestedWorker == nil || editedRun.DAG.Tasks[0].RequestedWorker.Model != "task-specific-model" {
+		t.Fatal("draft edits were shadowed by the previous requested route")
+	}
+	rpcOK(t, s, "workers.graph.profile", map[string]string{"id": id, "taskID": snapshot.DAG.Tasks[0].ID})
+	profileRun := rpcOK(t, s, "workers.get", map[string]string{"id": id}).(orchestrator.Run)
+	if profileRun.Status != "draft" || profileRun.DAG.Tasks[0].RequestedWorker == nil || profileRun.DAG.Tasks[0].RequestedWorker.Model != "" || profileRun.DAG.Tasks[0].Worker.Model != "" {
+		t.Fatal("using a profile did not remove the override, or executed a task")
+	}
 	rpcOK(t, s, "workers.graph.execute", map[string]string{"id": id})
 	for time.Now().Before(deadline) {
 		snapshot = rpcOK(t, s, "workers.get", map[string]string{"id": id}).(orchestrator.Run)

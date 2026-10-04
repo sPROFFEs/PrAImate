@@ -140,6 +140,7 @@ export const api = {
   reviewWorkerDAGTask: (id, taskID, decision) => call('ReviewWorkerDAGTask', id, taskID, decision),
   mergeWorkerDAG: (id) => call('MergeWorkerDAG', id),
   resetWorkerDAGTask: (id, taskID) => call('ResetWorkerDAGTask', id, taskID),
+  useWorkerDAGTaskProfile: (id, taskID) => call('UseWorkerDAGTaskProfile', id, taskID),
   cleanupWorkerDAG: (id) => call('CleanupWorkerDAG', id),
   getAgentKnowledge: (id) => call('GetAgentKnowledge', id),
   saveAgentKnowledgeConfig: (id, config, key, removeKey) => call('SaveAgentKnowledgeConfig', id, JSON.stringify(config), key || '', !!removeKey),

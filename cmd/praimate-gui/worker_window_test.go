@@ -9,7 +9,7 @@ import (
 
 func TestWorkerWindowRPCRejectsOtherRunsAndNonWorkerWindows(t *testing.T) {
 	d := newDetachedCoordinator(&App{})
-	for _, method := range []string{"worker.snapshot", "worker.approvals", "worker.cancel", "worker.config.update", "worker.plan.retry", "worker.graph.execute", "worker.graph.merge"} {
+	for _, method := range []string{"worker.snapshot", "worker.approvals", "worker.cancel", "worker.config.update", "worker.plan.retry", "worker.graph.execute", "worker.graph.merge", "worker.graph.profile"} {
 		body, _ := json.Marshal(workerWindowRequest{ID: "other-run"})
 		if _, err := d.call(&detachedWindow{kind: "workers", sessionID: "my-run"}, detachedRPCRequest{Method: method, Body: body}); err == nil {
 			t.Fatalf("%s escaped run scope", method)

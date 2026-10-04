@@ -231,6 +231,13 @@ function graphDetails(label,text,key) {
   details.addEventListener('toggle',()=>{if(details.open)graphDetailsOpen.add(key);else graphDetailsOpen.delete(key);});return details;
 }
 function graphAction(type,data={}) {post(type,{id:workerSelected,...data},ok=>{if(ok)post('workerRefresh',{id:workerSelected});});}
+function workerTaskRoute(task,recorded=false) {
+  const worker=recorded || ['running','completed'].includes(task.status) ? task.result?.worker || task.worker || {} : task.requestedWorker || task.worker || {};
+  const profile=workerSnapshot.profiles.find(p=>p.tier===(worker.profile || 'middle')) || {};
+  const runtime=worker.runtime || (worker.cli ? 'cli' : worker.endpoint ? 'native' : profile.runtime);
+  return (runtime==='native' ? 'Local' : worker.cli || profile.cli || 'CLI')+' / '+(worker.model || profile.model || 'Backend default');
+}
+function workerTaskHasOverrides(task) {const worker=task.requestedWorker || task.worker || {};return !!(worker.runtime || worker.cli || worker.model || worker.endpoint);}
 function renderWorkerGraph(root) {
   const graph=workerSnapshot.dag,editable=workerSnapshot.status==='draft',active=['planning','running','merging'].includes(workerSnapshot.status);
   const section=element('section','','worker-graph');section.appendChild(element('h2','Parallel task graph'));section.appendChild(element('p',graph.targetBranch+' · base '+(graph.baseCommit || '').slice(0,10),'hint'));
@@ -262,7 +269,12 @@ function renderWorkerGraph(root) {
     for(const task of graph.tasks || []) {
       const card=element('article','','card');card.appendChild(element('strong',task.id+' · '+task.status+(task.review ? ' · '+task.review : '')));card.appendChild(element('p',task.description));
       card.appendChild(element('p','Depends on: '+(task.dependencies || []).join(', '),'hint'));
-      card.appendChild(element('p',(task.worker.profile || 'middle')+' · '+(task.worker.cli || 'Local')+' / '+(task.worker.model || '')+' · '+(task.worker.provider || 'Provider configured by backend'),'hint'));
+      if(['pending','failed','blocked','cancelled'].includes(task.status)) {
+        card.appendChild(element('p','Next attempt: '+workerTaskRoute(task),'hint'));
+        card.appendChild(element('p',workerTaskHasOverrides(task) ? 'Task-specific route overrides the run profile.' : 'Uses the current run profile.','hint'));
+        if(task.worker?.provider)card.appendChild(element('p','Last attempt: '+workerTaskRoute(task,true),'hint'));
+        if(!active && workerTaskHasOverrides(task))card.appendChild(button('Use current profile',()=>graphAction('workerGraphProfile',{taskID:task.id})));
+      } else card.appendChild(element('p',(task.worker.profile || 'middle')+' · '+workerTaskRoute(task)+' · '+(task.worker.provider || 'Provider configured by backend'),'hint'));
       if(task.worktree)card.appendChild(element('pre',task.worktree.path+'\n'+task.worktree.branch));
       if(task.error)card.appendChild(element('p',task.error,'error'));
       if(task.output)card.appendChild(graphDetails('Worker result',task.output,workerSelected+task.id+'result'));
@@ -275,7 +287,9 @@ function renderWorkerGraph(root) {
       section.appendChild(card);
     }
     if(!active) {
-      if(graph.tasks?.some(t=>t.status==='pending'))section.appendChild(button('Resume pending tasks',()=>graphAction('workerGraphExecute')));
+      const needsReset=graph.tasks?.some(t=>['failed','blocked','cancelled'].includes(t.status));
+      if(needsReset)section.appendChild(element('p','Inspect and reset unsuccessful tasks before resuming. Their next attempt uses the route shown above; previous activity remains in the history.','hint'));
+      if(graph.tasks?.some(t=>t.status==='pending'))section.appendChild(button('Resume pending tasks',()=>graphAction('workerGraphExecute'),needsReset));
       section.appendChild(button('Merge accepted changes',()=>graphAction('workerGraphMerge'),!graph.tasks?.some(t=>t.review==='accepted')));
       section.appendChild(button('Clean reviewed worktrees',()=>graphAction('workerGraphCleanup')));
     }

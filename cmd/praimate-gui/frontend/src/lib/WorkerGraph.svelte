@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte'
   import { api } from './api.js'
   import { showConfirm } from './stores.js'
+  import { workerTaskRoute, workerTaskHasOverrides } from './workerActivity.js'
   export let snapshot
   export let clis = []
   export let models = {}
@@ -15,6 +16,7 @@
   let loadingLocal = false
   $: editable = snapshot?.status === 'draft'
   $: active = ['running', 'planning', 'merging'].includes(snapshot?.status)
+  $: needsReset = snapshot?.dag?.tasks?.some(t => ['failed', 'cancelled', 'blocked'].includes(t.status))
   $: if (snapshot?.dag && snapshot.id !== draftID) {
     draftID = snapshot.id
     tasks = JSON.parse(JSON.stringify(snapshot.dag.tasks || []))
@@ -31,6 +33,7 @@
   function profileFor(task) { return snapshot.profiles.find(p => p.tier === (task.worker?.profile || 'middle')) || {} }
   function cliFor(task) { return task.worker.cli || profileFor(task).cli || '' }
   function runtimeFor(task) { return task.worker.runtime || profileFor(task).runtime || 'cli' }
+  function routeLabel(task, recorded = false) { const route = workerTaskRoute(task, snapshot, recorded); return `${route.runtime === 'native' ? 'Local' : route.cli} / ${route.model || 'Backend default'}` }
   function profileChanged(task) { task.worker = { profile: task.worker.profile }; tasks = tasks; dispatch('models', cliFor(task)) }
   async function action(callback) {
     busy = true; error = ''
@@ -87,7 +90,13 @@
           <div class="task-title"><strong>{task.id}</strong><span class="status">{task.status}{task.review ? ' · ' + task.review : ''}</span></div>
           <p>{task.description}</p>
           <p class="hint">Depends on: {(task.dependencies || []).join(', ') || 'none'}</p>
-          <p class="route-label">{task.worker.profile || 'middle'} · {task.worker.cli || 'Local'} / {task.worker.model || profileFor(task).model}<br />{task.worker.provider || 'Provider configured by backend'}</p>
+          {#if ['pending', 'failed', 'cancelled', 'blocked'].includes(task.status)}
+            <p class="route-label">Next attempt: {routeLabel(task)}<br />{workerTaskHasOverrides(task) ? 'Task-specific route overrides the run profile.' : 'Uses the current run profile.'}</p>
+            {#if task.worker?.provider}<p class="hint">Last attempt: {routeLabel(task, true)}</p>{/if}
+            {#if !active && workerTaskHasOverrides(task)}<button disabled={busy} on:click={() => action(() => api.useWorkerDAGTaskProfile(snapshot.id, task.id))}>Use current profile</button>{/if}
+          {:else}
+            <p class="route-label">{task.worker.profile || 'middle'} · {routeLabel(task)}<br />{task.worker.provider || 'Provider configured by backend'}</p>
+          {/if}
           {#if task.worktree}<p class="path">{task.worktree.path}<br />{task.worktree.branch}</p>{/if}
           {#if task.error}<p class="error" role="alert">{task.error}</p>{/if}
           {#if task.output}<details><summary>Worker result</summary><pre>{task.output}</pre></details>{/if}
@@ -103,8 +112,9 @@
       {/each}
     </div>
     {#if !active}
+      {#if needsReset}<p class="hint">Inspect and reset unsuccessful tasks before resuming. Their next attempt uses the route shown above; previous activity remains in the history.</p>{/if}
       <div class="actions">
-        {#if snapshot.dag.tasks?.some(t => t.status === 'pending')}<button disabled={busy} on:click={execute}>Resume pending tasks</button>{/if}
+        {#if snapshot.dag.tasks?.some(t => t.status === 'pending')}<button disabled={busy || needsReset} on:click={execute}>Resume pending tasks</button>{/if}
         <button disabled={busy || !snapshot.dag.tasks?.some(t => t.review === 'accepted')} on:click={merge}>Merge accepted changes</button>
         <button disabled={busy} on:click={async () => { if (await showConfirm({ title: 'Clean reviewed worktrees?', message: 'This removes rejected and merged task worktrees, plus any temporary merge attempt. Saved diffs and commits remain in the run history.', confirmLabel: 'Clean worktrees' })) action(() => api.cleanupWorkerDAG(snapshot.id)) }}>Clean reviewed worktrees</button>
       </div>

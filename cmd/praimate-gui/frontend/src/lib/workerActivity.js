@@ -4,8 +4,15 @@ export const isWorkerRun = id => /^workers?-/.test(id || '')
 export const workerLabel = tier => workerTiers.find(t => t.id === tier)?.label || tier || 'Worker'
 const terminalKinds = new Set(['completed', 'failed', 'cancelled'])
 
-export function workerTaskRoute(task, run) {
-  const worker = task?.worker || {}
+export const workerTaskHasOverrides = task => {
+  const worker = task?.requestedWorker || task?.worker || {}
+  return !!(worker.runtime || worker.cli || worker.model || worker.endpoint)
+}
+
+export function workerTaskRoute(task, run, recorded = false) {
+  const worker = recorded || ['running', 'completed'].includes(task?.status)
+    ? task?.result?.worker || task?.worker || {}
+    : task?.requestedWorker || task?.worker || {}
   const profile = run?.profiles?.find(p => p.tier === (worker.profile || 'middle')) || {}
   const runtime = worker.runtime || (worker.cli ? 'cli' : worker.endpoint ? 'native' : profile.runtime)
   return { runtime, cli: runtime === 'native' ? '' : worker.cli || profile.cli || '', model: worker.model || profile.model || '' }
@@ -20,7 +27,7 @@ export function workerExecutions(run) {
     if (!groups.has(key)) {
       const task = run.dag?.tasks?.find(t => t.id === event.taskID)
       const profile = run.profiles?.find(p => p.tier === event.tier) || {}
-      const route = task ? workerTaskRoute(task, run) : profile
+      const route = task ? workerTaskRoute(task, run, true) : profile
       const runtime = event.runtime || route.runtime || ''
       groups.set(key, { id: key, taskID: event.taskID || '', parentID: event.parentID || '', tier: event.tier,
         cli: runtime === 'native' ? '' : event.cli || route.cli || '', model: event.model || route.model || '',

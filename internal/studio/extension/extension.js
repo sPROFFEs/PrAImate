@@ -305,6 +305,7 @@ class ChatView {
         workerRename:async () => { await call('workers.rename',{id:data.id,title:data.title}); },
         workerGraphSave:async () => { await call('workers.graph.save',{id:data.id,tasks:data.tasks,maxParallel:data.maxParallel}); },
         workerGraphExecute:async () => { await call('workers.graph.execute',{id:data.id}); },
+        workerGraphProfile:async () => { await call('workers.graph.profile',{id:data.id,taskID:data.taskID}); },
         workerGraphReview:async () => { await call('workers.graph.review',{id:data.id,taskID:data.taskID,decision:data.decision}); },
         workerGraphMerge:async () => {
           if (await vscode.window.showWarningMessage('Merge accepted task commits into the target branch? Conflicts stop in a separate review worktree.',{modal:true},'Merge accepted') === 'Merge accepted') await call('workers.graph.merge',{id:data.id});

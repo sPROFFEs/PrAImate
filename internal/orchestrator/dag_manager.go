@@ -173,12 +173,13 @@ func (m *Manager) UpdateDAG(id string, tasks []DAGTask, parallel int) error {
 	if parallel < 1 || parallel > 4 {
 		return errors.New("parallelism must be between 1 and 4")
 	}
-	if err := ValidateDAG(tasks, run.config); err != nil {
-		return err
-	}
 	clean := make([]DAGTask, 0, len(tasks))
 	for _, t := range tasks {
-		clean = append(clean, DAGTask{ID: t.ID, Description: t.Description, Dependencies: append([]string(nil), t.Dependencies...), Worker: t.Worker, Status: "pending"})
+		request := t.Worker
+		clean = append(clean, DAGTask{ID: t.ID, Description: t.Description, Dependencies: append([]string(nil), t.Dependencies...), Worker: request, RequestedWorker: &request, Status: "pending"})
+	}
+	if err := ValidateDAG(clean, run.config); err != nil {
+		return err
 	}
 	previous := run.DAG
 	run.DAG = cloneDAG(previous)
@@ -374,7 +375,9 @@ func (m *Manager) executeDAGTask(ctx context.Context, id string, config Config, 
 		}
 		return task
 	}
-	p, resolved, err := resolveTaskProfile(config, task.Worker)
+	request := task.requestedWorker()
+	task.RequestedWorker = &request
+	p, resolved, err := resolveTaskProfile(config, request)
 	if err != nil {
 		return fail(err)
 	}

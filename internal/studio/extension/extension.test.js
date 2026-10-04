@@ -387,6 +387,30 @@ test('parallel worker drafts keep independent backend overrides and display Git 
   assert.equal(diff.textContent,'<script>malicious</script>');assert.equal(diff.innerHTML,'');
 });
 
+test('failed worker tasks show next and previous routes, with an explicit profile reset', () => {
+  const h=webviewHarness();
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'replacement-'+tier}));
+  h.send({type:'status',status:{connected:true}});h.eval("navigate('workers')");
+  const failed={id:'retry',description:'Finish the task',dependencies:[],status:'failed',requestedWorker:{profile:'middle'},worker:{profile:'middle',runtime:'cli',cli:'praimate-code',model:'agy/broken',provider:'agy'}};
+  const pending={id:'pending',description:'Wait',dependencies:['retry'],status:'pending',worker:{profile:'fast'}};
+  const snapshot={id:'retry-run',task:'Retry objective',status:'failed',updatedAt:'one',profiles,events:[],dag:{tasks:[failed,pending],maxParallel:1,targetBranch:'main',baseCommit:'abcdef'}};
+  const render=run=>h.send({type:'workerSnapshot',runs:[{id:run.id,status:run.status}],snapshot:run});
+  const graph=()=>h.elements.get('worker-result').children.find(e=>e.className==='worker-graph');
+  const card=()=>graph().children.find(e=>e.tag==='article');
+  render(snapshot);
+  assert.ok(card().children.some(e=>e.textContent==='Next attempt: codex / replacement-middle'));
+  assert.ok(card().children.some(e=>e.textContent==='Last attempt: praimate-code / agy/broken'));
+  assert.ok(!card().children.some(e=>e.textContent==='Use current profile'));
+  assert.equal(graph().children.find(e=>e.textContent==='Resume pending tasks').disabled,true);
+  const pinned={...failed,requestedWorker:{profile:'middle',cli:'praimate-code',model:'agy/broken'}};
+  render({...snapshot,updatedAt:'two',dag:{...snapshot.dag,tasks:[pinned,pending]}});
+  assert.ok(card().children.some(e=>e.textContent==='Next attempt: praimate-code / agy/broken'));
+  card().children.find(e=>e.textContent==='Use current profile').fire('click');
+  assert.equal(h.posted.at(-1).type,'workerGraphProfile');assert.equal(h.posted.at(-1).id,'retry-run');assert.equal(h.posted.at(-1).taskID,'retry');
+  render({...snapshot,updatedAt:'three',dag:{...snapshot.dag,tasks:[{...failed,status:'pending'},pending]}});
+  assert.equal(graph().children.find(e=>e.textContent==='Resume pending tasks').disabled,false);
+});
+
 test('late action errors stay on the originating page and conversation', () => {
   const h = webviewHarness();
   h.send({type:'status',status:{connected:true,activeCLI:'claude',chatId:'first'}});

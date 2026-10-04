@@ -162,6 +162,16 @@ func (a *App) ResetWorkerDAGTask(id, taskID string) error {
 	return a.workers.ResetDAGTask(id, taskID)
 }
 
+func (a *App) UseWorkerDAGTaskProfile(id, taskID string) error {
+	if a.detachedClient != nil {
+		return a.detachedClient.rpc("worker.graph.profile", workerWindowRequest{ID: id, TaskID: taskID}, nil)
+	}
+	if a.workers == nil {
+		return errors.New("worker runtime is unavailable")
+	}
+	return a.workers.UseDAGTaskProfile(id, taskID)
+}
+
 func (a *App) CleanupWorkerDAG(id string) error {
 	if a.detachedClient != nil {
 		return a.detachedClient.rpc("worker.graph.cleanup", workerWindowRequest{ID: id}, nil)

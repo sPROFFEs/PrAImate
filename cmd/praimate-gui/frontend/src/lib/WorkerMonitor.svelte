@@ -56,7 +56,7 @@
     for (const p of settings.profiles) if (p.runtime === 'cli') dispatch('models', p.cli)
   }
   async function saveSettings() {
-    await action(async () => { await api.updateWorkerRunConfig(snapshot.id, settings); settings = null })
+    await action(async () => { await api.updateWorkerRunConfig(snapshot.id, settings); settings = null; if (snapshot.dag?.tasks?.length) showGraph = true })
   }
   async function retryWithoutTimeout() {
     const id = snapshot.id
@@ -78,6 +78,7 @@
     <div class="buttons"><label><input type="checkbox" bind:checked={focusActive} /> Follow active worker</label><button disabled={busy || active} on:click={openSettings}>Run settings</button>{#if active}<button class="stop" disabled={busy} on:click={() => action(() => api.cancelWorkerRun(snapshot.id))}>Stop execution</button>{/if}</div>
   </div>
   {#if snapshot.error}<div class="failure" role="alert"><strong>Execution needs attention</strong><p>{snapshot.error}</p><small>Partial activity and task changes are retained. Inspect them before retrying.</small>{#if snapshot.dag && !tasks.length && !active}<div class="buttons"><button disabled={busy} on:click={openSettings}>Adjust reasoner settings</button><button disabled={busy} on:click={() => action(() => api.retryWorkerPlanning(snapshot.id))}>Retry planning</button>{#if snapshot.profiles?.some(p => p.tier === 'primary' && p.timeoutSeconds > 0) && /deadline|timeout/i.test(snapshot.error)}<button disabled={busy} on:click={retryWithoutTimeout}>Retry with no reasoner timeout</button>{/if}</div>{/if}</div>{/if}
+  {#if tasks.length && !active && tasks.some(t => ['failed','blocked','cancelled'].includes(t.status))}<div class="buttons"><button on:click={() => showGraph = true}>Review task routes and retry</button><small>Check the next attempt route, then inspect and reset unsuccessful tasks.</small></div>{/if}
   {#if snapshot.dag && !tasks.length}<p class="muted">Planning stage: only Reasoner runs. Middle and Fast start after a plan is ready and you review and run its tasks.</p>{/if}
   {#if error}<p class="failure" role="alert">{error}</p>{/if}
   <div class="profiles">
@@ -93,7 +94,7 @@
       {@const route = workerTaskRoute(task, snapshot)}
       <button class:task-failed={['failed','blocked','cancelled'].includes(task.status)} on:click={() => { const execution = executions.find(e => e.taskID === task.id); if (execution) { selected = execution.id; focusActive = false } else showGraph = true }}>
         <span><strong>{task.id}</strong><small>{task.status}{task.review ? ` · ${task.review}` : ''}</small></span>
-        <p>{task.description}</p><small>{workerLabel(task.worker?.profile)} · {route.cli || 'Local / API'} / {route.model}</small>
+        <p>{task.description}</p><small>{['pending','failed','blocked','cancelled'].includes(task.status) ? 'Next attempt: ' : ''}{workerLabel(task.worker?.profile)} · {route.cli || 'Local / API'} / {route.model}</small>
         <small>Depends on: {task.dependencies?.join(', ') || 'none'}</small>
         {#if task.error}<span class="task-error">{task.error}</span>{/if}
       </button>
@@ -141,7 +142,7 @@
 {#if settings}
   <div class="backdrop"><div class="settings" role="dialog" aria-modal="true" aria-label="Worker run settings" use:focusDialog={{onClose:() => { if (!busy) settings = null }}}>
     <header><h2>Run settings</h2><button disabled={busy} aria-label="Close settings" on:click={() => settings = null}>×</button></header>
-    <p>Changes apply to future calls in this saved run. Stop execution first. Existing task overrides and recorded results keep their original routes.</p>
+    <p>Changes apply to future calls, including retries of tasks that inherit a profile. Task-specific routes remain until you choose Use current profile in the task controls. Recorded attempts and completed results retain their original routes.</p>
     <code>{settings.workspace}</code><WorkerProfiles bind:config={settings} {clis} {models} on:models />
     {#if error}<p class="failure" role="alert">{error}</p>{/if}<footer><button disabled={busy} on:click={() => settings = null}>Cancel</button><button class="primary" disabled={busy || active} on:click={saveSettings}>{busy ? 'Saving…' : 'Save run profiles'}</button></footer>
   </div></div>

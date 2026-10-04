@@ -114,6 +114,15 @@ readable, using their saved task/profile routes.
 Codex reasoning effort (CLI default or an explicitly supported level),
 permissions and limits. Changes affect future calls and survive app restarts;
 recorded invocation routes and explicit task overrides retain their values.
+Parallel tasks store requested routing separately from each executed attempt.
+After changing a profile, failed, cancelled, blocked and pending tasks that inherit
+it show the updated CLI/model as **Next attempt**. **Last attempt** and recorded
+activity keep the previous route. **Use current profile** removes a task-specific
+route without deleting its worktree or starting another attempt. Inspect partial
+changes, explicitly discard/reset unsuccessful tasks, then **Resume pending tasks**.
+Completed tasks and accepted results are retained. Older saved runs recover
+inheritance by comparing resolved routes with their original creation profiles;
+legacy pins equal to those defaults cannot be distinguished from inheritance.
 The workspace cannot be changed. A failed planning call without tasks can be
 retried explicitly with **Retry planning** after reviewing partial activity and
 adjusting its settings. Existing tasks use their review/reset controls instead.

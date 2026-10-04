@@ -28,12 +28,15 @@ type DAGTask struct {
 	Description  string       `json:"description"`
 	Dependencies []string     `json:"dependencies"`
 	Worker       WorkerConfig `json:"worker"`
-	Status       string       `json:"status"`
-	Review       string       `json:"review,omitempty"`
-	Error        string       `json:"error,omitempty"`
-	Output       string       `json:"output,omitempty"`
-	Worktree     *Worktree    `json:"worktree,omitempty"`
-	Result       *TaskResult  `json:"result,omitempty"`
+	// RequestedWorker retains profile inheritance and explicit overrides. Worker
+	// records the last resolved route, which must never become a retry override.
+	RequestedWorker *WorkerConfig `json:"requestedWorker,omitempty"`
+	Status          string        `json:"status"`
+	Review          string        `json:"review,omitempty"`
+	Error           string        `json:"error,omitempty"`
+	Output          string        `json:"output,omitempty"`
+	Worktree        *Worktree     `json:"worktree,omitempty"`
+	Result          *TaskResult   `json:"result,omitempty"`
 }
 
 type TaskResult struct {
@@ -59,6 +62,57 @@ type DAG struct {
 }
 
 var taskIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
+func (task DAGTask) requestedWorker() WorkerConfig {
+	if task.RequestedWorker != nil {
+		return *task.RequestedWorker
+	}
+	return task.Worker
+}
+
+// restoreTaskRequests upgrades snapshots written before requested routes were
+// stored separately. Those executors populated Provider when resolving a route.
+// Original profile values are inherited; differing values remain task overrides.
+// Legacy snapshots cannot distinguish an explicit pin equal to that profile.
+func restoreTaskRequests(run *Run, original Config) {
+	if run.DAG == nil {
+		return
+	}
+	attemptedIDs := make(map[string]bool)
+	for _, event := range run.Events {
+		if event.TaskID != "" {
+			attemptedIDs[event.TaskID] = true
+		}
+	}
+	for i := range run.DAG.Tasks {
+		task := &run.DAG.Tasks[i]
+		if task.RequestedWorker != nil {
+			continue
+		}
+		request := task.Worker
+		tier := request.ProfileID
+		if tier == "" {
+			tier = Middle
+		}
+		attempted := attemptedIDs[task.ID] || task.Worktree != nil || task.Result != nil || task.Status == "running" || task.Status == "completed" || task.Status == "failed" || task.Status == "cancelled"
+		if profile, ok := original.Profile(tier); ok && attempted && request.Provider != "" && request.Runtime != "" {
+			if request.Runtime == profile.Runtime {
+				request.Runtime = ""
+			}
+			if request.CLI == profile.CLI {
+				request.CLI = ""
+			}
+			if request.Model == profile.Model {
+				request.Model = ""
+			}
+			if request.Endpoint == profile.Endpoint {
+				request.Endpoint = ""
+			}
+		}
+		request.Provider = ""
+		task.RequestedWorker = &request
+	}
+}
 
 func resolveTaskProfile(config Config, worker WorkerConfig) (Profile, WorkerConfig, error) {
 	if worker.ProfileID == "" {
@@ -137,7 +191,7 @@ func ValidateDAG(tasks []DAGTask, config Config) error {
 		if total > 48<<10 {
 			return errors.New("task descriptions exceed 48 KiB")
 		}
-		if _, _, err := resolveTaskProfile(config, task.Worker); err != nil {
+		if _, _, err := resolveTaskProfile(config, task.requestedWorker()); err != nil {
 			return fmt.Errorf("task %s: %w", task.ID, err)
 		}
 		byID[task.ID] = task
@@ -200,7 +254,8 @@ func parsePlan(text string, config Config) ([]DAGTask, error) {
 	}
 	tasks := make([]DAGTask, 0, len(plan.Tasks))
 	for _, p := range plan.Tasks {
-		tasks = append(tasks, DAGTask{ID: p.ID, Description: p.Description, Dependencies: p.Dependencies, Worker: p.Worker, Status: "pending"})
+		request := p.Worker
+		tasks = append(tasks, DAGTask{ID: p.ID, Description: p.Description, Dependencies: p.Dependencies, Worker: request, RequestedWorker: &request, Status: "pending"})
 	}
 	return tasks, ValidateDAG(tasks, config)
 }
@@ -225,6 +280,7 @@ func (r Runner) Plan(ctx context.Context, config Config, objective string) (plan
 	}
 	routes, _ := json.Marshal(config.Profiles)
 	instructions := `You coordinate a parallel software task graph. Decompose the objective into 1–32 concrete, bounded tasks. Independent tasks run concurrently in separate Git worktrees. Dependent tasks start from the combined commits of ALL transitive dependencies. Avoid overlapping file edits in independent tasks; add dependencies where needed. Each task should include explicit acceptance checks and return a concise summary. Workers use the existing primary, middle, or fast profiles, each independently configurable. Prefer middle for implementation and fast for simple mechanical work. Do not edit files, run commands, delegate, or produce patches now. Return ONLY JSON: {"tasks":[{"id":"task-a","description":"Detailed assignment and checks","dependencies":[],"worker":{"profile":"middle"}}]}. Use only these configured profiles; backend overrides are optional and must use existing configured routes. The user reviews the plan before execution. Configured profiles: ` + string(routes)
+	instructions += "\nSelect workers by profile only unless a task intentionally needs a different configured route. Do not copy a profile's CLI, model or endpoint into overrides; omitted fields follow subsequent Run settings changes."
 	if profile.Instructions != "" {
 		instructions += "\nAdditional coordinator guidance (the task-graph JSON contract still applies):\n" + profile.Instructions
 	}

@@ -132,6 +132,7 @@ func (m *Manager) restore() error {
 		if latestConfig.Validate() == nil {
 			run.config = latestConfig
 		}
+		restoreTaskRequests(&run, config)
 		run.Title = chat.Title
 		run.Workspace = config.Workspace
 		run.UpdatedAt = chat.UpdatedAt

@@ -513,6 +513,12 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 			return nil, err
 		}
 		return true, s.workers.ResetDAGTask(p.ID, p.TaskID)
+	case "workers.graph.profile":
+		var p struct{ ID, TaskID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.UseDAGTaskProfile(p.ID, p.TaskID)
 	case "workers.graph.cleanup":
 		var p struct{ ID string }
 		if err := json.Unmarshal(body, &p); err != nil {
