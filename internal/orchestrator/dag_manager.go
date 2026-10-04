@@ -101,6 +101,11 @@ func (m *Manager) PlanDAG(objective string, config Config, parallel int) (string
 		return "", err
 	}
 	m.mu.Unlock()
+	m.plan(ctx, cancel, id, config, objective)
+	return id, nil
+}
+
+func (m *Manager) plan(ctx context.Context, cancel context.CancelFunc, id string, config Config, objective string) {
 	go func() {
 		defer cancel()
 		runner := Runner{Resolve: ResolveRuntimeWithCore(m.core), Emit: func(event Event) { m.recordDAGEvent(id, event) }}
@@ -125,7 +130,6 @@ func (m *Manager) PlanDAG(objective string, config Config, parallel int) (string
 		}
 		_ = m.saveDAGLocked(run)
 	}()
-	return id, nil
 }
 
 func (m *Manager) checkDAGCapacityLocked() error {
@@ -148,27 +152,7 @@ func (m *Manager) recordDAGEvent(id string, event Event) {
 	if run == nil {
 		return
 	}
-	if len(event.Text) > 64<<10 {
-		event.Text = truncateWorkerText(event.Text, 64<<10)
-	}
-	last := len(run.Events) - 1
-	if event.Kind == "stream" && last >= 0 && run.Events[last].Kind == event.Kind && run.Events[last].TaskID == event.TaskID && run.Events[last].Tier == event.Tier && len(run.Events[last].Text)+len(event.Text) <= 64<<10 {
-		run.Events[last].Text += event.Text
-	} else {
-		run.Events = append(run.Events, event)
-	}
-	if len(run.Events) > 500 {
-		run.Events = append([]Event(nil), run.Events[len(run.Events)-500:]...)
-	}
-	bytes := 0
-	for i := len(run.Events) - 1; i >= 0; i-- {
-		bytes += len(run.Events[i].Text)
-		if bytes > 1<<20 {
-			run.Events = append([]Event(nil), run.Events[i+1:]...)
-			break
-		}
-	}
-	run.UpdatedAt = time.Now().UTC()
+	recordWorkerActivity(run, event)
 	if time.Since(run.lastCheckpoint) >= 10*time.Second {
 		run.lastCheckpoint = run.UpdatedAt
 		_ = m.saveDAGLocked(run)

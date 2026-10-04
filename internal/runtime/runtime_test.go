@@ -22,11 +22,19 @@ type fakeCLI struct {
 	seen core.SingleShotOpts
 }
 
-type fakeStreamCLI struct{ fakeCLI }
+type fakeStreamCLI struct {
+	fakeCLI
+	events []core.StreamEvent
+}
 
 func (f *fakeStreamCLI) SingleShotStream(ctx context.Context, opts core.SingleShotOpts, emit core.StreamHandler) (*core.Reply, error) {
 	f.seen = opts
-	emit(core.StreamEvent{Type: "text", Text: "live"})
+	if f.events == nil {
+		emit(core.StreamEvent{Type: "text", Text: "live"})
+	}
+	for _, event := range f.events {
+		emit(event)
+	}
 	return &core.Reply{Text: "scoped answer"}, ctx.Err()
 }
 
@@ -113,6 +121,33 @@ func TestCLIWorkerForwardsLiveTextAndModel(t *testing.T) {
 	})
 	if err != nil || result.Content != "scoped answer" || adapter.seen.Model != "different-model" || len(events) != 1 || events[0].Text != "live" {
 		t.Fatalf("result=%+v error=%v model=%q events=%+v", result, err, adapter.seen.Model, events)
+	}
+}
+
+func TestCLIWorkerPreservesReportedReasoningAndToolLifecycle(t *testing.T) {
+	adapter := &fakeStreamCLI{fakeCLI: fakeCLI{safe: true}, events: []core.StreamEvent{
+		{Type: "reasoning", Text: "reported plan"}, {Type: "tool_start", Tool: "read", Detail: "main.go"}, {Type: "tool_end", Tool: "read", OK: true}, {Type: "error", Detail: "provider warning"},
+	}}
+	var events []ProgressEvent
+	_, err := (CLI{Adapter: adapter}).Execute(context.Background(), Request{Task: "test", WorkspaceRoot: t.TempDir(), Progress: func(e ProgressEvent) { events = append(events, e) }})
+	if err != nil || len(events) != 4 {
+		t.Fatalf("missing CLI activity: %+v %v", events, err)
+	}
+	for i, kind := range []string{"reasoning", "tool_start", "tool_end", "error"} {
+		if events[i].Kind != kind {
+			t.Fatalf("lost event type: %+v", events[i])
+		}
+	}
+}
+
+func TestWorkerUsageJSONMatchesFrontendAndReadsOlderSnapshots(t *testing.T) {
+	raw, err := json.Marshal(Usage{InputTokens: 5, OutputTokens: 3, Source: "provider"})
+	if err != nil || string(raw) != `{"inputTokens":5,"outputTokens":3,"source":"provider"}` {
+		t.Fatalf("frontend usage contract mismatch: %s %v", raw, err)
+	}
+	var old Usage
+	if err = json.Unmarshal([]byte(`{"InputTokens":5,"OutputTokens":3,"Source":"provider"}`), &old); err != nil || old.InputTokens != 5 || old.Source != "provider" {
+		t.Fatalf("old usage lost: %+v %v", old, err)
 	}
 }
 

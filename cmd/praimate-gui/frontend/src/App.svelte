@@ -1,4 +1,5 @@
 <script>
+  import { isWorkerRun } from './lib/workerActivity.js'
   import { onMount, onDestroy } from 'svelte'
   import { api, onApproval } from './lib/api.js'
   import { activePage, pageRevision, prefetchCLIs, agentStudio, openChatId, openWorkerId, pendingTerm } from './lib/stores.js'
@@ -149,6 +150,7 @@
     const token = ++specialLoadToken
     const loaders = {
       detached: () => import('./pages/DetachedSession.svelte'),
+      workerMonitor: () => import('./pages/WorkerExecution.svelte'),
       editor: () => import('./pages/Editor.svelte'),
       agentStudio: () => import('./pages/AgentStudio.svelte'),
     }
@@ -279,9 +281,10 @@
       return
     }
     cleanup.push(onApproval((request) => {
-      if (request.chatId?.startsWith('worker-') || request.chatId?.startsWith('assistant-')) workerApprovals = [...workerApprovals, request]
+      if (isWorkerRun(request.chatId) || request.chatId?.startsWith('assistant-')) workerApprovals = [...workerApprovals, request]
     }))
     if (window.runtime?.EventsOn) {
+      cleanup.push(window.runtime.EventsOn('praimate:approval-resolved', request => { workerApprovals = workerApprovals.filter(item => item.id !== request.id) }))
       cleanup.push(window.runtime.EventsOn('assistant:config', config => assistantConfig.set(config)))
       cleanup.push(window.runtime.EventsOn('assistant:appearance', theme => setThemeMode(theme)))
       cleanup.push(window.runtime.EventsOn('assistant:navigate', event => { const terminal = assistantCodePayload(event); if (terminal) pendingTerm.set(terminal); agentStudio.set(event.agent_id ? {id:event.agent_id} : null); if (event.chat_id) openChatId.set(event.chat_id); activePage.set(event.page); pageRevision.update(value => value + 1); if (event.worker_id) openWorkerId.set(event.worker_id) }))
@@ -338,7 +341,7 @@
   // Re-key the page component on navigation (and explicit attach revisions)
   // so Code/Chats consume freshly queued cross-page requests.
   $: current = pages.find((p) => p.id === $activePage) || pages[0]
-  $: if (detachedMode?.active) loadSpecial(detachedMode.kind === 'studio' ? 'editor' : 'detached')
+  $: if (detachedMode?.active) loadSpecial(detachedMode.kind === 'studio' ? 'editor' : detachedMode.kind === 'workers' ? 'workerMonitor' : 'detached')
   $: if (!detachedMode?.active && editorMode?.active) loadSpecial('editor')
   $: if (!detachedMode?.active && editorMode && !editorMode.active && $agentStudio) loadSpecial('agentStudio')
   $: if (!detachedMode?.active && editorMode && !editorMode.active && !firstRun?.needed && !$agentStudio) loadPage($activePage)

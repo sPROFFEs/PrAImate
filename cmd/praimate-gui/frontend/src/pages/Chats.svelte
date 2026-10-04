@@ -1,4 +1,5 @@
 <script>
+  import { isWorkerRun } from '../lib/workerActivity.js'
   import VoiceButton from '../lib/VoiceButton.svelte'
   import { onMount, onDestroy, tick } from 'svelte'
   import { api, onChatStream, onApproval } from '../lib/api.js'
@@ -481,7 +482,7 @@
   }
 
   function handleApproval(req) {
-    if (req.chatId?.startsWith('worker-') || req.chatId?.startsWith('assistant-')) return // App owns worker approvals across pages.
+    if (isWorkerRun(req.chatId) || req.chatId?.startsWith('assistant-')) return // App owns worker approvals across pages.
     // The detached child is subscribed before DetachSession resolves. Do not
     // fail-close an approval that belongs to that active renderer.
     if (detachedChats.has(req.chatId)) return

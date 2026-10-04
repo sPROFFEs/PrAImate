@@ -53,7 +53,7 @@ header{padding:14px 16px;gap:10px}header strong{font-size:15px;letter-spacing:.0
 <section id="workers-page" class="page" hidden>
   <div class="toolbar"><h1 class="grow">Workers</h1><button id="worker-new" class="primary">New worker chat</button></div><p class="hint">Saved worker chats keep their task history, results and activity for later follow-up.</p>
   <div class="worker-layout"><div id="worker-tabs" class="worker-tabs" aria-label="Saved worker chats"></div><div class="worker-main"><div id="worker-result"></div><div id="worker-lanes" class="worker-lanes"></div><div class="section"><label class="field">Follow-up for Reasoner<textarea id="worker-followup" rows="3" placeholder="Continue the selected worker chat"></textarea></label><div class="toolbar"><button id="worker-continue" class="primary" hidden>Continue this chat</button><span id="worker-status" class="hint"></span></div></div></div></div>
-  <div id="worker-create" class="worker-overlay" hidden><div class="worker-create-card" role="dialog" aria-modal="true" aria-label="New worker chat"><div class="worker-create-head"><h2>New worker chat</h2><button id="worker-create-close" aria-label="Close">×</button></div><p class="hint">Choose a task and configure the three workers. Profiles remain attached to this chat.</p><label class="field">Execution mode<select id="worker-mode"><option value="hierarchical">Hierarchical chat</option><option value="parallel">Parallel task graph · isolated Git worktrees</option></select></label><label class="field">Concurrent tasks<input id="worker-parallel" type="number" min="1" max="4" value="2"></label><p class="hint">Parallel mode requires a clean Git repository. Review the plan before execution; accept and merge changes afterward.</p><label class="field">Task for Reasoner<textarea id="worker-task" rows="3" placeholder="Describe the task for the reasoning worker"></textarea></label><details id="worker-settings" open><summary>Worker profiles</summary><p id="worker-workspace" class="hint"></p><div id="worker-profiles" class="worker-profiles"></div></details><div class="toolbar"><button id="worker-create-cancel">Cancel</button><button id="worker-start" class="primary">Create chat</button></div></div></div>
+  <div id="worker-create" class="worker-overlay" hidden><div class="worker-create-card" role="dialog" aria-modal="true" aria-label="New worker chat"><div class="worker-create-head"><h2 id="worker-create-title">New worker chat</h2><button id="worker-create-close" aria-label="Close">×</button></div><p class="hint">Choose a task and configure the three workers. Profiles remain attached to this chat.</p><label class="field" id="worker-mode-field">Execution mode<select id="worker-mode"><option value="hierarchical">Hierarchical chat</option><option value="parallel">Parallel task graph · isolated Git worktrees</option></select></label><label class="field">Concurrent tasks<input id="worker-parallel" type="number" min="1" max="4" value="2"></label><p class="hint">Parallel mode requires a clean Git repository. Review the plan before execution; accept and merge changes afterward.</p><label class="field" id="worker-task-field">Task for Reasoner<textarea id="worker-task" rows="3" placeholder="Describe the task for the reasoning worker"></textarea></label><details id="worker-settings" open><summary>Worker profiles</summary><p id="worker-workspace" class="hint"></p><div id="worker-profiles" class="worker-profiles"></div></details><div class="toolbar"><button id="worker-create-cancel">Cancel</button><button id="worker-start" class="primary">Create chat</button></div></div></div>
 </section>
 <section id="catalog-page" class="page" hidden>
   <h1 id="catalog-title"></h1><p id="catalog-description" class="hint"></p>
@@ -171,7 +171,7 @@ function renderCollection() {
 }
 function options(id,entries,value) { $(id).replaceChildren(...entries.map(([key,label,disabled]) => {const o = document.createElement('option'); o.value = key; o.textContent = label; o.disabled = !!disabled; return o;})); $(id).value = value; }
 const workerTiers = [['primary','Reasoner'],['middle','Middle'],['fast','Fast']];
-const workerDefault = (tier,cli,runtime='cli') => ({tier,runtime,cli:runtime === 'cli' ? cli : '',model:'',endpoint:runtime === 'native' ? 'http://localhost:11434/v1' : '',instructions:'',allowEdits:false,allowCommands:false,timeoutSeconds:120,maxInputBytes:65536,maxOutputTokens:runtime === 'native' ? 2048 : 0});
+const workerDefault = (tier,cli,runtime='cli') => ({tier,runtime,cli:runtime === 'cli' ? cli : '',model:'',endpoint:runtime === 'native' ? 'http://localhost:11434/v1' : '',instructions:'',allowEdits:false,allowCommands:false,timeoutSeconds:tier === 'primary' ? 600 : 300,maxInputBytes:65536,maxOutputTokens:runtime === 'native' ? 2048 : 0});
 let workerConfig = {workspace:'',profiles:[workerDefault('primary','codex'),workerDefault('middle','claude'),workerDefault('fast','praimate-cli')]};
 let workerRuns = [], workerSnapshot = null, workerSelected = '', workerModels = {}, workerModelPending = new Set(), workerCollapsed = {}, workerPollPending = false, workerRenaming = false, workerRenameDraft = '';
 function workerInput(label,value,change,type='text') {
@@ -181,6 +181,7 @@ function workerInput(label,value,change,type='text') {
   wrap.appendChild(input); return {wrap,input};
 }
 function workerModelChoices(cli) { if(cli && !workerModels[cli] && !workerModelPending.has(cli)) {workerModelPending.add(cli);post('workerModels',{cli},ok => {if(!ok) workerModelPending.delete(cli);});} }
+let workerEditingRun = '';
 function renderWorkerProfiles() {
   $('worker-workspace').textContent = 'Workspace: '+(status.activeWorkspace || workerConfig.workspace || 'Select a workspace first');
   const host = $('worker-profiles'); host.replaceChildren();
@@ -205,7 +206,7 @@ function renderWorkerProfiles() {
     box.appendChild(workerInput('Allow workspace edits',p.allowEdits,value => p.allowEdits=value,'checkbox').wrap);
     box.appendChild(workerInput('Allow commands with user approval',p.allowCommands,value => p.allowCommands=value,'checkbox').wrap);
     box.appendChild(workerInput('Additional instructions',p.instructions,value => p.instructions=value).wrap);
-    box.appendChild(workerInput('Timeout (seconds)',p.timeoutSeconds,value => p.timeoutSeconds=value,'number').wrap);
+    box.appendChild(workerInput('Call timeout (seconds; 0 = disabled)',p.timeoutSeconds,value => p.timeoutSeconds=value,'number').wrap);
     box.appendChild(workerInput('Maximum input bytes',p.maxInputBytes,value => p.maxInputBytes=value,'number').wrap);
     host.appendChild(box);
   }
@@ -293,26 +294,31 @@ function renderWorkerRuns() {
     head.appendChild(button('Rename',() => {workerRenameDraft=workerSnapshot.title || workerSnapshot.task;workerRenaming=true;renderWorkerRuns();}));
     head.appendChild(button('Delete',() => post('workerDelete',{id:workerSelected}),['running','planning','merging'].includes(workerSnapshot.status)));
   }
+  const active=['running','planning','merging'].includes(workerSnapshot.status);
+  head.appendChild(button('Open execution panel',()=>post('workerOpenExecution',{id:workerSelected})));
+  head.appendChild(button('Run settings',()=>{$('worker-create-title').textContent='Run settings';workerEditingRun=workerSelected;workerConfig=JSON.parse(JSON.stringify({workspace:workerSnapshot.workspace,profiles:workerSnapshot.profiles}));$('worker-create').hidden=false;$('worker-task-field').hidden=true;$('worker-mode-field').hidden=true;$('worker-start').textContent='Save run profiles';renderWorkerProfiles();},active));
   result.appendChild(head);
   result.appendChild(element('p',(workerSnapshot.workspace || '')+' · '+new Date(workerSnapshot.startedAt).toLocaleString(),'hint'));
   const bar=element('div',workerSnapshot.status+' · '+(workerSnapshot.currentTask || workerSnapshot.task),'toolbar');
   if(['running','planning','merging'].includes(workerSnapshot.status)) bar.appendChild(button('Stop',() => post('workerCancel',{id:workerSelected})));result.appendChild(bar);
-  if(workerSnapshot.dag) renderWorkerGraph(result);
+  if(workerSnapshot.dag && workerSnapshot.dag.tasks?.length) renderWorkerGraph(result);
+  if(workerSnapshot.dag && !workerSnapshot.dag.tasks?.length && !active) result.appendChild(button('Retry planning',()=>graphAction('workerPlanRetry')));
   for(const turn of workerSnapshot.turns || []) result.appendChild(element('p','You: '+turn.task+'\nReasoner: '+(turn.result || turn.error || ''),'card'));
   if(workerSnapshot.result) result.appendChild(element('pre',workerSnapshot.result));
   if(workerSnapshot.error) result.appendChild(element('p',workerSnapshot.error,'error'));
   for(const [tier,label] of workerTiers) {
     const lane=element('section','',workerCollapsed[tier]?'closed':''), profile=(workerSnapshot.profiles || []).find(p => p.tier===tier) || {};
-    lane.appendChild(button(label+(workerSnapshot.dag ? ' · Task-specific routes' : ' · '+(profile.cli || 'Local')+' / '+(profile.model || '—'))+(workerCollapsed[tier]?' ▸':' ▾'),() => {workerCollapsed[tier]=!workerCollapsed[tier];renderWorkerRuns();}));
+    lane.appendChild(button(label+(' · '+(profile.cli || 'Local')+' / '+(profile.model || '—'))+(workerCollapsed[tier]?' ▸':' ▾'),() => {workerCollapsed[tier]=!workerCollapsed[tier];renderWorkerRuns();}));
     const eventKey=workerSelected+':'+tier, events=(workerSnapshot.events || []).filter(event=>event.tier===tier), limit=workerVisible.get(eventKey) || 80;
     if(!workerCollapsed[tier] && events.length>limit) lane.appendChild(button('Show '+Math.min(80,events.length-limit)+' earlier events',()=>{workerVisible.set(eventKey,limit+80);renderWorkerRuns();}));
-    if(!workerCollapsed[tier]) for(const ev of events.slice(-limit)) {const item=element('article','','worker-event');item.appendChild(element('small',(ev.taskID ? ev.taskID+' · ' : '')+ev.kind+' · '+new Date(ev.timestamp).toLocaleTimeString()));item.appendChild(element('pre',ev.text || ''));lane.appendChild(item);}
+    if(!events.length) lane.appendChild(element('p',workerSnapshot.status==='planning' ? tier==='primary' ? 'Preparing the plan…' : 'Waiting for the plan.' : 'No activity yet.','hint'));
+    if(!workerCollapsed[tier]) for(const ev of events.slice(-limit)) {const item=element('article','','worker-event');item.appendChild(element('small',(ev.taskID ? ev.taskID+' · ' : '')+(ev.cli || profile.cli || 'Local')+' / '+(ev.model || profile.model || '—')+' · '+ev.kind+(ev.target ? ' → '+ev.target : '')+' · '+new Date(ev.timestamp).toLocaleTimeString()));item.appendChild(element('pre',ev.text || ''));lane.appendChild(item);}
     lanes.appendChild(lane);
   }
 }
-$('worker-new').addEventListener('click',() => {$('worker-create').hidden=false;renderWorkerProfiles();});
+$('worker-new').addEventListener('click',() => {workerEditingRun='';$('worker-create-title').textContent='New worker chat';$('worker-create').hidden=false;$('worker-task-field').hidden=false;$('worker-mode-field').hidden=false;$('worker-start').textContent='Create chat';renderWorkerProfiles();});
 for(const id of ['worker-create-close','worker-create-cancel']) $(id).addEventListener('click',() => {$('worker-create').hidden=true;});
-$('worker-start').addEventListener('click',() => {const task=$('worker-task').value.trim();if(!task)return;post('workerStart',{config:workerConfig,task,mode:$('worker-mode').value,maxParallel:Number($('worker-parallel').value)},ok => {if(ok) {$('worker-task').value='';$('worker-create').hidden=true;}});});
+$('worker-start').addEventListener('click',() => {if(workerEditingRun) {post('workerRunConfig',{id:workerEditingRun,config:workerConfig},ok=>{if(ok){$('worker-create').hidden=true;post('workerRefresh',{id:workerEditingRun});workerEditingRun='';}});return;}const task=$('worker-task').value.trim();if(!task)return;post('workerStart',{config:workerConfig,task,mode:$('worker-mode').value,maxParallel:Number($('worker-parallel').value)},ok => {if(ok) {$('worker-task').value='';$('worker-create').hidden=true;}});});
 $('worker-continue').addEventListener('click',() => {const task=$('worker-followup').value.trim();if(!task || !workerSelected)return;post('workerContinue',{id:workerSelected,task},ok => {if(ok) {$('worker-followup').value='';post('workerRefresh',{id:workerSelected});}});});
 setInterval(() => {if(page==='workers' && status.connected && !workerPollPending) {workerPollPending=true;post('workerRefresh',{id:workerSelected},() => {workerPollPending=false;});}},900);
 const toolLabels = {safe:'Safe / read-only',ask:'Ask for approval',edits:'Apply edits',plan:'Plan',full:'Full / autonomous'};
@@ -415,7 +421,7 @@ window.addEventListener('message',({data:m}) => {
   else if(m.type === 'workerStarted') {workerSelected=m.id;$('worker-status').textContent='Running';$('worker-create').hidden=true;post('workerRefresh',{id:workerSelected});}
   else if(m.type === 'workerDeleted') {workerSelected='';workerSnapshot=null;post('workerRefresh',{id:''});}
   else if(m.type === 'workerSnapshot') {workerRuns=m.runs || [];workerSelected=m.selectedId || m.snapshot?.id || '';workerSnapshot=m.snapshot || null;const stamp=workerSelected+':'+workerSnapshot?.updatedAt+':'+workerSnapshot?.status;if(stamp!==workerSnapshotStamp){workerSnapshotStamp=stamp;if(!document.activeElement?.closest('.worker-graph') || workerSnapshot?.status!=='draft')renderWorkerRuns();}}
-  else if(m.type === 'navigate' && pages[m.page]) navigate(m.page);
+  else if(m.type === 'navigate' && pages[m.page]) {if(m.workerID) workerSelected=m.workerID;navigate(m.page);}
   else if(m.type === 'messages') renderMessages(m.messages);
   else if(m.type === 'collection') {collections[m.name] = m; if(page === m.name) renderCollection();}
   else if(m.type === 'refresh') loadCollection();

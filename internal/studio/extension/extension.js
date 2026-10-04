@@ -214,7 +214,7 @@ function editorContext() {
 
 class ChatView {
   constructor() { this.messages = []; this.chatId = ''; this.busy = false; this.current = null; this.attachments = []; this.views = new Set(); this.readyViews = new Set(); this.requestedPage = ''; }
-  resolveWebviewView(view) {
+  resolveWebviewView(view, workerID = '') {
     this.views.add(view);
     view.webview.options = { enableScripts:true, localResourceRoots:[context.extensionUri] };
     const mascot = view.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri,'resources','monke-mascot.png'));
@@ -233,7 +233,7 @@ class ChatView {
           try { const result = await call(data.method,data.params || {}); view.webview.postMessage({type:'assistantReply',id:data.requestId,result}); }
           catch(error) { view.webview.postMessage({type:'assistantReply',id:data.requestId,error:error.message}); throw error; }
         },
-        ready:() => { this.readyViews.add(view); this.notifyStatus(); this.render(); if(this.requestedPage) view.webview.postMessage({type:'navigate',page:this.requestedPage}); },
+        ready:() => { this.readyViews.add(view); this.notifyStatus(); this.render(); if(workerID) view.webview.postMessage({type:'navigate',page:'workers',workerID}); else if(this.requestedPage) view.webview.postMessage({type:'navigate',page:this.requestedPage}); },
         send:() => this.send(data.text, data.useContext),
         updateConfig:() => configure(data.config),
         quickAction:() => this.quickAction(data.action),
@@ -295,6 +295,12 @@ class ChatView {
           view.webview.postMessage({type:'workerSnapshot',runs:runs || [],selectedId:id || '',snapshot:selected});
         },
         workerCancel:async () => { await call('workers.cancel',{id:data.id}); },
+        workerRunConfig:async () => { await call('workers.run.config',{id:data.id,config:data.config}); },
+        workerPlanRetry:async () => { await call('workers.plan.retry',{id:data.id}); },
+        workerOpenExecution:async () => {
+          const panel = vscode.window.createWebviewPanel('praimate.workerExecution','PrAImate Worker execution',vscode.ViewColumn.Active,{enableScripts:true,retainContextWhenHidden:true});
+          this.resolveWebviewView(panel,data.id);
+        },
         workerContinue:async () => { await call('workers.continue',{id:data.id,task:data.task}); },
         workerRename:async () => { await call('workers.rename',{id:data.id,title:data.title}); },
         workerGraphSave:async () => { await call('workers.graph.save',{id:data.id,tasks:data.tasks,maxParallel:data.maxParallel}); },

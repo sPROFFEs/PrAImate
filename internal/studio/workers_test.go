@@ -77,6 +77,13 @@ func TestStudioDAGAndRemoteKnowledgeConfigurationRPC(t *testing.T) {
 	if snapshot.Status != "draft" {
 		t.Fatalf("plan: %+v", snapshot)
 	}
+	savedConfig := orchestrator.Config{Workspace: snapshot.Workspace, Profiles: append([]orchestrator.Profile(nil), snapshot.Profiles...)}
+	savedConfig.Profiles[0].TimeoutSeconds = 0
+	rpcOK(t, s, "workers.run.config", map[string]any{"id": id, "config": savedConfig})
+	updatedRun := rpcOK(t, s, "workers.get", map[string]string{"id": id}).(orchestrator.Run)
+	if updatedRun.Profiles[0].TimeoutSeconds != 0 || updatedRun.DAG.Tasks[0].ID != snapshot.DAG.Tasks[0].ID {
+		t.Fatal("run settings changed task identity or lost timeout")
+	}
 	rpcOK(t, s, "workers.graph.save", map[string]any{"id": id, "tasks": snapshot.DAG.Tasks, "maxParallel": 2})
 	rpcOK(t, s, "workers.graph.execute", map[string]string{"id": id})
 	for time.Now().Before(deadline) {
@@ -344,44 +351,48 @@ func TestStudioWorkerSurvivesConnectionAndIsVisibleToNextConnection(t *testing.T
 }
 
 func TestWorkerApprovalCanBeAnsweredAfterReconnect(t *testing.T) {
-	root, _ := fixture(t)
-	result := make(chan bool, 1)
-	go func() {
-		allowed, err := root.approvalProvider("worker-test").Request(root.ctx, "command.run", map[string]any{"command": "go"})
-		result <- allowed && err == nil
-	}()
-	var id string
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		root.mu.Lock()
-		for key := range root.approvals {
-			id = key
-		}
-		root.mu.Unlock()
-		if id != "" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if id == "" {
-		t.Fatal("worker approval was not recorded")
-	}
-	child := root.newConnectionServer()
-	defer child.Close()
-	var output strings.Builder
-	child.writer = &output
-	root.rebroadcastWorkerApprovals(child)
-	var notification RPCNotification
-	if err := json.Unmarshal([]byte(output.String()), &notification); err != nil || notification.Method != "run.approval.required" {
-		t.Fatalf("reconnected approval notification=%s error=%v", output.String(), err)
-	}
-	rpcOK(t, child, "runs.approve", map[string]any{"approvalId": id})
-	select {
-	case allowed := <-result:
-		if !allowed {
-			t.Fatal("approval was not delivered to the running worker")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("approval remained blocked after reconnect")
+	for _, scope := range []string{"worker-test", "workers-test"} {
+		t.Run(scope, func(t *testing.T) {
+			root, _ := fixture(t)
+			result := make(chan bool, 1)
+			go func() {
+				allowed, err := root.approvalProvider(scope).Request(root.ctx, "command.run", map[string]any{"command": "go"})
+				result <- allowed && err == nil
+			}()
+			var id string
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) {
+				root.mu.Lock()
+				for key := range root.approvals {
+					id = key
+				}
+				root.mu.Unlock()
+				if id != "" {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if id == "" {
+				t.Fatal("worker approval was not recorded")
+			}
+			child := root.newConnectionServer()
+			defer child.Close()
+			var output strings.Builder
+			child.writer = &output
+			root.rebroadcastWorkerApprovals(child)
+			var notification RPCNotification
+			if err := json.Unmarshal([]byte(output.String()), &notification); err != nil || notification.Method != "run.approval.required" {
+				t.Fatalf("reconnected approval notification=%s error=%v", output.String(), err)
+			}
+			rpcOK(t, child, "runs.approve", map[string]any{"approvalId": id})
+			select {
+			case allowed := <-result:
+				if !allowed {
+					t.Fatal("approval was not delivered to the running worker")
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("approval remained blocked after reconnect")
+			}
+		})
 	}
 }

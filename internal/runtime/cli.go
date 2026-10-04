@@ -73,8 +73,14 @@ func (c CLI) Execute(ctx context.Context, req Request) (*Result, error) {
 			}
 			if event.Type == "text" && event.Text != "" {
 				req.Progress(ProgressEvent{Kind: "stream", Text: event.Text})
+			} else if event.Type == "reasoning" && event.Text != "" {
+				req.Progress(ProgressEvent{Kind: "reasoning", Text: event.Text})
 			} else if event.Type == "tool_start" {
-				req.Progress(ProgressEvent{Kind: "tool", Text: event.Tool + " " + event.Detail})
+				req.Progress(ProgressEvent{Kind: "tool_start", Text: event.Tool + " " + event.Detail})
+			} else if event.Type == "tool_end" {
+				req.Progress(ProgressEvent{Kind: "tool_end", Text: fmt.Sprintf("%s %s (ok=%t)", event.Tool, event.Detail, event.OK)})
+			} else if event.Type == "error" {
+				req.Progress(ProgressEvent{Kind: "error", Text: event.Detail})
 			}
 		})
 		if errors.Is(err, core.ErrStreamUnsupported) {

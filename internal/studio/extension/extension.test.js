@@ -318,6 +318,23 @@ test('Workers view keeps separate models for the same CLI and renders live event
   assert.equal(fast.children[1].children[1].innerHTML,'');
 });
 
+test('worker execution panels retain their selected run and settings save against that run', () => {
+  const h=webviewHarness();
+  h.send({type:'status',status:{connected:true,activeWorkspace:'/project',availableCLIs:[{id:'codex',label:'Codex',available:true}]}});
+  h.send({type:'navigate',page:'workers',workerID:'saved-run'});
+  assert.equal(h.eval('workerSelected'),'saved-run');
+  const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'original-'+tier,timeoutSeconds:120,maxInputBytes:65536,maxOutputTokens:0}));
+  h.send({type:'workerSnapshot',selectedId:'saved-run',runs:[{id:'saved-run',status:'failed'}],snapshot:{id:'saved-run',title:'saved',workspace:'/project',status:'failed',profiles,events:[],dag:{tasks:[]}}});
+  const header=h.elements.get('worker-result').children[0];
+  header.children.find(child=>child.textContent==='Open execution panel').fire('click');
+  assert.equal(h.posted.at(-1).type,'workerOpenExecution'); assert.equal(h.posted.at(-1).id,'saved-run');
+  header.children.find(child=>child.textContent==='Run settings').fire('click');
+  h.eval('workerConfig.profiles[0].timeoutSeconds=0');
+  h.elements.get('worker-start').fire('click');
+  assert.equal(h.posted.at(-1).type,'workerRunConfig'); assert.equal(h.posted.at(-1).id,'saved-run');
+  assert.equal(h.posted.at(-1).config.profiles[0].timeoutSeconds,0);
+});
+
 test('parallel worker drafts keep independent backend overrides and display Git diffs safely', () => {
   const h=webviewHarness();
   const profiles=['primary','middle','fast'].map(tier=>({tier,runtime:'cli',cli:'codex',model:'default-'+tier}));

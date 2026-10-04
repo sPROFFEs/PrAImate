@@ -67,7 +67,7 @@ func detachedModeFromEnvironment() detachedMode {
 	_, windowErr := hex.DecodeString(m.windowID)
 	validBroker := brokerErr == nil && broker.Scheme == "http" && broker.Hostname() == "127.0.0.1" &&
 		broker.Port() != "" && broker.User == nil && broker.Path == "" && broker.RawQuery == "" && broker.Fragment == ""
-	if (m.kind != "chat" && m.kind != "terminal" && m.kind != "studio") || m.sessionID == "" ||
+	if (m.kind != "chat" && m.kind != "terminal" && m.kind != "studio" && m.kind != "workers") || m.sessionID == "" ||
 		len(m.windowID) != 24 || windowErr != nil || !validBroker || len(m.token) != 64 || tokenErr != nil {
 		return detachedMode{}
 	}
@@ -190,7 +190,7 @@ func (d *detachedCoordinator) open(kind, sessionID, title string) error {
 }
 
 func (d *detachedCoordinator) openWithFolder(kind, sessionID, title, folder string) error {
-	if kind != "chat" && kind != "terminal" && kind != "studio" {
+	if kind != "chat" && kind != "terminal" && kind != "studio" && kind != "workers" {
 		return fmt.Errorf("unsupported detached session kind %q", kind)
 	}
 	if strings.TrimSpace(sessionID) == "" {
@@ -201,6 +201,10 @@ func (d *detachedCoordinator) openWithFolder(kind, sessionID, title, folder stri
 			return errors.New("terminal manager is unavailable")
 		}
 		if _, err := d.app.terms.snapshot(sessionID); err != nil {
+			return err
+		}
+	} else if kind == "workers" {
+		if _, err := d.app.WorkerRunSnapshot(sessionID); err != nil {
 			return err
 		}
 	} else {
@@ -669,11 +673,18 @@ func decodeRPCBody(raw json.RawMessage, dst any) error {
 }
 
 func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (any, error) {
+	if strings.HasPrefix(req.Method, "worker.") {
+		return d.callWorker(w, req)
+	}
 	switch req.Method {
 	case "window.ready":
 		w.readyOnce.Do(func() { close(w.ready) })
 		return nil, nil
 	case "session.active":
+		if w.kind == "workers" {
+			run, err := d.app.WorkerRunSnapshot(w.sessionID)
+			return err == nil && (run.Status == "running" || run.Status == "planning" || run.Status == "merging"), err
+		}
 		if w.kind == "terminal" {
 			_, err := d.app.terms.snapshot(w.sessionID)
 			return err == nil, nil
@@ -698,12 +709,12 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 		}
 		return d.app.ListAgents()
 	case "studio.cli.list":
-		if w.kind != "studio" {
+		if w.kind != "studio" && w.kind != "workers" {
 			return nil, errors.New("operation is outside this window's scope")
 		}
 		return d.app.ListCLIs(), nil
 	case "studio.cli.models":
-		if w.kind != "studio" {
+		if w.kind != "studio" && w.kind != "workers" {
 			return nil, errors.New("operation is outside this window's scope")
 		}
 		var cli string
@@ -712,7 +723,7 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 		}
 		return d.app.ListCLIModels(cli), nil
 	case "studio.local.models":
-		if w.kind != "studio" {
+		if w.kind != "studio" && w.kind != "workers" {
 			return nil, errors.New("operation is outside this window's scope")
 		}
 		return d.app.LocalLLMModels()
@@ -811,7 +822,7 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 		}
 		return d.app.RunChatCommand(w.sessionID, body.Command)
 	case "chat.approval":
-		if w.kind != "chat" && w.kind != "studio" {
+		if w.kind != "chat" && w.kind != "studio" && w.kind != "workers" {
 			return nil, errors.New("operation is outside this window's scope")
 		}
 		var body struct {
@@ -1100,7 +1111,11 @@ func (c *detachedClient) rpc(method string, body any, out any) error {
 	requestCtx := context.Background()
 	cancel := func() {}
 	if method != "chat.send" {
-		requestCtx, cancel = context.WithTimeout(requestCtx, 5*time.Second)
+		timeout := 5 * time.Second
+		if strings.HasPrefix(method, "worker.graph.") {
+			timeout = 5 * time.Minute
+		}
+		requestCtx, cancel = context.WithTimeout(requestCtx, timeout)
 	}
 	defer cancel()
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, c.mode.brokerURL+"/rpc?window="+c.mode.windowID, bytes.NewReader(reqBody))

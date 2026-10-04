@@ -142,7 +142,7 @@ Underlying CLIs may still keep native logs or sessions.
 | **Chats** | Create and reopen conversations with per-chat CLI, model, tools, skills, MCP and native context limits. |
 | **Studio** | Open projects in the integrated Code-OSS / VSCodium environment with the PrAImate sidebar. |
 | **Documents** | Work on documents with an editor and assistant chat. |
-| **Workers** | Configure Reasoner, Middle and Fast profiles; save hierarchical chats or review parallel task graphs with isolated Git worktrees. |
+| **Workers** | Save hierarchical chats or parallel task graphs; track CLI/model assignments, tools and handoffs in an execution window, and review isolated worktree changes. |
 | **Agents** | Create, import/export and run agents and workflows; manage built-in, optional Graphify or remote knowledge. |
 | **Skills** | Enable built-in skills or add a skill from a URL, local ZIP, or manual definition. |
 | **CLI & Tools** | Detect, install, update, or repair supported CLIs and managed tools. |

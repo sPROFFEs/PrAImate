@@ -1,4 +1,5 @@
 <script>
+  import { isWorkerRun } from '../lib/workerActivity.js'
   import VoiceButton from '../lib/VoiceButton.svelte'
   // Agent authoring studio — an IDE-like view for creating/editing agents.
   //   left   : vertical split — agent file tree (top, agent.yaml +
@@ -755,7 +756,7 @@
     stream = stream; scrollChat()
   }
   function handleApproval(req) {
-    if (req.chatId?.startsWith('worker-') || req.chatId?.startsWith('assistant-')) return // App owns worker approvals across pages.
+    if (isWorkerRun(req.chatId) || req.chatId?.startsWith('assistant-')) return // App owns worker approvals across pages.
     const isManagedResume = managedRunBusy && req.chatId === selectedRun?.id
     if (req.chatId !== helperChatId && !isManagedResume) { api.resolveApproval(req.id, false, false).catch(() => {}); return }
     approvals = [...approvals, req]

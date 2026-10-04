@@ -55,13 +55,15 @@ type approvalBroker struct {
 	addr  string
 	token string
 
-	mu      sync.Mutex
-	pending map[string]chan approvalDecision
-	scopes  map[string]string          // request ID -> chat ID
-	always  map[string]map[string]bool // chatID → tool name → allowed
-	seq     int
+	mu       sync.Mutex
+	pending  map[string]chan approvalDecision
+	scopes   map[string]string // request ID -> chat ID
+	requests map[string]ApprovalRequest
+	always   map[string]map[string]bool // chatID → tool name → allowed
+	seq      int
 
-	emit func(ApprovalRequest)
+	emit     func(ApprovalRequest)
+	resolved func(ApprovalRequest)
 }
 
 func newApprovalBroker(emit func(ApprovalRequest)) (*approvalBroker, error) {
@@ -131,15 +133,24 @@ func (b *approvalBroker) request(ctx context.Context, scope, tool string, input 
 	ch := make(chan approvalDecision, 1)
 	b.pending[id] = ch
 	b.scopes[id] = scope
+	if b.requests == nil {
+		b.requests = map[string]ApprovalRequest{}
+	}
+	request := ApprovalRequest{ID: id, ChatID: scope, Tool: tool, Detail: summarizeApprovalInput(input)}
+	b.requests[id] = request
 	b.mu.Unlock()
 	defer func() {
 		b.mu.Lock()
 		delete(b.pending, id)
 		delete(b.scopes, id)
+		delete(b.requests, id)
 		b.mu.Unlock()
+		if b.resolved != nil {
+			b.resolved(request)
+		}
 	}()
 
-	b.emit(ApprovalRequest{ID: id, ChatID: scope, Tool: tool, Detail: summarizeApprovalInput(input)})
+	b.emit(request)
 	timer := time.NewTimer(approvalTimeout)
 	defer timer.Stop()
 	select {
@@ -259,10 +270,17 @@ func (a *App) ensureApprovalBroker() (*approvalBroker, error) {
 		if a.detached != nil {
 			a.detached.publish("chat", req.ChatID, "praimate:approval", req)
 			a.detached.publish("studio", req.ChatID, "praimate:approval", req)
+			a.detached.publish("workers", req.ChatID, "praimate:approval", req)
 		}
 	})
 	if err != nil {
 		return nil, err
+	}
+	b.resolved = func(req ApprovalRequest) {
+		a.emitUIEvent("praimate:approval-resolved", req)
+		if a.detached != nil {
+			a.detached.publish("workers", req.ChatID, "praimate:approval-resolved", req)
+		}
 	}
 	a.approval = b
 	return b, nil

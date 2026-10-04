@@ -202,8 +202,17 @@ func parsePlan(text string, config Config) ([]DAGTask, error) {
 	return tasks, ValidateDAG(tasks, config)
 }
 
-func (r Runner) Plan(ctx context.Context, config Config, objective string) ([]DAGTask, error) {
+func (r Runner) Plan(ctx context.Context, config Config, objective string) (planned []DAGTask, planErr error) {
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	if r.Resolve == nil {
+		r.Resolve = ResolveRuntime
+	}
 	profile, _ := config.Profile(Primary)
+	r = r.traced(config, profile, "planning")
+	r.emit(Primary, "started", objective, workerruntime.Usage{})
+	defer func() { r.finish(profile, planErr) }()
 	worker, err := r.Resolve(profile)
 	if err != nil {
 		return nil, err
@@ -218,12 +227,13 @@ func (r Runner) Plan(ctx context.Context, config Config, objective string) ([]DA
 	}
 	var tasks []DAGTask
 	for attempt := 0; attempt < 2; attempt++ {
+		r.trace.Step = attempt + 1
 		r.emit(Primary, "input", objective, workerruntime.Usage{})
 		result, runErr := worker.Execute(ctx, workerruntime.Request{Model: profile.Model, SystemPrompt: instructions, Task: objective, WorkspaceRoot: config.Workspace, Limits: workerruntime.Limits{MaxInputBytes: profile.MaxInputBytes, MaxOutputTokens: profile.MaxOutputTokens, Timeout: profile.Timeout()}, Progress: func(event workerruntime.ProgressEvent) {
 			r.emit(Primary, event.Kind, event.Text, workerruntime.Usage{})
 		}})
 		if runErr != nil {
-			return nil, runErr
+			return nil, workerError(ctx, profile, "planning", runErr)
 		}
 		if result == nil {
 			return nil, errors.New("coordinator returned no plan")
@@ -234,6 +244,7 @@ func (r Runner) Plan(ctx context.Context, config Config, objective string) ([]DA
 			return tasks, nil
 		}
 		instructions += "\nThe previous plan was invalid: " + err.Error() + ". Return a corrected JSON object; no prose."
+		r.emit(Primary, "error", "Invalid plan: "+err.Error(), workerruntime.Usage{})
 	}
 	return nil, err
 }

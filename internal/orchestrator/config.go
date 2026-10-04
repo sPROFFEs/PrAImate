@@ -73,7 +73,7 @@ func (c Config) Validate() error {
 		if len(p.Instructions) > 8<<10 {
 			return fmt.Errorf("%s worker instructions exceed 8192 bytes", p.Tier)
 		}
-		if p.TimeoutSeconds < 1 || p.TimeoutSeconds > 600 || p.MaxInputBytes < 1024 || p.MaxInputBytes > 1<<20 || p.MaxOutputTokens < 0 || p.MaxOutputTokens > 32768 {
+		if p.TimeoutSeconds < 0 || p.TimeoutSeconds > 3600 || p.MaxInputBytes < 1024 || p.MaxInputBytes > 1<<20 || p.MaxOutputTokens < 0 || p.MaxOutputTokens > 32768 {
 			return fmt.Errorf("%s worker limits are outside supported bounds", p.Tier)
 		}
 		switch p.Runtime {

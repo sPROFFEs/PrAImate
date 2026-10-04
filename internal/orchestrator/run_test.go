@@ -95,7 +95,7 @@ func TestNestedDelegationAndContextIsolation(t *testing.T) {
 	if strings.Contains(workers[Middle].requests[0].Task, "original private request") {
 		t.Fatalf("middle received primary context")
 	}
-	if len(events) == 0 || events[len(events)-1].Kind != "response" {
+	if len(events) == 0 || events[len(events)-1].Kind != "completed" {
 		t.Fatalf("missing final event: %+v", events)
 	}
 }

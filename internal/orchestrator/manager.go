@@ -126,6 +126,12 @@ func (m *Manager) restore() error {
 				}
 			}
 		}
+		// Updated per-run profiles live in the encrypted snapshot. The first
+		// system message retains the original creation defaults for old chats.
+		latestConfig := Config{Workspace: run.Workspace, Profiles: run.Profiles}
+		if latestConfig.Validate() == nil {
+			run.config = latestConfig
+		}
 		run.Title = chat.Title
 		run.Workspace = config.Workspace
 		run.UpdatedAt = chat.UpdatedAt
@@ -368,17 +374,7 @@ func (m *Manager) execute(ctx context.Context, cancel context.CancelFunc, id str
 		runner := Runner{Resolve: ResolveRuntimeWithCore(m.core), Approval: approval, Emit: func(event Event) {
 			m.mu.Lock()
 			if run := m.runs[id]; run != nil {
-				last := len(run.Events) - 1
-				if event.Kind == "stream" && last >= 0 && run.Events[last].Kind == "stream" && run.Events[last].Tier == event.Tier {
-					if len(run.Events[last].Text) < 64<<10 {
-						run.Events[last].Text += event.Text
-					}
-				} else {
-					run.Events = append(run.Events, event)
-					if len(run.Events) > 500 {
-						run.Events = append([]Event(nil), run.Events[len(run.Events)-500:]...)
-					}
-				}
+				recordWorkerActivity(run, event)
 				if time.Since(run.lastCheckpoint) >= 10*time.Second {
 					run.lastCheckpoint = time.Now().UTC()
 					saved, err := json.Marshal(run)

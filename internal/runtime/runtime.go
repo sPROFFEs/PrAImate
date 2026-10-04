@@ -33,9 +33,9 @@ type Limits struct {
 }
 
 type Usage struct {
-	InputTokens  int
-	OutputTokens int
-	Source       string // "provider" or "unavailable"
+	InputTokens  int    `json:"inputTokens"`
+	OutputTokens int    `json:"outputTokens"`
+	Source       string `json:"source"` // "provider" or "unavailable"
 }
 
 type Result struct {

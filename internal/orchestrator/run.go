@@ -22,12 +22,22 @@ const (
 )
 
 type Event struct {
-	TaskID    string              `json:"taskID,omitempty"`
-	Tier      Tier                `json:"tier"`
-	Kind      string              `json:"kind"`
-	Text      string              `json:"text"`
-	Usage     workerruntime.Usage `json:"usage"`
-	Timestamp time.Time           `json:"timestamp"`
+	TaskID         string              `json:"taskID,omitempty"`
+	WorkerID       string              `json:"workerID,omitempty"`
+	ParentID       string              `json:"parentID,omitempty"`
+	Runtime        string              `json:"runtime,omitempty"`
+	CLI            string              `json:"cli,omitempty"`
+	Model          string              `json:"model,omitempty"`
+	Workspace      string              `json:"workspace,omitempty"`
+	Phase          string              `json:"phase,omitempty"`
+	Step           int                 `json:"step,omitempty"`
+	Target         Tier                `json:"target,omitempty"`
+	TimeoutSeconds int                 `json:"timeoutSeconds,omitempty"`
+	Tier           Tier                `json:"tier"`
+	Kind           string              `json:"kind"`
+	Text           string              `json:"text"`
+	Usage          workerruntime.Usage `json:"usage"`
+	Timestamp      time.Time           `json:"timestamp"`
 }
 
 type Runner struct {
@@ -35,6 +45,7 @@ type Runner struct {
 	Resolve      func(Profile) (workerruntime.Runtime, error)
 	Emit         func(Event)
 	Approval     *core.ApprovalConfig
+	trace        Event
 }
 
 // ResolveRuntime maps a saved profile to the current host's configured
@@ -102,7 +113,9 @@ func (r meteredRuntime) Execute(ctx context.Context, req workerruntime.Request) 
 
 func (r Runner) emit(tier Tier, kind, text string, usage workerruntime.Usage) {
 	if r.Emit != nil {
-		r.Emit(Event{Tier: tier, Kind: kind, Text: text, Usage: usage, Timestamp: time.Now().UTC()})
+		event := r.trace
+		event.Tier, event.Kind, event.Text, event.Usage, event.Timestamp = tier, kind, text, usage, time.Now().UTC()
+		r.Emit(event)
 	}
 }
 
@@ -125,8 +138,6 @@ func (r Runner) RunFromTier(ctx context.Context, config Config, tier Tier, task 
 	if r.Resolve == nil {
 		r.Resolve = ResolveRuntime
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
 	remaining := maxRunWorkerRequests
 	return r.runTier(ctx, config, tier, task, &remaining)
 }
@@ -417,8 +428,11 @@ func workerInputWithEvidence(task string, observations []string, budget int) str
 	return input
 }
 
-func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task string, remaining *int) (string, error) {
+func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task string, remaining *int) (output string, runErr error) {
 	profile, _ := config.Profile(tier)
+	r = r.traced(config, profile, "execution")
+	r.emit(tier, "started", task, workerruntime.Usage{})
+	defer func() { r.finish(profile, runErr) }()
 	worker, err := r.Resolve(profile)
 	if err != nil {
 		return "", err
@@ -451,6 +465,8 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 			return "", errors.New("worker run exhausted its budget of 64 worker requests; inspect activity before continuing")
 		}
 		*remaining--
+		r.trace.Step = step + 1
+		r.trace.Phase = "inference"
 		r.emit(tier, "request", input, workerruntime.Usage{})
 		result, err := worker.Execute(ctx, workerruntime.Request{
 			Model: profile.Model, SystemPrompt: instructions + fmt.Sprintf("\nTurns left: %d (run: %d). Finish before this limit.", maxWorkerSteps-step, *remaining+1), Task: input, WorkspaceRoot: config.Workspace,
@@ -458,8 +474,7 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 			Progress: func(event workerruntime.ProgressEvent) { r.emit(tier, event.Kind, event.Text, workerruntime.Usage{}) },
 		})
 		if err != nil {
-			r.emit(tier, "error", err.Error(), workerruntime.Usage{})
-			return "", err
+			return "", workerError(ctx, profile, "model response", err)
 		}
 		if result == nil || strings.TrimSpace(result.Content) == "" || len(result.Content) > maxWorkerOutputBytes {
 			return "", fmt.Errorf("%s worker returned an oversized or empty result", tier)
@@ -479,6 +494,8 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 			return d.Content, nil
 		}
 		if d.Action == "tool" {
+			r.trace.Phase = "tool"
+			r.emit(tier, "tool_start", d.Tool+" "+string(d.Args), workerruntime.Usage{})
 			content, err := tools.Execute(ctx, d.Tool, d.Args)
 			if err != nil {
 				r.emit(tier, "error", err.Error(), workerruntime.Usage{})
@@ -531,17 +548,20 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 		if !allowedChild(tier, d.Tier) {
 			return "", fmt.Errorf("%s cannot delegate to %s", tier, d.Tier)
 		}
-		r.emit(tier, "delegation", string(d.Tier)+": "+d.Task, workerruntime.Usage{})
 		if r.NoDelegation {
 			return "", errors.New("delegation is disabled for isolated DAG tasks")
 		}
+		r.trace.Phase, r.trace.Target = "waiting", d.Tier
+		r.emit(tier, "delegation", d.Task, workerruntime.Usage{})
 		childResult, err := r.runTier(ctx, config, d.Tier, d.Task, remaining)
+		r.trace.Phase = "execution"
 		if err != nil {
 			consecutiveFailures++
 			if ctx.Err() != nil || consecutiveFailures >= 2 || *remaining <= 0 {
 				return "", err
 			}
 			r.emit(tier, "delegated_error", string(d.Tier)+": "+err.Error(), workerruntime.Usage{})
+			r.trace.Target = ""
 			appendObservation("Delegated " + string(d.Tier) + " task failed: " + err.Error() + ". It may have performed tools before failure. Inspect recorded activity/state before repeating effects; report the failure or revise the task.")
 			continue
 		}
@@ -550,6 +570,7 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 			return "", errors.New("delegated result exceeds reinjection limit")
 		}
 		r.emit(tier, "delegated_result", childResult, workerruntime.Usage{})
+		r.trace.Target = ""
 		appendObservation("Delegated " + string(d.Tier) + " result:\n" + childResult)
 	}
 	return "", fmt.Errorf("%s worker exceeded the %d-step limit", tier, maxWorkerSteps)

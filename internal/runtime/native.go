@@ -38,6 +38,8 @@ func (n Native) Execute(ctx context.Context, req Request) (*Result, error) {
 		emit = func(event core.StreamEvent) {
 			if event.Type == "text" && event.Text != "" {
 				req.Progress(ProgressEvent{Kind: "stream", Text: event.Text})
+			} else if event.Type == "reasoning" && event.Text != "" {
+				req.Progress(ProgressEvent{Kind: "reasoning", Text: event.Text})
 			}
 		}
 	}

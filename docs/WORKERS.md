@@ -85,8 +85,10 @@ The existing hierarchical mode below remains available for non-Git workspaces.
 3. Set each profile's instructions, input/timeout limits and edit/command
    permissions. Native profiles also require an output token limit. External
    CLI profiles use the selected CLI's own output limits.
-4. Create the chat. Follow requests, responses, host tools and delegation in
-   three horizontal panes; collapse panes to focus on a worker.
+4. Create the chat. Follow the task board, worker assignments and activity
+   console. **Open execution window** opens an independent Desktop monitor;
+   **Open execution panel** opens a VS Code panel. Closing a monitor does not
+   stop the run. Execution and encrypted persistence stay in the owning process.
 
 Profiles are stored with each new chat. Saving new defaults does not change
 existing chats. Saved runs can be renamed, stopped, deleted after stopping,
@@ -98,10 +100,29 @@ Follow-up reinjects bounded excerpts from the last three user/result pairs;
 children still receive only their delegated tasks. The coordinator does not
 restore third-party CLI session histories or roll back filesystem changes.
 
-The Desktop view shows the latest 80 activity entries per tier. **Show earlier
-activity** reveals more retained entries without expanding all three histories
-at once. Refreshes run sequentially, slow down while idle and pause requests
-while the window is hidden; active runs continue in the core.
+Each new invocation records its worker ID, parent invocation, task ID (parallel
+tasks), actual CLI/runtime, model, workspace, phase and call number. The monitor
+groups assignments rather than mixing concurrent tasks that use the same tier.
+Handoffs name their destination; child results return to the recorded parent.
+Activity filters separate input/output, tool events, handoffs, errors and
+**reported reasoning**. Reasoning appears only when the CLI/provider exposes it;
+no private model reasoning is inferred. A live call shows elapsed time even if
+the backend sends no progress. Historical snapshots without these fields remain
+readable, using their saved task/profile routes.
+
+**Run settings** edits profiles on an inactive saved run: CLI, model, instructions,
+permissions and limits. Changes affect future calls and survive app restarts;
+recorded invocation routes and explicit task overrides retain their values.
+The workspace cannot be changed. A failed planning call without tasks can be
+retried explicitly with **Retry planning** after reviewing partial activity and
+adjusting its settings. Existing tasks use their review/reset controls instead.
+Timeout failures report the worker, CLI/model and phase. No failed mutation is
+automatically retried. Pending approvals remain available in the main window
+and are recovered when opening the independent monitor.
+
+Refreshes run sequentially, slow down while idle and pause requests while the
+window is hidden; active runs continue in the core. Activity previews are bounded
+by the retained event history, rather than loading third-party CLI session logs.
 
 For local server routing, detected context windows and output reservations,
 see [PrAImate CLI](native-cli.md#context-and-output-budgets).
@@ -132,7 +153,11 @@ Initial tasks are limited to 16 KiB and follow-up requests to 8 KiB. Reference
 workspace paths so workers can read focused ranges instead of pasting files.
 
 Each tier has at most 16 model turns per invocation, with a shared maximum of
-64 host dispatches and 10 minutes for the run. An external CLI can make several
+64 host dispatches. There is no additional fixed ten-minute deadline for the
+whole run. Each model call uses its profile timeout (0–3600 seconds); 0 disables
+that timeout, while explicit Stop and parent cancellation remain available.
+New GUI profiles default to 600 seconds for Reasoner and 300 for other workers;
+saved profiles keep their configured values. An external CLI can make several
 provider calls within one dispatch. A malformed response or failed read
 gets one correction opportunity; consecutive failures stop that invocation.
 Child failures return to the parent with a warning about possible prior effects.

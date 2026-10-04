@@ -464,6 +464,21 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 		}
 		p.Config.Workspace = s.sessionSnapshot().Workspace
 		return s.workers.PlanDAG(p.Task, p.Config, p.MaxParallel)
+	case "workers.run.config":
+		var p struct {
+			ID     string
+			Config orchestrator.Config
+		}
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.UpdateRunConfig(p.ID, p.Config)
+	case "workers.plan.retry":
+		var p struct{ ID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.RetryPlanning(p.ID)
 	case "workers.graph.save":
 		var p struct {
 			ID          string
@@ -1038,7 +1053,7 @@ func (s *Server) rebroadcastWorkerApprovals(child *Server) {
 	s.mu.Lock()
 	pending := make([]map[string]any, 0)
 	for id, approval := range s.approvals {
-		if strings.HasPrefix(approval.scope, "worker-") {
+		if strings.HasPrefix(approval.scope, "worker-") || strings.HasPrefix(approval.scope, "workers-") {
 			pending = append(pending, map[string]any{"runId": approval.scope, "approvalId": id, "description": approval.description})
 		}
 	}
