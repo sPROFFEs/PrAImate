@@ -236,7 +236,7 @@ func (a *ClaudeAdapter) runAt(ctx context.Context, path, cwd string, env map[str
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	cmd.Env = mergeEnv(os.Environ(), env)
+	cmd.Env = mergeEnv(cmd.Environ(), env)
 	cmd.Stdin = strings.NewReader(message)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -143,7 +143,7 @@ func (a *additionalCLIAdapter) run(ctx context.Context, session string, o Single
 	cmd := exec.CommandContext(ctx, path, args...)
 	hideConsole(cmd)
 	cmd.Dir = o.Cwd
-	cmd.Env = mergeEnv(os.Environ(), o.Env)
+	cmd.Env = mergeEnv(cmd.Environ(), o.Env)
 	cmd.Stdin = strings.NewReader(message)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -154,6 +154,7 @@ func (a *additionalCLIAdapter) run(ctx context.Context, session string, o Single
 	if err = cmd.Start(); err != nil {
 		return nil, fmt.Errorf("%s: %w", a.name, err)
 	}
+	handler(StreamEvent{Type: "status", Detail: a.name + " process started; waiting for a session."})
 	reply, parseErr := parseAdditionalCLIStream(stdout, a.name, func(e StreamEvent) {
 		if telemetry != nil && e.Type == "usage" {
 			streamUsage = append(streamUsage, e)
@@ -203,6 +204,7 @@ func parseAdditionalCLIStream(r io.Reader, cli string, emit StreamHandler) (*Rep
 	reply := &Reply{}
 	var acc strings.Builder
 	deltas := map[string]bool{}
+	reasoningDeltas := map[string]bool{}
 	seen := map[string]bool{}
 	completed := false
 	var streamErr error
@@ -234,6 +236,23 @@ func parseAdditionalCLIStream(r io.Reader, cli string, emit StreamHandler) (*Rep
 						reply.SessionID = s
 					}
 					emit(StreamEvent{Type: "model", Model: stringFromMap(d, "selectedModel")})
+					emit(StreamEvent{Type: "status", Detail: "CLI session initialized.", ID: reply.SessionID})
+				case "assistant.turn_start":
+					emit(StreamEvent{Type: "step_start", Detail: "Assistant turn", ID: stringFromMap(d, "turnId")})
+				case "assistant.turn_end":
+					emit(StreamEvent{Type: "step_finish", Detail: "Assistant turn", ID: stringFromMap(d, "turnId"), OK: true})
+				case "assistant.reasoning_delta", "assistant.reasoning":
+					key := stringFromMap(e, "agentId") + ":" + stringFromMap(d, "reasoningId")
+					if typ == "assistant.reasoning_delta" {
+						reasoningDeltas[key] = true
+						if content := stringFromMap(d, "deltaContent"); content != "" {
+							emit(StreamEvent{Type: "reasoning", Text: content})
+						}
+					} else if !reasoningDeltas[key] {
+						if content := stringFromMap(d, "content"); content != "" {
+							emit(StreamEvent{Type: "reasoning", Text: content})
+						}
+					}
 				case "assistant.message_delta":
 					if stringFromMap(e, "agentId") == "" {
 						text = stringFromMap(d, "deltaContent")
@@ -255,11 +274,21 @@ func parseAdditionalCLIStream(r io.Reader, cli string, emit StreamHandler) (*Rep
 					emit(StreamEvent{Type: "tool_end", ID: stringFromMap(d, "toolCallId"), OK: ok})
 				case "session.idle":
 					completed = true
+					if aborted, _ := d["aborted"].(bool); aborted {
+						streamErr = errors.New("copilot run was aborted")
+						emit(StreamEvent{Type: "error", Detail: streamErr.Error()})
+					}
 				case "session.error":
-					streamErr = errors.New(stringFromMap(d, "message"))
+					detail := firstMapString(d, "message", "errorType")
+					if detail == "" {
+						detail = "CLI session failed"
+					}
+					streamErr = errors.New(detail)
+					emit(StreamEvent{Type: "error", Detail: detail})
 				case "init":
 					reply.SessionID = stringFromMap(e, "conversation_id")
 					emit(StreamEvent{Type: "model", Model: stringFromMap(d, "model")})
+					emit(StreamEvent{Type: "status", Detail: "CLI session initialized.", ID: reply.SessionID})
 				case "step_update":
 					stepID := fmt.Sprint(d["step_index"])
 					if stringFromMap(d, "step_type") == "agent_response" {
@@ -283,11 +312,14 @@ func parseAdditionalCLIStream(r io.Reader, cli string, emit StreamHandler) (*Rep
 				case "result":
 					completed = true
 					if cli == "copilot" {
-						reply.SessionID = stringFromMap(e, "sessionId")
+						if s := stringFromMap(e, "sessionId"); s != "" {
+							reply.SessionID = s
+						}
 						code, ok := e["exitCode"].(float64)
 						if !ok || code != 0 {
 							reply.ExitCode = int(code)
 							streamErr = fmt.Errorf("copilot run did not complete successfully (exit %d, %s)", reply.ExitCode, stringFromMap(e, "outcome"))
+							emit(StreamEvent{Type: "error", Detail: streamErr.Error()})
 						}
 						break
 					}
@@ -302,6 +334,7 @@ func parseAdditionalCLIStream(r io.Reader, cli string, emit StreamHandler) (*Rep
 					}
 					if status := stringFromMap(d, "status"); status != "SUCCESS" {
 						streamErr = fmt.Errorf("antigravity %s: %s", status, stringFromMap(d, "error"))
+						emit(StreamEvent{Type: "error", Detail: streamErr.Error()})
 					}
 				}
 				if text != "" {

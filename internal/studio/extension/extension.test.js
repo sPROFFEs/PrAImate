@@ -318,6 +318,21 @@ test('Workers view keeps separate models for the same CLI and renders live event
   assert.equal(fast.children[1].children[1].innerHTML,'');
 });
 
+test('worker activity displays other CLI lifecycle, reasoning and provider errors in the assigned lane', () => {
+  const h=webviewHarness();
+  h.send({type:'status',status:{connected:true,activeWorkspace:'/project'}});
+  h.send({type:'navigate',page:'workers',workerID:'run'});
+  const profiles=[{tier:'primary',cli:'codex',model:'reasoner'},{tier:'middle',cli:'praimate-code',model:'router/medium'},{tier:'fast',cli:'openclaude',model:'small'}];
+  const events=['backend_status','reasoning','error'].map((kind,index)=>({workerID:'middle-call',tier:'middle',cli:'praimate-code',model:'router/medium',kind,text:['praimate-code process started','Reported model activity','Provider unavailable (ref: err_fixture)'][index],timestamp:'2026-10-04T10:00:00Z'}));
+  h.send({type:'workerSnapshot',selectedId:'run',runs:[{id:'run',status:'failed'}],snapshot:{id:'run',status:'failed',profiles,events}});
+  const lane=h.elements.get('worker-lanes').children[1];
+  for(let index=0;index<events.length;index++) {
+    const item=lane.children[index+1];
+    assert.match(item.children[0].textContent,/praimate-code \/ router\/medium/);
+    assert.equal(item.children[1].textContent,events[index].text);
+  }
+});
+
 test('worker execution panels retain their selected run and settings save against that run', () => {
   const h=webviewHarness();
   h.send({type:'status',status:{connected:true,activeWorkspace:'/project',availableCLIs:[{id:'codex',label:'Codex',available:true}]}});

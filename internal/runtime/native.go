@@ -35,6 +35,7 @@ func (n Native) Execute(ctx context.Context, req Request) (*Result, error) {
 	route.OutputAutomatic = n.AutomaticOutput
 	var emit core.StreamHandler
 	if req.Progress != nil {
+		req.Progress(ProgressEvent{Kind: "backend_status", Text: "Native model request prepared: " + route.Model})
 		emit = func(event core.StreamEvent) {
 			if event.Type == "text" && event.Text != "" {
 				req.Progress(ProgressEvent{Kind: "stream", Text: event.Text})
@@ -44,6 +45,9 @@ func (n Native) Execute(ctx context.Context, req Request) (*Result, error) {
 		}
 	}
 	reply, err := core.ExecuteNativeWorkerStream(ctx, route, req.SystemPrompt, req.Task, emit)
+	if err != nil && req.Progress != nil {
+		req.Progress(ProgressEvent{Kind: "error", Text: err.Error()})
+	}
 	if reply == nil {
 		return nil, err
 	}

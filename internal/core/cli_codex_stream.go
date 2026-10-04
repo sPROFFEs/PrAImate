@@ -66,7 +66,7 @@ func (a *execAdapter) SingleShotStream(ctx context.Context, opts SingleShotOpts,
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}
-	cmd.Env = mergeEnv(os.Environ(), opts.Env)
+	cmd.Env = mergeEnv(cmd.Environ(), opts.Env)
 	cmd.Stdin = strings.NewReader(msg)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -106,11 +106,11 @@ func (a *execAdapter) SingleShotStream(ctx context.Context, opts SingleShotOpts,
 	if ctx.Err() != nil {
 		return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, ctx.Err()
 	}
-	if streamed.Err != nil {
-		return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, streamed.Err
-	}
 	if text == "" && exitCode != 0 {
 		text = strings.TrimSpace(stderr.String())
+	}
+	if streamed.Err != nil || exitCode != 0 {
+		return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, fmt.Errorf("codex stream: %w (stderr=%s)", firstErr(streamed.Err, fmt.Errorf("CLI exited with code %d", exitCode)), truncate(stderr.String(), 400))
 	}
 	return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, nil
 }
@@ -155,7 +155,7 @@ func (a *execAdapter) codexResumeStream(ctx context.Context, sessionID string, o
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}
-	cmd.Env = mergeEnv(os.Environ(), opts.Env)
+	cmd.Env = mergeEnv(cmd.Environ(), opts.Env)
 	cmd.Stdin = strings.NewReader(opts.Message)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -187,17 +187,17 @@ func (a *execAdapter) codexResumeStream(ctx context.Context, sessionID string, o
 		text = string(b)
 	}
 	text = strings.TrimRight(text, "\n")
+	if streamed.SessionID == "" {
+		streamed.SessionID = sessionID
+	}
 	if ctx.Err() != nil {
 		return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, ctx.Err()
-	}
-	if streamed.Err != nil {
-		return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, streamed.Err
 	}
 	if text == "" && exitCode != 0 {
 		text = strings.TrimSpace(stderr.String())
 	}
-	if streamed.SessionID == "" {
-		streamed.SessionID = sessionID
+	if streamed.Err != nil || exitCode != 0 {
+		return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, fmt.Errorf("codex resume stream: %w (stderr=%s)", firstErr(streamed.Err, fmt.Errorf("CLI exited with code %d", exitCode)), truncate(stderr.String(), 400))
 	}
 	return &Reply{Text: text, SessionID: streamed.SessionID, ExitCode: exitCode}, nil
 }
@@ -240,6 +240,7 @@ func parseCodexStream(r io.Reader, emit StreamHandler) codexStreamResult {
 	var acc strings.Builder
 	var sessionID string
 	var sawDelta bool
+	var activeTurn bool
 	var turnErr error
 	for {
 		raw, err := br.ReadBytes('\n')
@@ -251,8 +252,10 @@ func parseCodexStream(r io.Reader, emit StreamHandler) codexStreamResult {
 					sessionID = line.ThreadID
 					emit(StreamEvent{Type: "status", Detail: "Codex session started.", ID: sessionID})
 				case line.Type == "turn.started":
+					activeTurn = true
 					emit(StreamEvent{Type: "step_start", Detail: "turn"})
 				case line.Type == "turn.completed":
+					activeTurn = false
 					if usage := reportedUsage(line.Usage, "input_tokens", "output_tokens"); usage != nil {
 						emit(StreamEvent{Type: "usage", Usage: usage, OK: true})
 					}
@@ -272,6 +275,11 @@ func parseCodexStream(r io.Reader, emit StreamHandler) codexStreamResult {
 					if line.Msg.SessionID != "" {
 						sessionID = line.Msg.SessionID
 					}
+					if line.Msg.Type == "task_started" {
+						activeTurn = true
+					} else if line.Msg.Type == "task_complete" {
+						activeTurn = false
+					}
 					handleCodexProtoMsg(&line, &acc, &sawDelta, emit)
 				case strings.HasPrefix(line.Type, "item."):
 					handleCodexItem(line.Type, line.Item, &acc, sawDelta, emit)
@@ -279,6 +287,11 @@ func parseCodexStream(r io.Reader, emit StreamHandler) codexStreamResult {
 			}
 		}
 		if err != nil {
+			if err != io.EOF {
+				turnErr = firstErr(turnErr, err)
+			} else if activeTurn && turnErr == nil {
+				turnErr = errors.New("codex stream ended before turn completion")
+			}
 			return codexStreamResult{Text: acc.String(), SessionID: sessionID, Err: turnErr}
 		}
 	}
@@ -288,6 +301,10 @@ func parseCodexStream(r io.Reader, emit StreamHandler) codexStreamResult {
 func handleCodexProtoMsg(line *codexStreamLine, acc *strings.Builder, sawDelta *bool, emit StreamHandler) {
 	m := line.Msg
 	switch m.Type {
+	case "task_started":
+		emit(StreamEvent{Type: "step_start", Detail: "task"})
+	case "task_complete":
+		emit(StreamEvent{Type: "step_finish", Detail: "task", OK: true})
 	case "session_configured":
 		emit(StreamEvent{Type: "status", Detail: "Codex session started.", ID: m.SessionID})
 	case "agent_reasoning_delta":

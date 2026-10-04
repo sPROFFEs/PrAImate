@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,7 +97,7 @@ func TestNativeAndCLIExecuteSameScopedTask(t *testing.T) {
 	if len(wire.Messages) != 2 || wire.Messages[0].Role != "system" || wire.Messages[0].Content != task.SystemPrompt || wire.Messages[1].Role != "user" || wire.Messages[1].Content != task.Task || len(wire.Tools) != 0 || wire.MaxTokens != 32 {
 		t.Fatalf("native worker received unexpected context or tools: %+v", wire)
 	}
-	if len(nativeProgress) != 1 || nativeProgress[0].Text != "scoped answer" {
+	if len(nativeProgress) != 2 || nativeProgress[0].Kind != "backend_status" || nativeProgress[1].Text != "scoped answer" {
 		t.Fatalf("native progress=%+v", nativeProgress)
 	}
 
@@ -148,6 +149,20 @@ func TestCLIWorkerReportsProcessAndTurnStartupBeforeOutput(t *testing.T) {
 	_, err := (CLI{Adapter: adapter}).Execute(context.Background(), Request{Task: "Plan", WorkspaceRoot: t.TempDir(), Progress: func(e ProgressEvent) { events = append(events, e) }})
 	if err != nil || len(events) != 2 || events[0].Kind != "backend_status" || events[1].Kind != "backend_status" {
 		t.Fatalf("no evidence of CLI startup reached the worker: %+v %v", events, err)
+	}
+}
+
+func TestCLIWorkerPairsToolResultsAndReportsActualModelOnce(t *testing.T) {
+	adapter := &fakeStreamCLI{fakeCLI: fakeCLI{safe: true}, events: []core.StreamEvent{
+		{Type: "model", Model: "reported-model"}, {Type: "model", Model: "reported-model"},
+		{Type: "tool_start", ID: "a", Tool: "Read", Detail: "first.go"},
+		{Type: "tool_start", ID: "b", Tool: "Read", Detail: "second.go"},
+		{Type: "tool_end", ID: "b", OK: false}, {Type: "tool_end", ID: "a", OK: true},
+	}}
+	var events []ProgressEvent
+	_, err := (CLI{Adapter: adapter}).Execute(context.Background(), Request{Model: "selected-model", Task: "Inspect", WorkspaceRoot: t.TempDir(), Progress: func(e ProgressEvent) { events = append(events, e) }})
+	if err != nil || len(events) != 5 || events[0].Kind != "backend_status" || !strings.Contains(events[0].Text, "reported-model") || !strings.Contains(events[3].Text, "Read second.go") || !strings.Contains(events[3].Text, "ok=false") || !strings.Contains(events[4].Text, "Read first.go") {
+		t.Fatalf("tool results cannot be associated with their calls, or actual model lost: %+v %v", events, err)
 	}
 }
 

@@ -121,10 +121,17 @@ For a planning deadline with a positive timeout, **Retry with no reasoner timeou
 saves 0 for Reasoner and starts a new planning attempt; other profiles and prior
 activity remain intact. Stop is still available. In parallel mode, Middle and Fast
 wait until the plan is ready and the user reviews and runs its tasks.
-Codex process/session/turn startup, exposed reasoning summaries, tool calls and
-backend errors appear in the activity feed. A started process alone does not prove
-the backend accepted a model request. Reconnect errors can be recoverable;
-`turn.failed` and nonzero CLI exit codes are failures, even with partial output.
+External CLI process startup and supported session/turn events appear in the
+activity feed, alongside reported models, exposed reasoning, tool calls and
+backend errors. PrAImate CLI/native profiles report preparation of their model
+request. A started process or prepared request alone does not prove the backend
+accepted it. Codex reconnect errors can be recoverable; `turn.failed`, Claude
+error results, OpenCode session errors, aborted Copilot calls and nonzero process
+exit codes fail the assignment even when partial output exists. Reported output
+and token usage remain available on failure. OpenCode/PrAImate Code error
+references are retained when the CLI supplies them, for correlation with its
+server logs. A failing router/provider must be fixed in that backend or changed
+explicitly in **Run settings**; PrAImate does not silently switch models.
 Timeout failures report the worker, CLI/model and phase. No failed mutation is
 automatically retried. Pending approvals remain available in the main window
 and are recovered when opening the independent monitor.

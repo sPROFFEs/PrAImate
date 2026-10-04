@@ -164,7 +164,7 @@ func (a *execAdapter) SingleShot(ctx context.Context, opts SingleShotOpts) (*Rep
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}
-	cmd.Env = mergeEnv(os.Environ(), opts.Env)
+	cmd.Env = mergeEnv(cmd.Environ(), opts.Env)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

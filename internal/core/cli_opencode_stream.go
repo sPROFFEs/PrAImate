@@ -69,6 +69,9 @@ func (a *execAdapter) runOpenCodeJSON(ctx context.Context, message, cwd, session
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("%s stream: start: %w", a.name, err)
 	}
+	if emit != nil {
+		emit(StreamEvent{Type: "status", Detail: a.name + " process started; waiting for a session."})
+	}
 
 	reply, parseErr := parseOpenCodeStream(stdout, emit)
 
@@ -79,7 +82,7 @@ func (a *execAdapter) runOpenCodeJSON(ctx context.Context, message, cwd, session
 		if errors.As(waitErr, &ee) {
 			exitCode = ee.ExitCode()
 		} else if ctx.Err() == nil {
-			return nil, fmt.Errorf("%s stream: %w (stderr=%s)", a.name, waitErr, truncate(stderr.String(), 400))
+			return reply, fmt.Errorf("%s stream: %w (stderr=%s)", a.name, waitErr, truncate(stderr.String(), 400))
 		}
 	}
 	if reply == nil {
@@ -92,8 +95,8 @@ func (a *execAdapter) runOpenCodeJSON(ctx context.Context, message, cwd, session
 	if reply.Text == "" && exitCode != 0 {
 		reply.Text = strings.TrimSpace(stderr.String())
 	}
-	if parseErr != nil {
-		msg := fmt.Sprintf("%s stream: %v", a.name, parseErr)
+	if parseErr != nil || exitCode != 0 {
+		msg := fmt.Sprintf("%s stream: %v", a.name, firstErr(parseErr, fmt.Errorf("CLI exited with code %d", exitCode)))
 		if stderrText := strings.TrimSpace(stderr.String()); stderrText != "" {
 			msg += fmt.Sprintf(" (stderr=%s)", truncate(stderrText, 400))
 		}
@@ -129,10 +132,11 @@ func parseOpenCodeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 	}
 	br := bufio.NewReaderSize(r, 256*1024)
 	var (
-		acc       strings.Builder
-		plain     strings.Builder
-		sessionID string
-		firstErr  error
+		acc        strings.Builder
+		plain      strings.Builder
+		sessionID  string
+		firstErr   error
+		activeStep bool
 	)
 	for {
 		raw, err := br.ReadBytes('\n')
@@ -141,11 +145,19 @@ func parseOpenCodeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 			var rawMap map[string]any
 			if jerr := json.Unmarshal(trimmed, &rawMap); jerr == nil {
 				line := decodeOpenCodeLine(rawMap)
+				if line.Type == "step_start" || line.Type == "message.part.updated" && stringFromMap(line.Part, "type") == "step-start" {
+					activeStep = true
+				} else if line.Type == "step_finish" || line.Type == "message.part.updated" && stringFromMap(line.Part, "type") == "step-finish" {
+					activeStep = false
+				}
 				if line.SessionID != "" {
+					if sessionID == "" {
+						emit(StreamEvent{Type: "status", Detail: "CLI session initialized.", ID: line.SessionID})
+					}
 					sessionID = line.SessionID
 				}
 				handleOpenCodeLine(line, rawMap, &acc, emit)
-				if line.Type == "error" && firstErr == nil {
+				if (line.Type == "error" || line.Type == "session.error") && firstErr == nil {
 					firstErr = errors.New(openCodeErrorString(line.Error))
 				}
 			} else {
@@ -159,6 +171,9 @@ func parseOpenCodeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 				text = strings.TrimRight(plain.String(), "\n")
 			}
 			if err == io.EOF {
+				if activeStep && firstErr == nil {
+					firstErr = errors.New("CLI stream ended before step completion")
+				}
 				return &Reply{Text: text, SessionID: sessionID}, firstErr
 			}
 			return &Reply{Text: text, SessionID: sessionID}, err
@@ -327,6 +342,9 @@ func openCodeErrorString(v any) string {
 	if m, ok := v.(map[string]any); ok {
 		if data, _ := m["data"].(map[string]any); data != nil {
 			if msg := stringFromMap(data, "message"); msg != "" {
+				if ref := stringFromMap(data, "ref"); ref != "" {
+					msg += " (ref: " + truncate(ref, 100) + ")"
+				}
 				return msg
 			}
 		}

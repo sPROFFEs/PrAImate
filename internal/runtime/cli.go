@@ -63,6 +63,8 @@ func (c CLI) Execute(ctx context.Context, req Request) (*Result, error) {
 	var reply *core.Reply
 	var err error
 	var usage core.UsageAccumulator
+	var reportedModel string
+	tools := map[string]core.StreamEvent{}
 	if stream, ok := c.Adapter.(interface {
 		SingleShotStream(context.Context, core.SingleShotOpts, core.StreamHandler) (*core.Reply, error)
 	}); ok {
@@ -75,6 +77,9 @@ func (c CLI) Execute(ctx context.Context, req Request) (*Result, error) {
 				req.Progress(ProgressEvent{Kind: "stream", Text: event.Text})
 			} else if event.Type == "status" {
 				req.Progress(ProgressEvent{Kind: "backend_status", Text: event.Detail})
+			} else if event.Type == "model" && event.Model != "" && event.Model != reportedModel {
+				reportedModel = event.Model
+				req.Progress(ProgressEvent{Kind: "backend_status", Text: "Backend reports model: " + event.Model})
 			} else if event.Type == "step_start" || event.Type == "step_finish" {
 				label := "Backend step started"
 				if event.Type == "step_finish" {
@@ -84,8 +89,21 @@ func (c CLI) Execute(ctx context.Context, req Request) (*Result, error) {
 			} else if event.Type == "reasoning" && event.Text != "" {
 				req.Progress(ProgressEvent{Kind: "reasoning", Text: event.Text})
 			} else if event.Type == "tool_start" {
+				if event.ID != "" {
+					// Keep only the label, not raw tool arguments or output.
+					tools[event.ID] = core.StreamEvent{Tool: event.Tool, Detail: event.Detail}
+				}
 				req.Progress(ProgressEvent{Kind: "tool_start", Text: event.Tool + " " + event.Detail})
 			} else if event.Type == "tool_end" {
+				if start, ok := tools[event.ID]; ok {
+					if event.Tool == "" {
+						event.Tool = start.Tool
+					}
+					if event.Detail == "" {
+						event.Detail = start.Detail
+					}
+					delete(tools, event.ID)
+				}
 				req.Progress(ProgressEvent{Kind: "tool_end", Text: fmt.Sprintf("%s %s (ok=%t)", event.Tool, event.Detail, event.OK)})
 			} else if event.Type == "error" {
 				req.Progress(ProgressEvent{Kind: "error", Text: event.Detail})

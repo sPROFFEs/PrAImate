@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 )
@@ -44,7 +43,7 @@ func (a *ClaudeAdapter) SingleShotStream(ctx context.Context, opts SingleShotOpt
 
 func (a *ClaudeAdapter) ResumeStream(ctx context.Context, sessionID string, opts ResumeOpts, emit StreamHandler) (*Reply, error) {
 	if sessionID == "" {
-		return nil, errors.New("claude.ResumeStream: empty sessionID")
+		return nil, fmt.Errorf("%s.ResumeStream: empty sessionID", a.Name())
 	}
 	path, err := a.resolve()
 	if err != nil {
@@ -67,16 +66,19 @@ func (a *ClaudeAdapter) runStream(ctx context.Context, path, cwd string, env map
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	cmd.Env = mergeEnv(os.Environ(), env)
+	cmd.Env = mergeEnv(cmd.Environ(), env)
 	cmd.Stdin = strings.NewReader(message)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("claude stream: stdout pipe: %w", err)
+		return nil, fmt.Errorf("%s stream: stdout pipe: %w", a.Name(), err)
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("claude stream: start: %w", err)
+		return nil, fmt.Errorf("%s stream: start: %w", a.Name(), err)
+	}
+	if emit != nil {
+		emit(StreamEvent{Type: "status", Detail: a.Name() + " process started; waiting for a session."})
 	}
 
 	reply, parseErr := parseClaudeStream(stdout, emit)
@@ -88,7 +90,7 @@ func (a *ClaudeAdapter) runStream(ctx context.Context, path, cwd string, env map
 		if errors.As(waitErr, &ee) {
 			exitCode = ee.ExitCode()
 		} else if ctx.Err() == nil {
-			return nil, fmt.Errorf("claude stream: %w (stderr=%s)", waitErr, truncate(stderr.String(), 400))
+			return reply, fmt.Errorf("%s stream: %w (stderr=%s)", a.Name(), waitErr, truncate(stderr.String(), 400))
 		}
 	}
 	if ctx.Err() != nil {
@@ -100,12 +102,13 @@ func (a *ClaudeAdapter) runStream(ctx context.Context, path, cwd string, env map
 		reply.ExitCode = exitCode
 		return reply, ctx.Err()
 	}
-	if reply == nil || (parseErr != nil && exitCode != 0 && reply.Text == "") {
-		// Crashed before producing anything useful (e.g. an old CLI
-		// rejecting a flag) — surface the CLI's own stderr.
-		return nil, fmt.Errorf("claude stream: %v (stderr=%s)", firstErr(parseErr, errors.New("no result event")), truncate(stderr.String(), 400))
+	if reply == nil {
+		reply = &Reply{}
 	}
 	reply.ExitCode = exitCode
+	if parseErr != nil || exitCode != 0 {
+		return reply, fmt.Errorf("%s stream: %w (stderr=%s)", a.Name(), firstErr(parseErr, fmt.Errorf("CLI exited with code %d", exitCode)), truncate(stderr.String(), 400))
+	}
 	return reply, nil
 }
 
@@ -123,15 +126,20 @@ func firstErr(errs ...error) error {
 // shapes we care about; unknown types fall through silently.
 type claudeStreamLine struct {
 	Type      string         `json:"type"`
+	Subtype   string         `json:"subtype"`
 	SessionID string         `json:"session_id"`
+	Model     string         `json:"model"`
 	Result    string         `json:"result"`
 	IsError   bool           `json:"is_error"`
+	Errors    []string       `json:"errors"`
+	Error     any            `json:"error"`
 	Usage     map[string]any `json:"usage"`
 	Event     *struct {
 		Type  string `json:"type"`
 		Delta *struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Thinking string `json:"thinking"`
 		} `json:"delta"`
 	} `json:"event"`
 	Message *struct {
@@ -145,6 +153,7 @@ type claudeStreamLine struct {
 type claudeContentBlock struct {
 	Type      string         `json:"type"`
 	Text      string         `json:"text"`
+	Thinking  string         `json:"thinking"`
 	ID        string         `json:"id"`
 	Name      string         `json:"name"`
 	Input     map[string]any `json:"input"`
@@ -164,9 +173,11 @@ func parseClaudeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 	// not a Scanner with its default 64KB token cap.
 	br := bufio.NewReaderSize(r, 256*1024)
 	var (
-		acc       strings.Builder // accumulated text (fallback + interrupt)
-		sessionID string
-		sawDelta  bool
+		acc               strings.Builder // accumulated text (fallback + interrupt)
+		sessionID         string
+		sawDelta          bool
+		sawReasoningDelta bool
+		streamErr         error
 	)
 	// Retain reported usage when cancellation/crashes omit the final aggregate.
 	partialUsage := map[string]*NativeUsage{}
@@ -187,11 +198,32 @@ func parseClaudeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 					sessionID = line.SessionID
 				}
 				switch line.Type {
+				case "system":
+					if line.Subtype == "init" {
+						emit(StreamEvent{Type: "status", Detail: "CLI session initialized.", ID: sessionID})
+						if line.Model != "" {
+							emit(StreamEvent{Type: "model", Model: line.Model})
+						}
+					}
 				case "stream_event":
-					if line.Event != nil && line.Event.Delta != nil && line.Event.Delta.Type == "text_delta" && line.Event.Delta.Text != "" {
-						sawDelta = true
-						acc.WriteString(line.Event.Delta.Text)
-						emit(StreamEvent{Type: "text", Text: line.Event.Delta.Text})
+					if line.Event != nil {
+						switch line.Event.Type {
+						case "message_start":
+							sawDelta, sawReasoningDelta = false, false
+							emit(StreamEvent{Type: "step_start", Detail: "Assistant message"})
+						case "message_stop":
+							emit(StreamEvent{Type: "step_finish", Detail: "Assistant message", OK: true})
+						}
+						if delta := line.Event.Delta; delta != nil {
+							if delta.Type == "text_delta" && delta.Text != "" {
+								sawDelta = true
+								acc.WriteString(delta.Text)
+								emit(StreamEvent{Type: "text", Text: delta.Text})
+							} else if delta.Type == "thinking_delta" && delta.Thinking != "" {
+								sawReasoningDelta = true
+								emit(StreamEvent{Type: "reasoning", Text: delta.Thinking})
+							}
+						}
 					}
 				case "assistant":
 					if line.Message != nil {
@@ -205,6 +237,10 @@ func parseClaudeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 							switch b.Type {
 							case "tool_use":
 								emit(StreamEvent{Type: "tool_start", Tool: b.Name, Detail: summarizeToolInput(b.Input), ID: b.ID})
+							case "thinking":
+								if !sawReasoningDelta && b.Thinking != "" {
+									emit(StreamEvent{Type: "reasoning", Text: b.Thinking})
+								}
 							case "text":
 								// Older CLIs without partial messages:
 								// stream per complete assistant block.
@@ -223,22 +259,41 @@ func parseClaudeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 							}
 						}
 					}
+				case "error":
+					detail := "CLI reported an error"
+					if line.Error != nil {
+						detail = openCodeErrorString(line.Error)
+					}
+					streamErr = errors.New(detail)
+					emit(StreamEvent{Type: "error", Detail: streamErr.Error()})
 				case "result":
 					if usage := claudeUsage(line.Usage); usage != nil {
 						finalUsage = true
 						emit(StreamEvent{Type: "usage", Usage: usage, OK: true})
 					}
-					return &Reply{
-						Text:      strings.TrimRight(line.Result, "\n"),
-						SessionID: sessionID,
-					}, nil
+					text := strings.TrimRight(line.Result, "\n")
+					if line.IsError || strings.HasPrefix(line.Subtype, "error_") {
+						detail := strings.Join(line.Errors, "; ")
+						if detail == "" {
+							detail = text
+						}
+						if detail == "" {
+							detail = "CLI result: " + line.Subtype
+						}
+						streamErr = errors.New(detail)
+						emit(StreamEvent{Type: "error", Detail: detail})
+					}
+					if text == "" || streamErr != nil && acc.Len() > 0 {
+						text = strings.TrimRight(acc.String(), "\n")
+					}
+					return &Reply{Text: text, SessionID: sessionID}, streamErr
 				}
 			}
 		}
 		if err != nil {
 			partial := &Reply{Text: strings.TrimRight(acc.String(), "\n"), SessionID: sessionID}
 			if err == io.EOF {
-				return partial, errors.New("stream ended before result event")
+				return partial, firstErr(streamErr, errors.New("stream ended before result event"))
 			}
 			return partial, err
 		}
