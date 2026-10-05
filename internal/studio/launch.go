@@ -111,9 +111,54 @@ func studioEnvironment(base []string, overrides map[string]string) []string {
 		}
 	}
 	for key, value := range overrides {
-		out = append(out, key+"="+value)
+		// Electron on Windows tests whether ELECTRON_RUN_AS_NODE exists,
+		// even when empty. Empty overrides remove inherited startup flags.
+		if value != "" {
+			out = append(out, key+"="+value)
+		}
 	}
 	return out
+}
+
+// Keep startup diagnostics bounded while a long-lived editor runs. Read only
+// after Wait returns, when exec has finished copying the stderr pipe.
+type editorStartupOutput struct{ data []byte }
+
+func (b *editorStartupOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := 2048 - len(b.data)
+	if len(p) > remaining {
+		p = p[:remaining]
+	}
+	b.data = append(b.data, p...)
+	return n, nil
+}
+
+func startEditor(cmd *exec.Cmd) error {
+	output := &editorStartupOutput{}
+	cmd.Stderr = output
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	timer := time.NewTimer(750 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		if err != nil {
+			if details := strings.TrimSpace(string(output.data)); details != "" {
+				return fmt.Errorf("editor exited during startup: %w: %s", err, details)
+			}
+			return fmt.Errorf("editor exited during startup: %w", err)
+		}
+		// CLI launchers may successfully hand off to an existing GUI process.
+		return nil
+	case <-timer.C:
+		// A running process is not proof that a window opened. The goroutine
+		// still reaps it on exit without blocking the application's UI.
+		return nil
+	}
 }
 
 func launchConfiguration(opts LaunchOptions, workspace string) string {

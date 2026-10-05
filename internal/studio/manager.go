@@ -420,10 +420,9 @@ func (m *Manager) Launch(ctx context.Context, opts LaunchOptions) error {
 		fmt.Sprintf("PRAIMATE_STUDIO_TOOLS=%s", opts.Tools),
 	)
 
-	if err := cmd.Start(); err != nil {
+	if err := startEditor(cmd); err != nil {
 		return fmt.Errorf("launch studio (%s): %w", binPath, err)
 	}
-	go func() { _ = cmd.Wait() }()
 	return nil
 }
 

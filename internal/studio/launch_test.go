@@ -4,10 +4,70 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 )
+
+func TestEditorEnvironmentUnsetsElectronAndStaleCLIFlags(t *testing.T) {
+	for _, base := range [][]string{
+		{"Path=C:\\Tools", "electron_run_as_node=1", "VSCODE_IPC_HOOK_CLI=stale"},
+		{"PATH=/usr/bin", "ELECTRON_RUN_AS_NODE="},
+	} {
+		out := studioEnvironment(base, map[string]string{"ELECTRON_RUN_AS_NODE": "", "VSCODE_IPC_HOOK_CLI": "", "PRAIMATE_STUDIO_CONFIG": "fixture"})
+		for _, item := range out {
+			key, _, _ := strings.Cut(item, "=")
+			if strings.EqualFold(key, "ELECTRON_RUN_AS_NODE") || strings.EqualFold(key, "VSCODE_IPC_HOOK_CLI") {
+				t.Fatalf("GUI startup flag must be absent, not empty: %q", item)
+			}
+		}
+	}
+}
+
+func TestEditorStartupReportsFailuresAndAcceptsDetachedLaunchers(t *testing.T) {
+	for _, mode := range []string{"failed", "detached", "running", "large-error"} {
+		t.Run(mode, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestEditorStartupHelper$")
+			cmd.Env = studioEnvironment(os.Environ(), map[string]string{"PRAIMATE_TEST_EDITOR_HELPER": mode, "GORACE": "atexit_sleep_ms=0"})
+			err := startEditor(cmd)
+			if mode == "running" {
+				t.Cleanup(func() { _ = cmd.Process.Kill() })
+			}
+			if mode == "failed" || mode == "large-error" {
+				if err == nil || !strings.Contains(err.Error(), "editor exited during startup") {
+					t.Fatalf("early editor failure was hidden: %v", err)
+				}
+				if mode == "failed" && !strings.Contains(err.Error(), "fixture startup error") {
+					t.Fatalf("startup diagnostic lost: %v", err)
+				}
+				if len(err.Error()) > 2200 {
+					t.Fatal("unbounded editor startup diagnostics")
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestEditorStartupHelper(t *testing.T) {
+	switch os.Getenv("PRAIMATE_TEST_EDITOR_HELPER") {
+	case "failed":
+		_, _ = os.Stderr.WriteString("fixture startup error\n")
+		os.Exit(7)
+	case "large-error":
+		_, _ = os.Stderr.WriteString(strings.Repeat("x", 64<<10))
+		os.Exit(9)
+	case "detached":
+		os.Exit(0)
+	case "running":
+		time.Sleep(5 * time.Second)
+		os.Exit(0)
+	}
+}
 
 func TestUpgradeIncludesLegacyBuiltinExtension(t *testing.T) {
 	t.Setenv("PRAIMATE_HOME", t.TempDir())
