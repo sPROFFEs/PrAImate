@@ -359,6 +359,18 @@ Skills are reusable prompt/instruction resources. The Skills page can:
 - create and publish a skill locally;
 - assign skills and their loading mode to existing sessions.
 
+To import one GitHub skill, paste its folder URL, such as
+`https://github.com/owner/repo/tree/main/skills/example`, or supply a repository
+root, ref and subpath separately. Inspection resolves the ref to a commit and
+keeps that revision through review and installation. For branch names containing
+slashes, specify the complete ref explicitly or use the separate fields.
+
+An explicit subpath scopes both skill discovery and optional shared files to
+that directory. The candidate shows its own files, including `SKILL.md`, scripts,
+references and licenses, which are included automatically. Shared files are
+optional additions selected before reviewing the exact package content. Leave
+the subpath blank to browse the whole repository.
+
 Repository inspection and bulk import allow up to 20,000 archive entries and
 100 MiB of expanded content (25 MiB compressed; 5 MiB per resource). Each
 selected skill remains limited to 1,000 files and 8 MiB so it can be opened in

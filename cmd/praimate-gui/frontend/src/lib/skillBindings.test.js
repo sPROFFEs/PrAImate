@@ -3,6 +3,34 @@ import assert from 'node:assert/strict'
 import { api } from './api.js'
 import { readFile } from 'node:fs/promises'
 
+test('GitHub folder imports use the normalized source and pinned revision through review and install', async () => {
+  const component = await readFile(new URL('./SkillLibrary.svelte', import.meta.url), 'utf8')
+  const script = component.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/^\s*import .*$/gm, '')
+  const root = 'https://github.com/owner/repo', subpath = 'skills/example', revision = 'a'.repeat(40)
+  const calls = []
+  const response = { source: root, subpath, git_ref: revision, review: 'sha256:review', packages: [{ index: 0, ref: 'imported/example', manifest: { Name: 'example' }, files: [{ Path: 'SKILL.md' }] }] }
+  const harness = new Function('api', 'onMount', 'showConfirm', `let filteredSummaries; ${script}
+    return { inspect, previewSelection, install, sourceRequest,
+      configure() { kind = 'github'; source = '${root}/tree/main/${subpath}'; gitRef = ''; subpath = ''; }
+    };`)(
+    { skillLibraryV2: async request => { calls.push(request); return request.action === 'list' ? { view: { Revision: 1 }, summaries: [] } : response } },
+    () => {}, () => {}
+  )
+  harness.configure()
+  await harness.inspect()
+  assert.equal(calls[0].source, `${root}/tree/main/${subpath}`)
+  assert.deepEqual(harness.sourceRequest(), { kind: 'github', source: root, git_ref: revision, subpath })
+  await harness.previewSelection()
+  await harness.install()
+  for (const request of calls.filter(call => call.selections)) {
+    assert.equal(request.source, root)
+    assert.equal(request.git_ref, revision)
+    assert.equal(request.subpath, subpath)
+    assert.deepEqual(request.selections, [{ index: 0, ref: 'imported/example', shared: [] }])
+  }
+  assert.equal(calls.find(call => call.action === 'install').review, 'sha256:review')
+})
+
 test('library commands preserve review and revision and do not conflate publication with trust', async () => {
   const calls = []
   globalThis.window = { go: { main: { App: {

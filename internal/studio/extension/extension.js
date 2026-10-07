@@ -701,15 +701,16 @@ async function importSkill() {
   if (!kind) return;
   let source, gitRef = '', subpath = '';
   if (kind.kind === 'github') {
-    source = await vscode.window.showInputBox({prompt:'GitHub repository (owner/repository or HTTPS URL)'}); if (!source) return;
-    gitRef = await vscode.window.showInputBox({prompt:'Git ref (optional)',value:''}); if (gitRef === undefined) return;
-    subpath = await vscode.window.showInputBox({prompt:'Package subpath (optional)',value:''}); if (subpath === undefined) return;
+    source = await vscode.window.showInputBox({prompt:'GitHub repository or skill folder HTTPS URL (/tree/...)'}); if (!source) return;
+    gitRef = await vscode.window.showInputBox({prompt:'Git ref (optional; inferred from tree URL)',value:''}); if (gitRef === undefined) return;
+    subpath = await vscode.window.showInputBox({prompt:'Package subpath (optional; inferred from tree URL)',value:''}); if (subpath === undefined) return;
   } else {
     const picked = await vscode.window.showOpenDialog({title:'Choose skill '+kind.label.toLowerCase(),canSelectMany:false,canSelectFiles:kind.kind === 'zip',canSelectFolders:kind.kind === 'directory',filters:kind.kind === 'zip' ? {'ZIP':['zip']} : undefined});
     if (!picked?.length) return; source = picked[0].fsPath;
   }
   const base = {kind:kind.kind,source,git_ref:gitRef,subpath};
   const preview = await skillLibrary({action:'inspect',...base});
+  if (kind.kind === 'github') Object.assign(base,{source:preview.source || source,git_ref:preview.git_ref || gitRef,subpath:preview.subpath ?? subpath});
   await showJSON(preview);
   if (await vscode.window.showWarningMessage('Install the exact skill packages shown in the review?',{modal:true},'Install reviewed versions') !== 'Install reviewed versions') return;
   const selections = (preview.packages || []).map(p => ({index:p.index,ref:p.ref}));

@@ -52,6 +52,10 @@
     invalidateImport()
     inspection = await command('inspect', sourceRequest())
     if (inspection.git_ref) gitRef = inspection.git_ref
+    if (kind === 'github' && inspection.source) {
+      source = inspection.source
+      subpath = inspection.subpath || ''
+    }
     const seenRefs = new Set()
     selection = (inspection.packages || []).map((p, i) => {
       const rawName = p.manifest?.Name || p.manifest?.name || p.subpath?.split('/').pop() || `skill-${i + 1}`
@@ -266,13 +270,14 @@
           <option value="github">Git repository</option>
         </select>
         {#if kind !== 'github'}<button class="btn" disabled={busy} on:click={() => run(pickSource)}>Browse…</button>{/if}
-        <input class="field" bind:value={source} placeholder={kind === 'github' ? 'https://github.com/org/repo' : 'Path to source'} on:input={invalidateImport} aria-label="Source path or URL" />
+        <input class="field" bind:value={source} placeholder={kind === 'github' ? 'GitHub repository or /tree/... URL' : 'Path to source'} on:input={invalidateImport} aria-label="Source path or URL" />
       </div>
       {#if kind === 'github'}
         <div class="row source-row" style="margin-top:8px">
-          <input class="field" bind:value={gitRef} placeholder="main (git branch or tag)" on:input={invalidateImport} aria-label="Git ref" />
+          <input class="field" bind:value={gitRef} placeholder="Optional branch, tag or commit" on:input={invalidateImport} aria-label="Git ref" />
           <input class="field" bind:value={subpath} placeholder="Optional repository subpath" on:input={invalidateImport} aria-label="Subpath" />
         </div>
+        <p class="card-sub" style="margin-top:8px">Paste a skill's GitHub folder link, or set a repository and path. Files inside each skill are included automatically.</p>
       {/if}
       <button class="btn primary" style="margin-top:12px" disabled={busy || !source.trim()} on:click={() => run(inspect)}>Inspect candidates</button>
 
@@ -331,14 +336,23 @@
                   Imported library name (alias)
                   <input class="field mono sm" bind:value={selection[i].ref} placeholder="imported/skill-name" style="max-width:320px" />
                 </label>
-                {#if inspection.shared?.length}
-                  <div class="card-sub" style="margin-top:8px">Shared resources in repository:</div>
-                  {#each inspection.shared as shared}
-                    <label class="card-sub mono row" style="gap:6px; cursor:pointer; font-size:11px">
-                      <input type="checkbox" bind:group={selection[i].shared} value={shared} />
-                      <span>{shared}</span>
-                    </label>
+                <div class="card-sub" style="margin-top:10px">Files included automatically ({p.files?.length || 0}):</div>
+                <ul class="card-sub mono" style="margin:4px 0 0; padding-left:18px; max-height:160px; overflow:auto; font-size:11px">
+                  {#each p.files || [] as file}
+                    <li>{file.Path || file.path}</li>
                   {/each}
+                </ul>
+                {#if inspection.shared?.length}
+                  <details style="margin-top:10px">
+                    <summary class="card-sub" style="cursor:pointer">Optional shared files within the import scope ({inspection.shared.length})</summary>
+                    <p class="card-sub" style="margin:6px 0">Only selected shared files will be added to this skill.</p>
+                    {#each inspection.shared as shared}
+                      <label class="card-sub mono row" style="gap:6px; cursor:pointer; font-size:11px">
+                        <input type="checkbox" bind:group={selection[i].shared} value={shared} />
+                        <span>{shared}</span>
+                      </label>
+                    {/each}
+                  </details>
                 {/if}
               </div>
             </div>

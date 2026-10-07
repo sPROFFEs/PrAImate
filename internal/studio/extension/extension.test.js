@@ -47,7 +47,7 @@ test('knowledge indexing survives ordinary RPC timeout and accepts cancellation'
   assert.equal(await stop,true); await rejected; client.close();
 });
 
-function extensionHarness(platform, trusted = true, descriptor = null) {
+function extensionHarness(platform, trusted = true, descriptor = null, respond = null) {
   const commands = new Map(), stored = new Map(), requests = [], spawns = [], terminals = [], errors = [];
   const cwd = platform === 'win32' ? 'C:\\Users\\Test User\\Project' : '/tmp/project with spaces';
   const executable = platform === 'win32' ? 'C:\\Program Files\\PrAImate\\praimate.exe' : '/opt/PrAImate/praimate';
@@ -94,6 +94,7 @@ function extensionHarness(platform, trusted = true, descriptor = null) {
           result = {usageId:'usage-'+requests.length,cli,cwd,command:platform === 'win32' ? 'C:\\CLI Tools\\'+cli+'.exe' : '/CLI Tools/'+cli,
             args:cli === session.cli && session.model ? [cli === 'codex' ? '-m' : '--model',session.model] : [],env:{PATH:'/managed/runtime'}};
         }
+        if (respond) result = respond(req) ?? result;
         queueMicrotask(() => child.stdout.write(JSON.stringify({id:req.id,result})+'\n'));
       }
     });
@@ -114,6 +115,33 @@ function extensionHarness(platform, trusted = true, descriptor = null) {
     changeDescriptor:next => {descriptor=next;watch({mtimeMs:2,size:100},{mtimeMs:1,size:100});},
     close:() => sandbox.module.exports.deactivate()};
 }
+test('skill folder import installs the reviewed normalized source at its pinned revision', async () => {
+  const root = 'https://github.com/owner/repo', subpath = 'skills/example', revision = 'a'.repeat(40);
+  const h = extensionHarness('linux',true,null,req => {
+    if (req.method === 'skills.rollout.get') return {enabled:true};
+    if (req.method === 'skills.library' && req.params.action === 'list') return {view:{Revision:7}};
+    if (req.method === 'skills.library' && req.params.action === 'inspect') return {source:root,subpath,git_ref:revision,review:'sha256:review',packages:[{index:0,ref:'imported/example'}]};
+  });
+  try {
+    const inputs = [root+'/tree/main/'+subpath,'',''];
+    h.vscode.window.showQuickPick = async items => items.find(item => item.kind === 'github');
+    h.vscode.window.showInputBox = async () => inputs.shift();
+    h.vscode.window.showWarningMessage = async () => 'Install reviewed versions';
+    h.vscode.workspace.openTextDocument = async value => value;
+    h.vscode.window.showTextDocument = async () => {};
+    await h.commands.get('praimate.importSkill')();
+    const inspected = h.requests.find(req => req.method === 'skills.library' && req.params.action === 'inspect');
+    assert.equal(inspected.params.source,root+'/tree/main/'+subpath);
+    const installed = h.requests.find(req => req.method === 'skills.library' && req.params.action === 'install');
+    assert.ok(installed);
+    assert.equal(installed.params.source,root);
+    assert.equal(installed.params.subpath,subpath);
+    assert.equal(installed.params.git_ref,revision);
+    assert.equal(installed.params.review,'sha256:review');
+    assert.equal(installed.params.revision,7);
+    assert.deepEqual(h.errors,[]);
+  } finally {h.close();}
+});
 for (const platform of ['linux','win32']) {
   test(platform+': launches stdio with spaced paths and persists chat identity', async () => {
     const h = extensionHarness(platform);

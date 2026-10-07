@@ -61,6 +61,8 @@ type SkillLibraryResult struct {
 	Shared         []string                        `json:"shared,omitempty"`
 	Review         string                          `json:"review,omitempty"`
 	GitRef         string                          `json:"git_ref,omitempty"`
+	Source         string                          `json:"source,omitempty"`
+	Subpath        string                          `json:"subpath,omitempty"`
 	Version        *skills.SkillVersion            `json:"version,omitempty"`
 	Files          []skills.PackageFile            `json:"files,omitempty"`
 	Approved       bool                            `json:"approved,omitempty"`
@@ -122,6 +124,7 @@ func inspectLibrarySource(ctx context.Context, in SkillLibraryRequest) (SkillLib
 		inspected, err = skills.FetchGitHubPackages(ctx, skills.GitPackageSource{Repository: in.Source, Ref: in.GitRef, Subpath: in.Subpath}, skills.PackageNetworkPolicy{}, libraryImportLimits())
 		if err == nil {
 			candidates, out.Shared, out.GitRef = inspected.Candidates, inspected.Shared, inspected.ResolvedRevision
+			out.Source, out.Subpath = inspected.Source.Repository, inspected.Source.Subpath
 			provenance = skills.SourceProvenance{Kind: "external", Origin: inspected.Source.Repository, ResolvedRevision: inspected.ResolvedRevision}
 		}
 	default:

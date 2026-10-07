@@ -8,9 +8,59 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
+
+func TestSkillLibraryGitHubFolderImport(t *testing.T) {
+	if os.Getenv("PRAIMATE_TEST_GITHUB_SKILL_IMPORT") != "1" {
+		t.Skip("set PRAIMATE_TEST_GITHUB_SKILL_IMPORT=1 to inspect and import the public GitHub skill")
+	}
+	c, _, _ := v2AgentFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	in := SkillLibraryRequest{Action: "inspect", Kind: "github", Source: "https://github.com/mukul975/Anthropic-Cybersecurity-Skills/tree/main/skills/conducting-api-security-testing"}
+	preview, err := c.SkillLibrary(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Packages) != 1 || len(preview.Shared) != 0 || preview.Source != "https://github.com/mukul975/Anthropic-Cybersecurity-Skills" || preview.Subpath != "skills/conducting-api-security-testing" || len(preview.GitRef) != 40 {
+		t.Fatalf("unexpected scoped inspection: packages=%d shared=%v source=%q subpath=%q revision=%q", len(preview.Packages), preview.Shared, preview.Source, preview.Subpath, preview.GitRef)
+	}
+	checkFiles := func(files []skills.PackageFile) {
+		t.Helper()
+		want := []string{"LICENSE", "SKILL.md", "references/api-reference.md", "scripts/agent.py"}
+		if len(files) != len(want) {
+			t.Fatalf("files=%d, want %d", len(files), len(want))
+		}
+		for i, file := range files {
+			if file.Path != want[i] || len(file.Content) == 0 {
+				t.Fatalf("file %d=%q, want %q with content", i, file.Path, want[i])
+			}
+		}
+	}
+	checkFiles(preview.Packages[0].Files)
+	state, err := c.SkillLibrary(ctx, SkillLibraryRequest{Action: "list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Source, in.GitRef, in.Subpath = preview.Source, preview.GitRef, preview.Subpath
+	in.Action, in.Revision, in.Review = "install", state.View.Revision, preview.Review
+	in.Selections = []SkillLibrarySelection{{Index: preview.Packages[0].Index, Ref: preview.Packages[0].Ref}}
+	if _, err := c.SkillLibrary(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := c.SkillLibrary(ctx, SkillLibraryRequest{Action: "read", Ref: preview.Packages[0].Ref, Digest: preview.Packages[0].Digest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkFiles(installed.Files)
+	if installed.Approved {
+		t.Fatal("import granted approval")
+	}
+	t.Logf("inspected and imported 1 skill with 4 files, 0 shared resources, at %s", preview.GitRef)
+}
 
 func TestSkillLibraryLargeRepositoryInspectionAndSelectiveInstall(t *testing.T) {
 	c, _, _ := v2AgentFixture(t)
