@@ -1,7 +1,9 @@
 package core
 
 import (
+	"archive/zip"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,104 @@ import (
 
 	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
+
+func TestSkillLibraryLargeRepositoryInspectionAndSelectiveInstall(t *testing.T) {
+	c, _, _ := v2AgentFixture(t)
+	ctx := context.Background()
+	source := filepath.Join(t.TempDir(), "catalogue.zip")
+	f, err := os.Create(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	z := zip.NewWriter(f)
+	for i := 0; i < 818; i++ {
+		for name, content := range map[string]string{
+			"SKILL.md":               fmt.Sprintf("---\nname: skill-%04d\ndescription: Catalogue regression fixture\n---\nSkill instructions", i),
+			"references/example.txt": strings.Repeat("resource\n", 1400),
+		} {
+			entry, err := z.Create(fmt.Sprintf("repo/skills/skill-%04d/%s", i, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := entry.Write([]byte(content)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	in := SkillLibraryRequest{Action: "inspect", Kind: "zip", Source: source}
+	preview, err := c.SkillLibrary(ctx, in)
+	if err != nil || len(preview.Packages) != 818 {
+		t.Fatalf("catalogue inspection: packages=%d err=%v", len(preview.Packages), err)
+	}
+	// The catalogue exceeds both editor limits, but each skill fits them.
+	var size int
+	for _, pkg := range preview.Packages {
+		for _, file := range pkg.Files {
+			size += len(file.Content)
+		}
+	}
+	if size <= 8<<20 || libraryLimits().Entries != 1000 || libraryLimits().ExpandedBytes != 8<<20 {
+		t.Fatal("fixture must exceed unchanged editor limits")
+	}
+	in.Selections = []SkillLibrarySelection{{Index: 417, Ref: "test/catalogue-skill"}}
+	preview, err = c.SkillLibrary(ctx, in)
+	if err != nil || len(preview.Packages) != 1 || len(preview.Packages[0].Files) != 2 {
+		t.Fatalf("selection inspection: %+v err=%v", preview, err)
+	}
+	listed, err := c.SkillLibrary(ctx, SkillLibraryRequest{Action: "list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Action, in.Revision, in.Review = "install", listed.View.Revision, preview.Review
+	if _, err := c.SkillLibrary(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := c.SkillLibrary(ctx, SkillLibraryRequest{Action: "read", Ref: "test/catalogue-skill", Digest: preview.Packages[0].Digest})
+	if err != nil || len(installed.Files) != 2 || installed.Approved {
+		t.Fatalf("selected package resources/trust: files=%d approved=%v err=%v", len(installed.Files), installed.Approved, err)
+	}
+}
+
+func TestSkillLibraryInspectionKeepsPerSkillEditorLimit(t *testing.T) {
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: large\ndescription: Too large\n---\nInstructions"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := os.WriteFile(filepath.Join(source, fmt.Sprintf("resource-%d.txt", i)), []byte(strings.Repeat("x", 3<<20)), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _, err := inspectLibrarySource(context.Background(), SkillLibraryRequest{Kind: "directory", Source: source})
+	if err == nil || !strings.Contains(err.Error(), "exceeds editor limits") {
+		t.Fatalf("oversized individual skill must be rejected: %v", err)
+	}
+}
+
+func TestSkillLibraryDownloadedRepositoryCompatibility(t *testing.T) {
+	source := os.Getenv("PRAIMATE_TEST_SKILL_ARCHIVE")
+	if source == "" {
+		t.Skip("set PRAIMATE_TEST_SKILL_ARCHIVE to inspect a downloaded repository without installing it")
+	}
+	preview, _, err := inspectLibrarySource(context.Background(), SkillLibraryRequest{Kind: "zip", Source: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Packages) == 0 {
+		t.Fatal("no skills found")
+	}
+	t.Logf("Inspected %d skill packages", len(preview.Packages))
+	selected, _, err := inspectLibrarySource(context.Background(), SkillLibraryRequest{Kind: "zip", Source: source, Selections: []SkillLibrarySelection{{Index: len(preview.Packages) / 2}}})
+	if err != nil || len(selected.Packages) != 1 {
+		t.Fatalf("single selection: packages=%d err=%v", len(selected.Packages), err)
+	}
+}
 
 func TestSkillLibraryDraftPublicationPreservesPinnedVersionAndTrust(t *testing.T) {
 	c, _, old := v2AgentFixture(t)

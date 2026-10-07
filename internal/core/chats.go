@@ -376,6 +376,37 @@ func (c *Core) ListMessages(ctx context.Context, chatID string, limit int) ([]Me
 	return out, rows.Err()
 }
 
+// ListRecentConversationMessages returns the latest user, assistant and command
+// messages in chronological order. System instructions and internal tool payloads
+// are excluded before applying the limit, so they cannot hide recent dialogue.
+func (c *Core) ListRecentConversationMessages(ctx context.Context, chatID string, limit int) ([]Message, error) {
+	if c.store == nil {
+		return nil, errors.New("ListRecentConversationMessages: no store configured")
+	}
+	if limit <= 0 {
+		return nil, errors.New("ListRecentConversationMessages: limit must be positive")
+	}
+	rows, err := c.store.DB().QueryContext(ctx, `
+		SELECT id, chat_id, ts, role, content, tokens, meta_json FROM (
+			SELECT id, chat_id, ts, role, content, tokens, meta_json
+			FROM messages WHERE chat_id = ? AND role IN ('user', 'assistant', 'command')
+			ORDER BY id DESC LIMIT ?
+		) ORDER BY id`, chatID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Message
+	for rows.Next() {
+		m, err := scanMessage(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *m)
+	}
+	return out, rows.Err()
+}
+
 // --- helpers -----------------------------------------------------------
 
 const (

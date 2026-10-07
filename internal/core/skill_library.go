@@ -82,6 +82,13 @@ func libraryLimits() skills.PackageLimits {
 	return skills.PackageLimits{ExpandedBytes: 8 << 20, Entries: 1000}
 }
 
+// A repository is a catalogue of packages, not a single editor draft. Bound
+// inspection and bulk selection separately; each selected skill still fits
+// the editor limits and no imported content can raise these host limits.
+func libraryImportLimits() skills.PackageLimits {
+	return skills.PackageLimits{ExpandedBytes: 100 << 20, Entries: 20000}
+}
+
 func inspectLibrarySource(ctx context.Context, in SkillLibraryRequest) (SkillLibraryResult, []skills.SelectedPackage, error) {
 	var out SkillLibraryResult
 	var candidates []skills.PackageCandidate
@@ -91,7 +98,7 @@ func inspectLibrarySource(ctx context.Context, in SkillLibraryRequest) (SkillLib
 	defer cancel()
 	switch in.Kind {
 	case "directory":
-		candidates, out.Shared, err = skills.InspectPackageDirectory(ctx, in.Source, libraryLimits())
+		candidates, out.Shared, err = skills.InspectPackageDirectory(ctx, in.Source, libraryImportLimits())
 	case "zip":
 		var info os.FileInfo
 		info, err = os.Lstat(in.Source)
@@ -107,12 +114,12 @@ func inspectLibrarySource(ctx context.Context, in SkillLibraryRequest) (SkillLib
 				if statErr != nil || !os.SameFile(info, opened) {
 					return out, nil, errors.New("ZIP source changed while opening")
 				}
-				candidates, out.Shared, err = skills.InspectPackageZIPWithLimits(ctx, f, info.Size(), libraryLimits())
+				candidates, out.Shared, err = skills.InspectPackageZIPWithLimits(ctx, f, info.Size(), libraryImportLimits())
 			}
 		}
 	case "github":
 		var inspected skills.GitPackageInspection
-		inspected, err = skills.FetchGitHubPackages(ctx, skills.GitPackageSource{Repository: in.Source, Ref: in.GitRef, Subpath: in.Subpath}, skills.PackageNetworkPolicy{}, libraryLimits())
+		inspected, err = skills.FetchGitHubPackages(ctx, skills.GitPackageSource{Repository: in.Source, Ref: in.GitRef, Subpath: in.Subpath}, skills.PackageNetworkPolicy{}, libraryImportLimits())
 		if err == nil {
 			candidates, out.Shared, out.GitRef = inspected.Candidates, inspected.Shared, inspected.ResolvedRevision
 			provenance = skills.SourceProvenance{Kind: "external", Origin: inspected.Source.Repository, ResolvedRevision: inspected.ResolvedRevision}
@@ -136,12 +143,20 @@ func inspectLibrarySource(ctx context.Context, in SkillLibraryRequest) (SkillLib
 		}
 		selections = append(selections, skills.PackageSelection{Candidate: choice.Index, ExpectedDigest: candidates[choice.Index].Digest, Shared: choice.Shared})
 	}
-	selected, err := skills.SelectPackages(ctx, candidates, selections, libraryLimits())
+	selected, err := skills.SelectPackages(ctx, candidates, selections, libraryImportLimits())
 	if err != nil {
 		return out, nil, err
 	}
 	for i, choice := range choices {
 		candidate := candidates[choice.Index]
+		files := selected[i].Files()
+		var size int64
+		for _, file := range files {
+			size += int64(len(file.Content))
+		}
+		if len(files) > libraryLimits().Entries || size > libraryLimits().ExpandedBytes {
+			return out, nil, fmt.Errorf("skill %q exceeds editor limits (1000 files, 8 MiB); select smaller packages", candidate.Subpath)
+		}
 		p := provenance
 		p.Subpath = candidate.Subpath
 		identityPath := filepath.Clean(in.Source) + "\x00" + candidate.Subpath
@@ -170,7 +185,7 @@ func inspectLibrarySource(ctx context.Context, in SkillLibraryRequest) (SkillLib
 			}
 			ref = "imported/" + name
 		}
-		out.Packages = append(out.Packages, SkillLibraryPackage{Index: choice.Index, Subpath: candidate.Subpath, Ref: ref, SourceID: sourceID, Digest: selected[i].Digest(), Manifest: candidate.Manifest, Files: selected[i].Files(), Provenance: p})
+		out.Packages = append(out.Packages, SkillLibraryPackage{Index: choice.Index, Subpath: candidate.Subpath, Ref: ref, SourceID: sourceID, Digest: selected[i].Digest(), Manifest: candidate.Manifest, Files: files, Provenance: p})
 	}
 	out.Review = skillReview(out.Packages)
 	return out, selected, nil

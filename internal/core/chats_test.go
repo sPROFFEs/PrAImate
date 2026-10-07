@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -67,6 +68,73 @@ func TestAddMessage_PreservesUnicode(t *testing.T) {
 	}
 	if len(msgs) != 1 || msgs[0].Content != want {
 		t.Fatalf("Unicode message changed: %#v", msgs)
+	}
+}
+
+func TestListRecentConversationMessagesReturnsTailWithoutInternalMessages(t *testing.T) {
+	c := newMemCore(t)
+	ctx := context.Background()
+	chat, err := c.CreateChat(ctx, CreateChatRequest{Title: "recent dialogue", CLIAgent: "praimate-cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := c.CreateChat(ctx, CreateChatRequest{Title: "another dialogue", CLIAgent: "praimate-cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []int64
+	for i := range 25 {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		if i == 24 {
+			role = "command"
+		}
+		message, err := c.AddMessage(ctx, chat.ID, role, fmt.Sprintf("message-%02d", i), map[string]any{"interrupted": i == 23})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, message.ID)
+	}
+	for range 25 {
+		for _, role := range []string{"system", "tool"} {
+			if _, err := c.AddMessage(ctx, chat.ID, role, "internal", nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := c.AddMessage(ctx, other.ID, "assistant", "another chat", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	messages, err := c.ListRecentConversationMessages(ctx, chat.ID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 20 {
+		t.Fatalf("want 20 recent visible messages, got %d", len(messages))
+	}
+	for i, message := range messages {
+		if message.ID != ids[i+5] || message.Content != fmt.Sprintf("message-%02d", i+5) {
+			t.Fatalf("wrong chat, oldest messages or wrong order: %+v", message)
+		}
+	}
+	if messages[18].Meta["interrupted"] != true || messages[19].Role != "command" {
+		t.Fatal("partial reply metadata or command output lost")
+	}
+	// The existing API still returns the first messages when given a limit.
+	first, err := c.ListMessages(ctx, chat.ID, 1)
+	if err != nil || len(first) != 1 || first[0].ID != ids[0] {
+		t.Fatalf("ListMessages contract changed: %+v, %v", first, err)
+	}
+	for _, limit := range []int{0, -1} {
+		if _, err := c.ListRecentConversationMessages(ctx, chat.ID, limit); err == nil {
+			t.Fatalf("accepted unbounded history limit %d", limit)
+		}
+	}
+	missing, err := c.ListRecentConversationMessages(ctx, "missing", 20)
+	if err != nil || len(missing) != 0 {
+		t.Fatalf("empty history: %+v, %v", missing, err)
 	}
 }
 

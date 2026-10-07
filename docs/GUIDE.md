@@ -359,6 +359,11 @@ Skills are reusable prompt/instruction resources. The Skills page can:
 - create and publish a skill locally;
 - assign skills and their loading mode to existing sessions.
 
+Repository inspection and bulk import allow up to 20,000 archive entries and
+100 MiB of expanded content (25 MiB compressed; 5 MiB per resource). Each
+selected skill remains limited to 1,000 files and 8 MiB so it can be opened in
+the editor. These are host limits; imported metadata cannot change them.
+
 Portable instruction-only skills can be selected across supported PrAImate
 CLIs and surfaces. A skill that names host-specific tools or loading conventions
 still depends on that runtime. Every import route enters the same immutable

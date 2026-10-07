@@ -18,7 +18,11 @@ A pristine mirror of OpenCode at the pinned tag (`.git` and
 `node_modules` stripped). The PrAImate **rebrand is applied at build
 time**, not baked into the vendored tree — `build-praimate-code.sh`
 copies this source to a scratch dir, runs `praimate-code-rebrand.sh`,
-applies `praimate-code-tls.mjs`, installs dependencies with Bun, and compiles.
+applies the required runtime and TLS patches, installs dependencies with Bun,
+and compiles. `praimate-code-runtime.mjs` keeps standalone bundles together to
+preserve initialization of cyclic filesystem services. Native builds also run
+an isolated model completion smoke test before copying the binary to the output;
+`--version` alone does not exercise those services. Cross builds skip execution.
 The TLS patch adds request-scoped trust for certificates accepted in PrAImate's
 Local LLM settings; its helper and regression tests live in
 `scripts/praimate-code/`. It retains normal certificate validation and pins the

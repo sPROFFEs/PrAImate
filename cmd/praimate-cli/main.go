@@ -394,6 +394,9 @@ func run(ctx context.Context, args []string) error {
 	} else {
 		if interactive {
 			view.banner(version.Current, chat.WorkspacePath, chat.ID)
+			if err := view.restoreHistory(ctx, c, chat.ID); err != nil {
+				return err
+			}
 		} else {
 			fmt.Fprintf(statusOutput, "PrAImate chat: %s\n", chat.ID)
 		}
@@ -629,15 +632,18 @@ func run(ctx context.Context, args []string) error {
 					}
 					var choice int
 					choice, commandErr = editor.choose(ctx, "Native chats", labels, selected)
-					if commandErr == nil && choice >= 0 && choice != selected {
+					if commandErr == nil && choice >= 0 {
 						next := sessions[choice]
 						var nextSystem, nextCustom string
 						var nextAgent *core.Agent
 						nextSystem, nextCustom, nextAgent, commandErr = chatSystemPrompt(ctx, c, &next)
 						if commandErr == nil {
 							chat, system, customSystem, agent = &next, nextSystem, nextCustom, nextAgent
-							pending = nil
-							fmt.Fprintln(statusOutput, "Switched to chat:", chat.ID, "(queued attachments cleared)")
+							if choice != selected {
+								pending = nil
+								fmt.Fprintln(statusOutput, "Switched to chat:", chat.ID, "(queued attachments cleared)")
+							}
+							commandErr = view.restoreHistory(ctx, c, chat.ID)
 						}
 					}
 				}

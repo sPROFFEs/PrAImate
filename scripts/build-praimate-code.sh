@@ -151,8 +151,9 @@ bash "$REPO_ROOT/scripts/praimate-code-rebrand.sh" "$SRC" || {
   echo "  (rebrand pass skipped/failed; continuing with upstream branding)" >&2
 }
 
-# TLS support is a required patch, separate from optional cosmetic rebranding.
+# Runtime and TLS support are required patches, separate from cosmetic rebranding.
 # Fail if upstream changed the transport rather than shipping ignored consent.
+bun "$REPO_ROOT/scripts/praimate-code-runtime.mjs" "$SRC"
 bun "$REPO_ROOT/scripts/praimate-code-tls.mjs" "$SRC"
 
 BASELINE="${BASELINE:-0}"
@@ -185,6 +186,10 @@ if [ -z "$BUILT" ]; then
   echo "error: could not find built opencode binary under $SRC/packages/opencode/dist"
   exit 1
 fi
+
+# --version does not initialize the prompt services. Verify a real completion
+# against an isolated local fixture before publishing a native compiled build.
+bun "$REPO_ROOT/scripts/praimate-code/smoke.mjs" "$BUILT" "$TARGET"
 
 mkdir -p "$OUT"
 install -m 0755 "$BUILT" "$OUT/$OUTNAME"

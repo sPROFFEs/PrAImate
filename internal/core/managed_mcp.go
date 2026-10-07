@@ -229,6 +229,24 @@ func newManagedMCPClient(ctx context.Context, root string, server MCPServer) (ma
 	client := &protocolMCPClient{rpc: rpc}
 	if err := client.initialize(ctx); err != nil {
 		_ = rpc.Close()
+		var responseError *mcpHTTPStatusError
+		// Legacy HTTP+SSE servers (including Burp) advertise their POST URL
+		// with a sessionId query in a GET endpoint event. Retry only a rejected
+		// initialize request; authentication and established-session errors
+		// must retain their original meaning.
+		if server.Transport == MCPTransportHTTP && errors.As(err, &responseError) && responseError.method == "initialize" &&
+			(responseError.status == http.StatusBadRequest || responseError.status == http.StatusNotFound || responseError.status == http.StatusMethodNotAllowed) {
+			legacy, legacyErr := newSSEMCPRPC(ctx, server)
+			if legacyErr == nil {
+				client.rpc = legacy
+				legacyErr = client.initialize(ctx)
+				if legacyErr == nil {
+					return client, nil
+				}
+				_ = legacy.Close()
+			}
+			return nil, fmt.Errorf("Streamable HTTP initialization: %w; legacy SSE initialization: %w", err, legacyErr)
+		}
 		return nil, err
 	}
 	return client, nil
@@ -412,6 +430,16 @@ type httpMCPRPC struct {
 	nextID    int64
 }
 
+type mcpHTTPStatusError struct {
+	status int
+	method string
+	body   string
+}
+
+func (e *mcpHTTPStatusError) Error() string {
+	return fmt.Sprintf("HTTP %d %s: %s", e.status, http.StatusText(e.status), e.body)
+}
+
 func newHTTPMCPRPC(server MCPServer) (*httpMCPRPC, error) {
 	if _, err := url.ParseRequestURI(server.URL); err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
@@ -460,8 +488,8 @@ func (r *httpMCPRPC) post(ctx context.Context, body mcpRequest) (*mcpResponse, e
 		return &mcpResponse{}, nil
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return nil, fmt.Errorf("HTTP %s: %s", response.Status, strings.TrimSpace(string(body)))
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return nil, &mcpHTTPStatusError{status: response.StatusCode, method: body.Method, body: strings.TrimSpace(string(message))}
 	}
 	if body.ID == 0 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
@@ -541,6 +569,7 @@ func (r *sseMCPRPC) readStream(ctx context.Context) {
 		return
 	}
 	applyMCPHeaders(req, r.server, "")
+	req.Header.Set("Accept", "text/event-stream")
 	response, err := r.client.Do(req)
 	if err != nil {
 		r.ready <- err

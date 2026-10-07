@@ -143,6 +143,12 @@ Shell syntax requires an explicit platform shell, such as `sh` or `cmd.exe`;
 ordinary commands use an executable and argument array across supported platforms.
 
 MCP uses the core's registered servers, transports, authentication and timeouts.
+HTTP connections negotiate the legacy SSE transport when initialization is
+rejected with status 400, 404 or 405, preserving the session URL announced by
+the server (including Burp's `sessionId` query). Connection checks initialize
+the server and list tools using the same client as execution; a reachable web
+page alone is not reported as a working MCP. Authentication failures are kept
+as errors rather than triggering another transport.
 Choose them in Desktop/Studio or use `--mcp ID1,ID2`. A workspace `.mcp.json`
 never starts processes automatically. `AGENTS.md` and `.praimate/rules.md` are
 read as bounded project instructions, not permission grants.
@@ -172,7 +178,13 @@ Interactive commands: `/help`, `/status`, `/context [auto|WINDOW [OUTPUT]]`, `/m
 `/sessions`, `/compact`, `/clear`, `/exit`. Without an argument, `/model`,
 `/tools` and `/detach` open a numbered selector; `/sessions` lets you switch
 native chats. Type `n`/`p` for another page or Enter to cancel. Switching chats
-clears queued attachments. Responses render headings, lists, code blocks and
+clears queued attachments. Selecting a session, or reopening one interactively
+with `--chat`, `--session` or `--continue`, displays its last 20 conversation
+messages in chronological order, including saved attachments and partial-reply
+status. System instructions and internal tool payloads are not displayed.
+This reads the saved transcript without running tools or making model requests;
+non-interactive text and JSONL output do not replay it.
+Responses render headings, lists, code blocks and
 tables in interactive terminals; non-interactive text and JSONL stay raw.
 `/clear` creates a new chat and retains
 the previous transcript. Automatic compaction removes older complete turns and

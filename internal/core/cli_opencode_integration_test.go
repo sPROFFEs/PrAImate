@@ -58,20 +58,7 @@ func TestOpenCodeInstalledCompatibility(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: compat-skill\ndescription: Isolated compatibility fixture\n---\nReturn compat-skill-ok when loaded.\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	// Isolate configuration, sessions, auth, plugins and skills from the user.
-	for key, value := range map[string]string{
-		"XDG_CONFIG_HOME":    filepath.Join(root, "config"),
-		"XDG_DATA_HOME":      filepath.Join(root, "data"),
-		"XDG_CACHE_HOME":     filepath.Join(root, "cache"),
-		"XDG_STATE_HOME":     filepath.Join(root, "state"),
-		"OPENCODE_TEST_HOME": root, "OPENCODE_CONFIG_DIR": filepath.Join(root, "config", "opencode"),
-		"OPENCODE_DISABLE_AUTOUPDATE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "1",
-		"OPENCODE_DISABLE_DEFAULT_PLUGINS": "1", "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1",
-		"OPENCODE_DISABLE_CLAUDE_CODE": "1", "OPENCODE_DISABLE_LSP_DOWNLOAD": "1",
-		"OPENCODE_CONFIG": "", "OPENCODE_CONFIG_CONTENT": "", "OPENCODE_SERVER_PASSWORD": "",
-	} {
-		t.Setenv(key, value)
-	}
+	isolateOpenCodeFixture(t, root)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	version := exec.CommandContext(ctx, bin, "--version")
@@ -271,5 +258,23 @@ func TestOpenCodeInstalledCompatibility(t *testing.T) {
 	}, emit)
 	if quotaErr == nil || !strings.Contains(quotaErr.Error(), "Free usage exceeded") || !strings.Contains(quotaErr.Error(), "choose another model") || limited == nil || limited.SessionID != first.SessionID {
 		t.Fatalf("upstream quota bridge: reply=%+v err=%v", limited, quotaErr)
+	}
+}
+
+func isolateOpenCodeFixture(t *testing.T, root string) {
+	t.Helper()
+	// Isolate configuration, sessions, auth, plugins and skills from the user.
+	for key, value := range map[string]string{
+		"XDG_CONFIG_HOME":    filepath.Join(root, "config"),
+		"XDG_DATA_HOME":      filepath.Join(root, "data"),
+		"XDG_CACHE_HOME":     filepath.Join(root, "cache"),
+		"XDG_STATE_HOME":     filepath.Join(root, "state"),
+		"OPENCODE_TEST_HOME": root, "OPENCODE_CONFIG_DIR": filepath.Join(root, "config", "opencode"),
+		"OPENCODE_DISABLE_AUTOUPDATE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "1",
+		"OPENCODE_DISABLE_DEFAULT_PLUGINS": "1", "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1",
+		"OPENCODE_DISABLE_CLAUDE_CODE": "1", "OPENCODE_DISABLE_LSP_DOWNLOAD": "1",
+		"OPENCODE_CONFIG": "", "OPENCODE_CONFIG_CONTENT": "", "OPENCODE_SERVER_PASSWORD": "",
+	} {
+		t.Setenv(key, value)
 	}
 }
