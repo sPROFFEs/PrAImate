@@ -115,7 +115,8 @@ function extensionHarness(platform, trusted = true, descriptor = null, respond =
     changeDescriptor:next => {descriptor=next;watch({mtimeMs:2,size:100},{mtimeMs:1,size:100});},
     close:() => sandbox.module.exports.deactivate()};
 }
-test('skill folder import installs the reviewed normalized source at its pinned revision', async () => {
+for (const action of ['Import and enable', 'Import only', null]) {
+test('skill folder import: '+(action || 'cancel')+' uses one source prompt and a pinned review', async () => {
   const root = 'https://github.com/owner/repo', subpath = 'skills/example', revision = 'a'.repeat(40);
   const h = extensionHarness('linux',true,null,req => {
     if (req.method === 'skills.rollout.get') return {enabled:true};
@@ -126,19 +127,58 @@ test('skill folder import installs the reviewed normalized source at its pinned 
     const inputs = [root+'/tree/main/'+subpath,'',''];
     h.vscode.window.showQuickPick = async items => items.find(item => item.kind === 'github');
     h.vscode.window.showInputBox = async () => inputs.shift();
-    h.vscode.window.showWarningMessage = async () => 'Install reviewed versions';
+    h.vscode.window.showInformationMessage = async () => action;
     h.vscode.workspace.openTextDocument = async value => value;
     h.vscode.window.showTextDocument = async () => {};
     await h.commands.get('praimate.importSkill')();
+    assert.equal(inputs.length,2);
     const inspected = h.requests.find(req => req.method === 'skills.library' && req.params.action === 'inspect');
     assert.equal(inspected.params.source,root+'/tree/main/'+subpath);
     const installed = h.requests.find(req => req.method === 'skills.library' && req.params.action === 'install');
+    if (action === null) { assert.equal(installed,undefined); return; }
     assert.ok(installed);
     assert.equal(installed.params.source,root);
     assert.equal(installed.params.subpath,subpath);
     assert.equal(installed.params.git_ref,revision);
     assert.equal(installed.params.review,'sha256:review');
     assert.equal(installed.params.revision,7);
+    assert.equal(installed.params.approved,action === 'Import and enable');
+    assert.deepEqual(h.errors,[]);
+  } finally {h.close();}
+});
+}
+test('bulk skill import deduplicates aliases and enables the reviewed selection together', async () => {
+  const root = 'https://github.com/owner/repo', revision = 'a'.repeat(40);
+  const h = extensionHarness('linux',true,null,req => {
+    if (req.method === 'skills.rollout.get') return {enabled:true};
+    if (req.method === 'skills.library' && req.params.action === 'list') return {view:{Revision:7}};
+    if (req.method === 'skills.library' && req.params.action === 'inspect') return {source:root,subpath:'skills',git_ref:revision,review:req.params.selections ? 'sha256:selected' : 'sha256:catalogue',packages:[0,1].map(i => ({index:i,ref:'imported/example',manifest:{Name:'example'}}))};
+  });
+  try {
+    h.vscode.window.showInputBox = async () => root+'/tree/main/skills';
+    h.vscode.window.showQuickPick = async items => items.some(item => item.kind) ? items.find(item => item.kind === 'github') : items;
+    h.vscode.window.showInformationMessage = async () => 'Import and enable';
+    h.vscode.workspace.openTextDocument = async value => value;
+    h.vscode.window.showTextDocument = async () => {};
+    await h.commands.get('praimate.importSkill')();
+    const installed = h.requests.find(req => req.method === 'skills.library' && req.params.action === 'install');
+    assert.ok(installed);
+    assert.deepEqual(installed.params.selections.map(s => s.ref),['imported/example','imported/example-2']);
+    assert.equal(installed.params.review,'sha256:selected');
+    assert.equal(installed.params.approved,true);
+    assert.deepEqual(h.errors,[]);
+  } finally {h.close();}
+});
+test('bulk session skill choices use on-demand loading instead of exceeding the pinned budget', async () => {
+  const skills = Array.from({length:4},(_,i) => ({ref:'skill-'+i,digest:'digest-'+i,approved:true,name:'Skill '+i}));
+  const h = extensionHarness('linux',true,null,req => req.method === 'skills.list' ? skills : undefined);
+  try {
+    h.vscode.window.showQuickPick = async items => items;
+    await h.commands.get('praimate.selectSkills')();
+    const update = h.requests.find(req => req.method === 'session.update' && req.params.skills);
+    assert.ok(update);
+    assert.equal(update.params.skills.length,4);
+    assert.ok(update.params.skills.every(s => s.activation === 'auto'));
     assert.deepEqual(h.errors,[]);
   } finally {h.close();}
 });

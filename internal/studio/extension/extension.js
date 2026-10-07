@@ -489,7 +489,8 @@ async function selectSkills() {
     picked:(currentStatus.skills || []).some(s => s.ref === sk.ref && s.digest === sk.digest)})),{canPickMany:true,placeHolder:'Select approved skill versions for this session'});
   if (!picked) return;
   if (picked.some(p => !p.sk.approved)) throw new Error('Review and approve these exact skill versions before selecting them');
-  await configure({skills:picked.map(p => ({ref:p.sk.ref,digest:p.sk.digest,activation:'pinned'}))});
+  await configure({skills:picked.map(p => ({ref:p.sk.ref,digest:p.sk.digest,
+    activation:(currentStatus.skills || []).find(s => s.ref === p.sk.ref && s.digest === p.sk.digest)?.activation || (picked.length > 3 ? 'auto' : 'pinned')}))});
 }
 async function selectMCP() {
   const servers = (await call('mcp.list')) || [];
@@ -702,19 +703,34 @@ async function importSkill() {
   let source, gitRef = '', subpath = '';
   if (kind.kind === 'github') {
     source = await vscode.window.showInputBox({prompt:'GitHub repository or skill folder HTTPS URL (/tree/...)'}); if (!source) return;
-    gitRef = await vscode.window.showInputBox({prompt:'Git ref (optional; inferred from tree URL)',value:''}); if (gitRef === undefined) return;
-    subpath = await vscode.window.showInputBox({prompt:'Package subpath (optional; inferred from tree URL)',value:''}); if (subpath === undefined) return;
+    if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/tree\/[^/]+(?:\/|$)/.test(source.trim())) {
+      gitRef = await vscode.window.showInputBox({prompt:'Git branch, tag or commit (optional)',value:''}); if (gitRef === undefined) return;
+      subpath = await vscode.window.showInputBox({prompt:'Package subpath (optional)',value:''}); if (subpath === undefined) return;
+    }
   } else {
     const picked = await vscode.window.showOpenDialog({title:'Choose skill '+kind.label.toLowerCase(),canSelectMany:false,canSelectFiles:kind.kind === 'zip',canSelectFolders:kind.kind === 'directory',filters:kind.kind === 'zip' ? {'ZIP':['zip']} : undefined});
     if (!picked?.length) return; source = picked[0].fsPath;
   }
   const base = {kind:kind.kind,source,git_ref:gitRef,subpath};
-  const preview = await skillLibrary({action:'inspect',...base});
+  let preview = await skillLibrary({action:'inspect',...base});
   if (kind.kind === 'github') Object.assign(base,{source:preview.source || source,git_ref:preview.git_ref || gitRef,subpath:preview.subpath ?? subpath});
+  const usedRefs = new Set();
+  let selections = (preview.packages || []).map(p => {
+    let ref = p.ref, suffix = 2;
+    while (usedRefs.has(ref)) ref = p.ref+'-'+suffix++;
+    usedRefs.add(ref);
+    return {index:p.index,ref};
+  });
+  if (selections.length > 1) {
+    const picked = await vscode.window.showQuickPick(preview.packages.map((p,i) => ({label:p.manifest?.Name || p.manifest?.name || p.ref,description:p.subpath,picked:true,selection:selections[i]})),{canPickMany:true,placeHolder:'Choose skills to import (all selected by default)'});
+    if (!picked?.length) return;
+    selections = picked.map(p => p.selection);
+    preview = await skillLibrary({action:'inspect',selections,...base});
+  }
   await showJSON(preview);
-  if (await vscode.window.showWarningMessage('Install the exact skill packages shown in the review?',{modal:true},'Install reviewed versions') !== 'Install reviewed versions') return;
-  const selections = (preview.packages || []).map(p => ({index:p.index,ref:p.ref}));
-  await skillLibrary({action:'install',revision:await skillRevision(),review:preview.review,selections,...base});
+  const action = await vscode.window.showInformationMessage(`Import ${selections.length} reviewed skill${selections.length === 1 ? '' : 's'}?`,{modal:true},'Import and enable','Import only');
+  if (!action) return;
+  await skillLibrary({action:'install',revision:await skillRevision(),review:preview.review,selections,approved:action === 'Import and enable',...base});
   refresh();
 }
 async function manageSkill(skill) {

@@ -1,8 +1,10 @@
 <script>
   import { onMount } from 'svelte'
   import { api } from './api.js'
+  import { selectVisibleSkills } from './skillSelection.js'
   export let choices = null
   let open = false, busy = true, error = '', query = '', versions = []
+  let bulkNotice = ''
   $: count = (choices || []).length
   $: pinnedCount = versions.filter(v => v.selected && v.activation === 'pinned').length
   $: exceedsBudget = pinnedCount > 3
@@ -16,6 +18,16 @@
   function select(v, selected) {
     error = ''
     versions = versions.map(item => ({ ...item, selected: selected && item.ref === v.ref ? item.digest === v.digest : item.ref === v.ref ? false : item.selected }))
+  }
+  function selectAllVisible() {
+    const result = selectVisibleSkills(versions, shown)
+    versions = result.versions
+    error = ''
+    bulkNotice = result.limited ? 'Selected up to 128 skills. New selections load on demand.' : 'New selections load on demand; existing loading modes are kept.'
+  }
+  function clearSelection() {
+    versions = versions.map(v => ({ ...v, selected: false }))
+    error = ''; bulkNotice = ''
   }
   function done() {
     if (exceedsBudget) {
@@ -42,6 +54,12 @@
       {#if error}<div class="banner">{error}</div>{/if}
       {#if exceedsBudget}<div class="banner" style="background: rgba(211, 158, 0, 0.15); border-color: #d39e00; color: var(--text)">⚠️ {pinnedCount}/3 pinned skills selected. A maximum of 3 skills can be loaded simultaneously under "Always include". Change additional skills to "Load automatically" or deselect them.</div>{/if}
       <input class="field search" type="search" bind:value={query} placeholder="Search skills" aria-label="Search skills" />
+      <div class="bulk-actions">
+        <button class="btn sm" type="button" disabled={busy} on:click={selectAllVisible}>{query.trim() ? 'Select matching' : 'Select all'}</button>
+        <button class="btn sm" type="button" disabled={busy} on:click={clearSelection}>Clear selection</button>
+        <span class="card-sub">{versions.filter(v => v.selected).length} selected</span>
+      </div>
+      {#if bulkNotice}<p class="card-sub" role="status">{bulkNotice}</p>{/if}
       <div class="list">
         {#each shown as v (`${v.ref}@${v.digest}`)}
           <div class="choice" class:on={v.selected}>
@@ -62,6 +80,7 @@
   .draft-backdrop { z-index: 13000; padding: 20px; }
   .draft-modal { max-width: 650px; max-height: 86vh; display: flex; flex-direction: column; background: var(--bg-panel); color: var(--text); border: 1px solid var(--border); }
   .search { width: 100%; margin: 12px 0 4px; }
+  .bulk-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
   .list { overflow: auto; }
   .choice { padding: 10px; border-bottom: 1px solid var(--border); }
   .choice.on { background: var(--accent-soft); border-radius: var(--radius-sm); }

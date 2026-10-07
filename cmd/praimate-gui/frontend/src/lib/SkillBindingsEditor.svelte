@@ -1,6 +1,7 @@
 <script>
   import { onMount, createEventDispatcher } from 'svelte'
   import { api } from './api.js'
+  import { selectVisibleSkills } from './skillSelection.js'
 
   export let chatID
   const dispatch = createEventDispatcher()
@@ -55,6 +56,18 @@
     }
   }
 
+  function selectAllVisible() {
+    const result = selectVisibleSkills(versions, filteredVersions)
+    versions = result.versions
+    error = ''
+    notice = result.limited ? 'Selected up to 128 skills. New selections load on demand.' : 'New selections load on demand; existing loading modes are kept.'
+  }
+
+  function clearSelection() {
+    versions = versions.map(version => ({ ...version, selected: false }))
+    error = ''; notice = ''
+  }
+
   async function save() {
     if (busy) return
     if (exceedsBudget) {
@@ -106,6 +119,12 @@
       {#if error}<div class="banner" role="alert">{error}</div>{/if}
       {#if exceedsBudget}<div class="banner" role="alert" style="background: rgba(211, 158, 0, 0.15); border-color: #d39e00; color: var(--text); margin-bottom: 8px">⚠️ {pinnedCount}/3 pinned skills selected. A maximum of 3 skills can be set to "Always include" simultaneously to preserve the session context budget.</div>{/if}
       <div class="skill-search"><input class="field" type="search" bind:value={query} placeholder="Search skills" aria-label="Search skills" /></div>
+      <div class="bulk-actions">
+        <button class="btn sm" type="button" disabled={busy} on:click={selectAllVisible}>{query.trim() ? 'Select matching' : 'Select all'}</button>
+        <button class="btn sm" type="button" disabled={busy || !selectedCount} on:click={clearSelection}>Clear selection</button>
+        <span class="card-sub">{selectedCount} selected</span>
+      </div>
+      {#if notice}<p class="mode-note" role="status">{notice}</p>{/if}
       <div class="skill-list">
         {#each filteredVersions as version (`${version.ref}@${version.digest}`)}
           <div class="skill-row" class:selected={version.selected} class:unapproved={!version.approved}>
@@ -156,6 +175,7 @@
   .skill-list { overflow-y: auto; padding: 8px 20px; }
   .skill-search { padding: 10px 20px 2px; }
   .skill-search .field { width: 100%; }
+  .bulk-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 20px; }
   .skill-row { padding: 12px 0; border-bottom: 1px solid var(--border); }
   .skill-row:last-child { border-bottom: 0; }
   .skill-row.selected { background: var(--accent-soft); margin-inline: -10px; padding-inline: 10px; border-radius: var(--radius-sm); }

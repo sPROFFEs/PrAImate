@@ -253,8 +253,16 @@ func (c *Core) SkillLibrary(ctx context.Context, in SkillLibraryRequest) (SkillL
 		}
 		_, err = host.Update(ctx, in.Revision, func(tx *skills.SkillHostTransaction) error {
 			for i, pkg := range preview.Packages {
-				if _, err := tx.RegisterSource(ctx, pkg.SourceID, pkg.Ref, selected[i], pkg.Provenance); err != nil {
+				version, err := tx.RegisterSource(ctx, pkg.SourceID, pkg.Ref, selected[i], pkg.Provenance)
+				if err != nil {
 					return err
+				}
+				// The host's import action may enable this reviewed snapshot in
+				// the same transaction; package metadata cannot request approval.
+				if in.Approved {
+					if err := tx.Approve(ctx, version.Ref, version.Digest, true); err != nil {
+						return err
+					}
 				}
 			}
 			return nil

@@ -13,6 +13,82 @@ import (
 	"github.com/sPROFFEs/PrAImate/internal/skills"
 )
 
+func TestSkillLibraryReviewedBulkImportEnablesExactSelection(t *testing.T) {
+	c, _, _ := v2AgentFixture(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	for _, name := range []string{"first", "second"} {
+		dir := filepath.Join(root, name)
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		body := []byte(fmt.Sprintf("---\nname: %s\ndescription: Bulk import\n---\nOriginal instructions", name))
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	in := SkillLibraryRequest{Action: "inspect", Kind: "directory", Source: root}
+	preview, err := c.SkillLibrary(ctx, in)
+	if err != nil || len(preview.Packages) != 2 {
+		t.Fatalf("bulk preview: %v", err)
+	}
+	state, err := c.SkillLibrary(ctx, SkillLibraryRequest{Action: "list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Action, in.Revision, in.Review, in.Approved = "install", state.View.Revision, preview.Review, true
+	for _, pkg := range preview.Packages {
+		in.Selections = append(in.Selections, SkillLibrarySelection{Index: pkg.Index, Ref: pkg.Ref})
+	}
+	in.Review = "sha256:stale-review"
+	if _, err := c.SkillLibrary(ctx, in); err == nil {
+		t.Fatal("enabled content without its exact review")
+	}
+	in.Review = preview.Review
+	invalid := in
+	invalid.Action = "inspect"
+	invalid.Selections = append([]SkillLibrarySelection(nil), in.Selections...)
+	invalid.Selections[1].Ref = "invalid ref"
+	badPreview, err := c.SkillLibrary(ctx, invalid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid.Action, invalid.Review = "install", badPreview.Review
+	if _, err := c.SkillLibrary(ctx, invalid); err == nil {
+		t.Fatal("invalid second alias did not reject the batch")
+	}
+	if _, err := c.SkillLibrary(ctx, SkillLibraryRequest{Action: "read", Ref: preview.Packages[0].Ref, Digest: preview.Packages[0].Digest}); err == nil {
+		t.Fatal("failed batch left its first version installed or enabled")
+	}
+	if _, err := c.SkillLibrary(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	var choices []InstalledSkillChoice
+	for _, pkg := range preview.Packages {
+		installed, err := c.SkillLibrary(ctx, SkillLibraryRequest{Action: "read", Ref: pkg.Ref, Digest: pkg.Digest})
+		if err != nil || !installed.Approved {
+			t.Fatalf("reviewed version was not enabled: %s, %v", pkg.Ref, err)
+		}
+		choices = append(choices, InstalledSkillChoice{Ref: pkg.Ref, Digest: pkg.Digest, Activation: "auto"})
+	}
+	selection, err := c.BuildInstalledSkillSelection(ctx, choices)
+	if err != nil || len(selection.Config.Bindings) != 2 {
+		t.Fatalf("imported skills require another approval: %v", err)
+	}
+	// A new digest must not inherit the approval of the imported snapshot.
+	if err := os.WriteFile(filepath.Join(root, "first", "SKILL.md"), []byte("---\nname: first\ndescription: Bulk import\n---\nChanged instructions"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	state, err = c.SkillLibrary(ctx, SkillLibraryRequest{Action: "list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Revision = state.View.Revision
+	if _, err := c.SkillLibrary(ctx, in); err == nil {
+		t.Fatal("changed content inherited the old review and approval")
+	}
+}
+
 func TestSkillLibraryGitHubFolderImport(t *testing.T) {
 	if os.Getenv("PRAIMATE_TEST_GITHUB_SKILL_IMPORT") != "1" {
 		t.Skip("set PRAIMATE_TEST_GITHUB_SKILL_IMPORT=1 to inspect and import the public GitHub skill")

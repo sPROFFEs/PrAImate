@@ -10,7 +10,7 @@ test('GitHub folder imports use the normalized source and pinned revision throug
   const calls = []
   const response = { source: root, subpath, git_ref: revision, review: 'sha256:review', packages: [{ index: 0, ref: 'imported/example', manifest: { Name: 'example' }, files: [{ Path: 'SKILL.md' }] }] }
   const harness = new Function('api', 'onMount', 'showConfirm', `let filteredSummaries; ${script}
-    return { inspect, previewSelection, install, sourceRequest,
+    return { inspect, previewSelection, install, sourceRequest, reviewState:() => review,
       configure() { kind = 'github'; source = '${root}/tree/main/${subpath}'; gitRef = ''; subpath = ''; }
     };`)(
     { skillLibraryV2: async request => { calls.push(request); return request.action === 'list' ? { view: { Revision: 1 }, summaries: [] } : response } },
@@ -20,8 +20,9 @@ test('GitHub folder imports use the normalized source and pinned revision throug
   await harness.inspect()
   assert.equal(calls[0].source, `${root}/tree/main/${subpath}`)
   assert.deepEqual(harness.sourceRequest(), { kind: 'github', source: root, git_ref: revision, subpath })
-  await harness.previewSelection()
+  assert.equal(harness.reviewState().review, 'sha256:review')
   await harness.install()
+  assert.equal(calls.filter(call => call.action === 'inspect').length, 1)
   for (const request of calls.filter(call => call.selections)) {
     assert.equal(request.source, root)
     assert.equal(request.git_ref, revision)
@@ -29,6 +30,36 @@ test('GitHub folder imports use the normalized source and pinned revision throug
     assert.deepEqual(request.selections, [{ index: 0, ref: 'imported/example', shared: [] }])
   }
   assert.equal(calls.find(call => call.action === 'install').review, 'sha256:review')
+  assert.equal(calls.find(call => call.action === 'install').approved, true)
+})
+
+test('import bulk controls select all aliases without a second per-skill approval', async () => {
+  const component = await readFile(new URL('./SkillLibrary.svelte', import.meta.url), 'utf8')
+  const script = component.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/^\s*import .*$/gm, '')
+  const calls = []
+  const response = { review: 'sha256:bulk', packages: [0, 1, 2].map(i => ({ index: i, ref: 'imported/example', manifest: { Name: 'example' }, files: [{ Path: 'SKILL.md' }] })) }
+  const harness = new Function('api', 'onMount', 'showConfirm', `let filteredSummaries; ${script}
+    return { inspect, selectCandidates, previewSelection, install,
+      choices:() => formatChoices(), reviewState:() => review,
+      configure() { kind = 'zip'; source = '/fixture.zip'; }
+    };`)(
+    { skillLibraryV2: async request => { calls.push(request); return request.action === 'list' ? { view: { Revision: 1 }, summaries: [] } : response } },
+    () => {}, () => {}
+  )
+  harness.configure()
+  await harness.inspect()
+  assert.equal(harness.reviewState(), null)
+  harness.selectCandidates(false)
+  assert.deepEqual(harness.choices(), [])
+  harness.selectCandidates(true)
+  assert.deepEqual(harness.choices().map(choice => choice.ref), ['imported/example', 'imported/example-2', 'imported/example-3'])
+  await harness.previewSelection()
+  await harness.install()
+  const installed = calls.find(call => call.action === 'install')
+  assert.equal(installed.selections.length, 3)
+  assert.equal(installed.approved, true)
+  assert.equal(installed.review, 'sha256:bulk')
+  assert.equal(calls.some(call => call.action === 'approve'), false)
 })
 
 test('library commands preserve review and revision and do not conflate publication with trust', async () => {

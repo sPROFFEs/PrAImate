@@ -371,6 +371,19 @@ references and licenses, which are included automatically. Shared files are
 optional additions selected before reviewing the exact package content. Leave
 the subpath blank to browse the whole repository.
 
+Single-skill imports open the content review directly. For a repository or ZIP
+with several skills, use **Select all** or **Clear selection**, then review the
+selection once. **Import and enable** installs and approves the reviewed
+versions together so they are immediately available in chat and agent selectors.
+Choose **Import only** to skip enabling during import. Existing versions
+can be enabled from their content view without another acknowledgement checkbox.
+
+Chat and agent skill selectors also support **Select all** (or **Select matching**
+when searching). Bulk selection keeps existing loading modes and adds new skills
+in automatic mode, with one version per skill and up to 128 selected skills.
+Only up to three skills can be pinned into the initial prompt; the rest load on
+demand. **Clear selection** removes the explicit choices.
+
 Repository inspection and bulk import allow up to 20,000 archive entries and
 100 MiB of expanded content (25 MiB compressed; 5 MiB per resource). Each
 selected skill remains limited to 1,000 files and 8 MiB so it can be opened in

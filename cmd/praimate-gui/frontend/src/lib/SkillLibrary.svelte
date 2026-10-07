@@ -9,7 +9,8 @@
   let query = '', sourceFilter = 'all'
   let busy = false, error = '', notice = ''
   let kind = 'directory', source = '', gitRef = '', subpath = ''
-  let inspection = null, selection = [], review = null, reviewed = false
+  let inspection = null, selection = [], review = null, approveAfterImport = true
+  let openReviewPackages = new Set()
   let installed = null, draft = null, draftKey = '', draftReview = null, parent = null
   let newRef = 'local/my-skill', fileIndex = 0, text = '', fileError = ''
   let newResourcePath = ''
@@ -40,7 +41,7 @@
 
   const command = (action, args = {}) => api.skillLibraryV2({ action, revision: view.Revision, ...args })
 
-  function invalidateImport() { inspection = null; selection = []; review = null; reviewed = false }
+  function invalidateImport() { inspection = null; selection = []; review = null; openReviewPackages = new Set() }
   function sourceRequest() { return { kind, source, git_ref: gitRef, subpath } }
 
   async function pickSource() {
@@ -74,6 +75,25 @@
         selected: counter === 2
       }
     })
+    if (selection.length === 1 && selection[0].selected && selection[0].ref === inspection.packages[0].ref && !inspection.shared?.length) {
+      showImportReview(inspection)
+    }
+  }
+
+  function selectCandidates(selected) {
+    selection = selection.map(candidate => ({ ...candidate, selected }))
+  }
+
+  function showImportReview(result) {
+    review = result
+    openReviewPackages = new Set(result.packages?.length === 1 ? [result.packages[0].ref] : [])
+  }
+
+  function toggleReviewPackage(ref, open) {
+    const expanded = new Set(openReviewPackages)
+    if (open) expanded.add(ref)
+    else expanded.delete(ref)
+    openReviewPackages = expanded
   }
 
   function formatChoices() {
@@ -89,22 +109,20 @@
   async function previewSelection() {
     const choices = formatChoices()
     if (!choices.length) throw new Error('Select at least one candidate')
-    review = await command('inspect', { ...sourceRequest(), selections: choices })
-    reviewed = false
+    showImportReview(await command('inspect', { ...sourceRequest(), selections: choices }))
   }
 
   async function install() {
     const choices = formatChoices()
     if (!choices.length) throw new Error('Select at least one candidate')
-    await command('install', { ...sourceRequest(), selections: choices, review: review?.review })
+    await command('install', { ...sourceRequest(), selections: choices, review: review?.review, approved: approveAfterImport })
     invalidateImport(); await refresh()
     tab = 'installed'
-    notice = 'Installed successfully. Review and approve the version in the list below to use it.'
+    notice = approveAfterImport ? 'Imported and ready to use. Choose these skills in a chat or agent.' : 'Imported without enabling. You can enable these versions from Installed.'
   }
 
   async function read(v) {
     installed = await command('read', { ref: v.ref, digest: v.digest })
-    reviewed = false
   }
 
   async function approve(approved) {
@@ -285,14 +303,13 @@
         <!-- Review State -->
         <div class="review-panel" style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px">
           <h3>Review selected content ({review.packages?.length || 0} skill{(review.packages?.length || 0) === 1 ? '' : 's'})</h3>
-          <p class="card-sub">Inspect the exact files and manifest contents that will be installed into your library.</p>
+          <p class="card-sub">Review the selected skills here, then import the entire selection with one action.</p>
           
           {#each review.packages || [] as p}
-            <div class="card" style="margin-bottom:12px">
-              <div class="row" style="align-items:center; justify-content:space-between">
-                <strong class="mono" style="font-size:14px">{p.ref}</strong>
-                <span class="card-sub mono">{p.subpath || '.'}</span>
-              </div>
+            <details class="card" style="margin-bottom:12px" open={openReviewPackages.has(p.ref)} on:toggle={(event) => toggleReviewPackage(p.ref, event.currentTarget.open)}>
+              <summary style="cursor:pointer"><strong>{p.manifest?.Name || p.manifest?.name || p.ref}</strong> <span class="card-sub">· {p.files?.length || 0} files</span></summary>
+              {#if openReviewPackages.has(p.ref)}
+              <div class="card-sub mono" style="margin-top:8px">{p.ref} · {p.subpath || '.'}</div>
               <p class="card-sub" style="margin:4px 0 8px">{p.manifest?.Description || p.manifest?.description || 'No description provided.'}</p>
               
               <div class="files-preview">
@@ -306,16 +323,17 @@
                   </details>
                 {/each}
               </div>
-            </div>
+              {/if}
+            </details>
           {/each}
 
           <label class="row" style="margin:14px 0; gap:8px; cursor:pointer; align-items:flex-start">
-            <input type="checkbox" bind:checked={reviewed} />
-            <span style="font-size:13px">I inspected the exact file content above. Importing will make this version available for selection.</span>
+            <input type="checkbox" bind:checked={approveAfterImport} />
+            <span style="font-size:13px">Enable these skills for use after import</span>
           </label>
           <div class="row" style="gap:8px">
             <button class="btn" type="button" on:click={() => (review = null)}>Back to candidates</button>
-            <button class="btn primary" disabled={busy || !reviewed} on:click={() => run(install)}>Install reviewed versions</button>
+            <button class="btn primary" disabled={busy} on:click={() => run(install)}>{approveAfterImport ? 'Import and enable' : 'Import only'} ({review.packages?.length || 0})</button>
           </div>
         </div>
 
@@ -323,6 +341,11 @@
         <!-- Candidates State -->
         <div style="margin-top:16px">
           <div class="card-sub" style="margin-bottom:10px">Found {inspection.packages?.length || 0} candidate skill{(inspection.packages?.length || 0) === 1 ? '' : 's'}. Choose which ones to import:</div>
+          <div class="row" style="gap:8px; margin-bottom:12px; flex-wrap:wrap">
+            <button class="btn sm" type="button" disabled={busy} on:click={() => selectCandidates(true)}>Select all</button>
+            <button class="btn sm" type="button" disabled={busy} on:click={() => selectCandidates(false)}>Clear selection</button>
+            <span class="card-sub">{selection.filter(candidate => candidate.selected).length} selected</span>
+          </div>
           {#each inspection.packages || [] as p, i}
             <div class="candidate card" style="margin-bottom:10px">
               <label class="candidate-title row" style="gap:8px; cursor:pointer; align-items:center">
@@ -485,18 +508,14 @@
             const path = await api.exportSkillPackageV2(installed.version.ref, installed.version.digest)
             if (path) notice = `Exported to ${path}`
           })}>Export package ZIP</button>
-          <button class="btn sm" disabled={busy || (!installed.approved && !reviewed)} on:click={() => run(() => approve(!installed.approved))}>
-            {installed.approved ? 'Revoke approval' : 'Approve exact version'}
+          <button class="btn sm" disabled={busy} on:click={() => run(() => approve(!installed.approved))}>
+            {installed.approved ? 'Revoke approval' : 'Enable skill'}
           </button>
         </div>
 
         {#each installed.files as f}
           <details><summary>{f.Path}{f.Executable ? ' · executable intent' : ''}</summary><pre>{filePreview(f)}</pre></details>
         {/each}
-
-        {#if !installed.approved}
-          <label style="margin:12px 0"><input type="checkbox" bind:checked={reviewed}/>I reviewed this exact version.</label>
-        {/if}
 
         <div class="row" style="gap:8px; margin-top:14px; border-top:1px solid var(--border); padding-top:12px">
           <button class="btn sm" disabled={busy} on:click={() => run(() => beginEdit(true))}>Fork to new draft</button>
