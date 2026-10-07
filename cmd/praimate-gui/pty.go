@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	"github.com/aymanbagabas/go-pty"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
 type termSession struct {
@@ -230,9 +231,9 @@ func (tm *termManager) startWithCleanup(name string, args []string, cwd string, 
 	//   exec: "C:\…\<project>\opencode": not found in %PATH%
 	// even though opencode IS on PATH, just not in <project>. Pre-
 	// resolving collapses the ambiguity on every platform.
-	resolved, lpErr := exec.LookPath(name)
+	resolved, lpErr := resolveTerminalBinary(name)
 	if lpErr != nil {
-		return "", fmt.Errorf("%s not on PATH — install it (CLIs tab) or click 'Re-scan PATH' if you just installed it in another terminal", name)
+		return "", fmt.Errorf("%s unavailable — install it (CLIs tab) or click 'Re-scan PATH' if you just installed it in another terminal: %w", name, lpErr)
 	}
 	if name == "opencode" || name == "praimate-code" {
 		// Some OpenCode builds open their log file before creating its parent
@@ -288,6 +289,13 @@ func (tm *termManager) startWithCleanup(name string, args []string, cwd string, 
 	}()
 
 	return id, nil
+}
+
+func resolveTerminalBinary(name string) (string, error) {
+	if name == "praimate-code" {
+		return core.ResolveInteractiveCLIBinary(name)
+	}
+	return exec.LookPath(name)
 }
 
 func opencodeLogDir(goos, home, xdgDataHome, localAppData string) string {

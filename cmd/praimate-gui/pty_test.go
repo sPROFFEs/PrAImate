@@ -7,7 +7,53 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/sPROFFEs/PrAImate/internal/core"
 )
+
+func TestCodeTerminalAndDetectionUseTheChatRuntime(t *testing.T) {
+	root, onPath := t.TempDir(), t.TempDir()
+	t.Setenv("PRAIMATE_HOME", root)
+	t.Setenv("PATH", onPath)
+	managed := filepath.Join(root, "bin")
+	if err := os.Mkdir(managed, 0700); err != nil {
+		t.Fatal(err)
+	}
+	name := "praimate-code"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	for _, dir := range []string{managed, onPath} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("fixture"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old, oldErr := core.GetCLIAdapter("praimate-code")
+	core.RegisterCLIAdapter(core.NewPraimateCodeAdapter())
+	t.Cleanup(func() {
+		if oldErr == nil {
+			core.RegisterCLIAdapter(old)
+		} else {
+			core.UnregisterCLIAdapter("praimate-code")
+		}
+	})
+	want, err := core.ResolveInteractiveCLIBinary("praimate-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveTerminalBinary("praimate-code")
+	if err != nil || got != want {
+		t.Fatalf("Code chose a different binary from chats: %q, want %q, %v", got, want, err)
+	}
+	// Managed installation works even if the inherited PATH has no Code.
+	if err := os.Remove(filepath.Join(onPath, name)); err != nil {
+		t.Fatal(err)
+	}
+	got, err = resolveTerminalBinary("praimate-code")
+	if err != nil || got != want || !(&App{}).PraimateCodeInstalled() {
+		t.Fatalf("managed runtime outside PATH was not detected: %q, %v", got, err)
+	}
+}
 
 func TestTerminalSnapshotRetainsOutputAndOffsets(t *testing.T) {
 	tm := newTermManager()

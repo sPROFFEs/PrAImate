@@ -376,6 +376,70 @@ func TestExecAdapter_ResolvesFromExtraDirs(t *testing.T) {
 	}
 }
 
+func TestPraimateCodeBundleWinsOverManagedAndPATHCopies(t *testing.T) {
+	bundle, managed, onPath := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("PATH", onPath)
+	names := []string{"praimate-code", "praimate-code-baseline"}
+	if runtime.GOOS == "windows" {
+		names = []string{"praimate-code.exe", "praimate-code-baseline.exe"}
+	}
+	for _, dir := range []string{bundle, managed, onPath} {
+		for _, name := range names {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("fixture"), 0755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	a := NewPraimateCodeAdapter()
+	if a.bundledCodeDir != nativeExecutableDir() {
+		t.Fatal("production adapter does not check the Desktop bundle")
+	}
+	a.bundledCodeDir, a.extraDirs = bundle, []string{managed}
+	got, err := a.resolveBin()
+	if err != nil || filepath.Dir(got) != bundle {
+		t.Fatalf("stale installed copy shadowed the bundle: %q, %v", got, err)
+	}
+	for _, name := range names {
+		if err := os.Remove(filepath.Join(bundle, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err = a.resolveBin()
+	if err != nil || got != filepath.Join(managed, names[0]) {
+		t.Fatalf("managed installation fallback: %q, %v", got, err)
+	}
+	if err := os.Remove(filepath.Join(managed, names[0])); err != nil {
+		t.Fatal(err)
+	}
+	got, err = a.resolveBin()
+	if err != nil || got != filepath.Join(onPath, names[0]) {
+		t.Fatalf("PATH fallback: %q, %v", got, err)
+	}
+}
+
+func TestBundledPraimateCodeHonorsBaselineRequirement(t *testing.T) {
+	dir := t.TempDir()
+	normal, baseline := "praimate-code", "praimate-code-baseline"
+	if runtime.GOOS == "windows" {
+		normal, baseline = normal+".exe", baseline+".exe"
+	}
+	if err := os.WriteFile(filepath.Join(dir, normal), []byte("fixture"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if got := bundledPraimateCodeBinary(dir, true); got != "" {
+		t.Fatalf("no-AVX2 host selected the incompatible normal build: %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, baseline), []byte("fixture"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if got := bundledPraimateCodeBinary(dir, true); got != filepath.Join(dir, baseline) {
+		t.Fatalf("baseline bundle: %q", got)
+	}
+	if got := bundledPraimateCodeBinary(dir, false); got != filepath.Join(dir, normal) {
+		t.Fatalf("normal bundle: %q", got)
+	}
+}
+
 func TestRegisterAllCLIAdapters_RegistersSupportedCLIs(t *testing.T) {
 	RegisterAllCLIAdapters()
 	for _, name := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code"} {

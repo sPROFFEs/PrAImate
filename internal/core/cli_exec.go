@@ -36,6 +36,7 @@ import (
 	"strings"
 
 	"github.com/sPROFFEs/PrAImate/internal/appdata"
+	"golang.org/x/sys/cpu"
 )
 
 // buildIn carries the per-turn inputs to an execAdapter's build func.
@@ -71,12 +72,21 @@ type execAdapter struct {
 	// praimate-code, whose standard install lands in the managed bin
 	// dir rather than on PATH.
 	extraDirs []string
+	// Bundled PrAImate Code belongs to the running Desktop build; a stale
+	// separately installed copy must not shadow its runtime/TLS fixes.
+	bundledCodeDir string
 }
 
 func (a *execAdapter) ManagedSafeMode() bool { return a.managedSafe }
 
-// resolveBin locates the adapter's binary: extraDirs first, then PATH.
+// resolveBin locates the adapter's binary: a compatible Code sidecar first,
+// followed by extraDirs and PATH.
 func (a *execAdapter) resolveBin() (string, error) {
+	if a.bin == "praimate-code" && a.bundledCodeDir != "" {
+		if path := bundledPraimateCodeBinary(a.bundledCodeDir, runtime.GOARCH == "amd64" && !cpu.X86.HasAVX2); path != "" {
+			return path, nil
+		}
+	}
 	name := a.bin
 	if runtime.GOOS == "windows" {
 		name += ".exe"
@@ -88,6 +98,26 @@ func (a *execAdapter) resolveBin() (string, error) {
 		}
 	}
 	return exec.LookPath(a.bin)
+}
+
+func bundledPraimateCodeBinary(dir string, baseline bool) string {
+	if dir == "" {
+		return ""
+	}
+	name := "praimate-code"
+	if baseline {
+		name += "-baseline"
+	}
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(dir, name)
+	if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+		return path
+	}
+	// A host without AVX2 must fall back to its managed baseline installation
+	// rather than trying the incompatible normal sidecar.
+	return ""
 }
 
 // praimateManagedBinDir mirrors installer.PraimateBinDir without the
@@ -266,7 +296,7 @@ func NewOpenCodeAdapter() *execAdapter {
 func NewPraimateCodeAdapter() *execAdapter {
 	return &execAdapter{
 		name: "praimate-code", bin: "praimate-code", stdinMsg: true, managedSafe: true,
-		extraDirs: []string{praimateManagedBinDir()},
+		extraDirs: []string{praimateManagedBinDir()}, bundledCodeDir: nativeExecutableDir(),
 		build: func(in buildIn) ([]string, string) {
 			args := []string{"run"}
 			if in.Model != "" {

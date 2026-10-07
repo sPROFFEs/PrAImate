@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -605,19 +604,9 @@ func (a *App) InstallPraimateCode() InstallPraimateCodeResult {
 }
 
 // PraimateCodeInstalled reports whether praimate-code resolves on this
-// host (managed bin dir or PATH).
+// host using the same bundled/managed/PATH selection as chats and Code.
 func (a *App) PraimateCodeInstalled() bool {
-	bin, err := installer.PraimateBinDir()
-	if err == nil {
-		name := "praimate-code"
-		if osIsWindows() {
-			name += ".exe"
-		}
-		if fi, e := os.Stat(filepath.Join(bin, name)); e == nil && !fi.IsDir() {
-			return true
-		}
-	}
-	_, err = exec.LookPath("praimate-code")
+	_, err := core.ResolveInteractiveCLIBinary("praimate-code")
 	return err == nil
 }
 

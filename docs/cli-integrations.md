@@ -96,6 +96,13 @@ Full does not enable unselected MCP servers or grant administrator privileges.
 
 ### Self-signed local endpoints in PrAImate Code
 
+Desktop chats and Code terminals resolve the same PrAImate Code executable.
+The compatible binary shipped beside Desktop takes precedence over a managed
+installation or a copy on `PATH`, so an older installation cannot shadow the
+bundled runtime/TLS patches. On amd64 without AVX2, the bundled baseline variant
+is used when available; otherwise resolution falls back to the managed copy.
+The updater also refreshes installed baseline sidecars.
+
 Accept the presented certificate in Local LLM settings before connecting.
 Consent is stored in the encrypted database and supplied at launch to the
 bundled PrAImate Code through `PRAIMATE_HOST_TLS`. The build applies the
