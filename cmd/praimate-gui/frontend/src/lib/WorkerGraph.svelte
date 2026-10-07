@@ -106,15 +106,15 @@
             <details><summary>Git diff{task.result.diffTruncated ? ' (preview)' : ''}</summary><pre class="diff">{task.result.diff || 'No changes'}</pre></details>
             {#if task.review !== 'merged'}<div class="actions"><button disabled={busy || active} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'accepted'))}>Accept</button><button disabled={busy || active} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id, task.id, 'rejected'))}>Reject</button></div>{/if}
           {/if}
-          {#if !active && ['failed', 'cancelled', 'blocked'].includes(task.status)}<button disabled={busy} on:click={() => reset(task)}>Discard failed work and reset</button>{/if}
+          {#if !active && ['failed', 'cancelled', 'blocked'].includes(task.status)}<div class="actions"><button class="primary" disabled={busy} on:click={() => action(async () => { await api.retryWorkerDAGTask(snapshot.id,task.id);await api.executeWorkerDAG(snapshot.id) })}>Continue with existing changes</button><button disabled={busy} on:click={() => reset(task)}>Start over…</button></div>{/if}
           <details><summary>Task activity</summary>{#each (snapshot.events || []).filter(e => e.taskID === task.id).slice(-40) as event}<small>{event.kind}</small><pre>{event.text}</pre>{/each}</details>
         </article>
       {/each}
     </div>
     {#if !active}
-      {#if needsReset}<p class="hint">Inspect and reset unsuccessful tasks before resuming. Their next attempt uses the route shown above; previous activity remains in the history.</p>{/if}
+      {#if needsReset}<p class="hint">Continue unsuccessful tasks with their existing changes, or explicitly start over. Previous attempts remain in the history.</p>{/if}
       <div class="actions">
-        {#if snapshot.dag.tasks?.some(t => t.status === 'pending')}<button disabled={busy || needsReset} on:click={execute}>Resume pending tasks</button>{/if}
+        {#if snapshot.dag.tasks?.some(t => t.status === 'pending')}<button disabled={busy} on:click={execute}>Run ready tasks</button>{/if}
         <button disabled={busy || !snapshot.dag.tasks?.some(t => t.review === 'accepted')} on:click={merge}>Merge accepted changes</button>
         <button disabled={busy} on:click={async () => { if (await showConfirm({ title: 'Clean reviewed worktrees?', message: 'This removes rejected and merged task worktrees, plus any temporary merge attempt. Saved diffs and commits remain in the run history.', confirmLabel: 'Clean worktrees' })) action(() => api.cleanupWorkerDAG(snapshot.id)) }}>Clean reviewed worktrees</button>
       </div>

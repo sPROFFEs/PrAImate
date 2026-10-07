@@ -106,6 +106,21 @@ func TestStudioDAGAndRemoteKnowledgeConfigurationRPC(t *testing.T) {
 	if snapshot.Status != "review" || snapshot.DAG.Tasks[0].Result == nil {
 		t.Fatalf("execution RPC: %+v", snapshot)
 	}
+	page := rpcOK(t, s, "workers.activity", map[string]any{"id": id, "limit": 2}).(orchestrator.ActivityPage)
+	if len(page.Events) != 2 || !page.HasMore {
+		t.Fatalf("activity pagination: %+v", page)
+	}
+	older := rpcOK(t, s, "workers.activity", map[string]any{"id": id, "before": page.Before, "limit": 200}).(orchestrator.ActivityPage)
+	if len(older.Events) == 0 || older.Events[len(older.Events)-1].Sequence >= page.Events[0].Sequence {
+		t.Fatal("activity cursor repeated newer events")
+	}
+	preview := rpcOK(t, s, "workers.task.preview", map[string]string{"id": id, "taskID": "a"}).(orchestrator.TaskPreview)
+	if preview.Path != snapshot.DAG.Tasks[0].Worktree.Path {
+		t.Fatal("preview returned another worktree")
+	}
+	if response := s.dispatch(RPCRequest{Method: "workers.graph.retry", Params: map[string]string{"id": id, "taskID": "a"}}); response.Error == nil {
+		t.Fatal("completed task accepted a retry")
+	}
 	rpcOK(t, s, "workers.graph.review", map[string]string{"id": id, "taskID": "a", "decision": "rejected"})
 	rpcOK(t, s, "workers.graph.cleanup", map[string]string{"id": id})
 }

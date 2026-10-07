@@ -34,6 +34,7 @@ func TestRunProfileUpdatesPersistWithoutRelabellingActivity(t *testing.T) {
 	m.runs[id] = &Run{ID: id, Workspace: config.Workspace, Profiles: config.Profiles, config: config, Status: "failed", Events: []Event{{Tier: Primary, WorkerID: "past", Model: "model-primary"}}}
 	updated := config
 	updated.Profiles = append([]Profile(nil), config.Profiles...)
+	updated.AccessMode, updated.MaxRetries, updated.RetryDelaySeconds = "full", 3, 4
 	updated.Profiles[0].Model = "new-model"
 	updated.Profiles[0].TimeoutSeconds = 0
 	if err = m.UpdateRunConfig(id, updated); err != nil {
@@ -47,6 +48,9 @@ func TestRunProfileUpdatesPersistWithoutRelabellingActivity(t *testing.T) {
 	snapshot, err := restored.Snapshot(id)
 	if err != nil || snapshot.Profiles[0].Model != "new-model" || snapshot.Events[0].Model != "model-primary" || restored.runs[id].config.Profiles[0].TimeoutSeconds != 0 {
 		t.Fatalf("updated configuration/history lost: %+v %v", snapshot, err)
+	}
+	if snapshot.AccessMode != "full" || snapshot.MaxRetries != 3 || snapshot.RetryDelaySeconds != 4 || restored.runs[id].config.AccessMode != "full" {
+		t.Fatalf("execution policy was not restored: %+v", snapshot)
 	}
 	bad := updated
 	bad.Workspace = t.TempDir()

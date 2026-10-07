@@ -50,7 +50,7 @@ func verifyFinishEvidence(store artifactStore, instance *Instance, requirements 
 			}
 		}
 		if !observed {
-			return fmt.Errorf("finish evidence missing: %s must be written through artifact.write in this run", required.Artifact)
+			return fmt.Errorf("finish evidence missing: %s must be written through artifact.write or inherited from a verified preceding workflow step", required.Artifact)
 		}
 		root, err := os.OpenRoot(store.dir)
 		if err != nil {

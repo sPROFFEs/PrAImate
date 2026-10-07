@@ -16,7 +16,7 @@ import (
 
 func runWorkers(args []string) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprintln(os.Stderr, "usage: praimate workers plan|list|show|execute|review|merge|reset|cleanup [--id RUN] [options]")
+		fmt.Fprintln(os.Stderr, "usage: praimate workers plan|list|show|activity|changes|retry|execute|review|merge|reset|cleanup [--id RUN] [options]")
 		if len(args) > 0 {
 			return 0
 		}
@@ -25,12 +25,15 @@ func runWorkers(args []string) int {
 	action := args[0]
 	f := flag.NewFlagSet("workers "+action, flag.ContinueOnError)
 	id := f.String("id", "", "saved worker run ID")
-	taskID := f.String("task-id", "", "task to review or reset")
+	taskID := f.String("task-id", "", "task to inspect, continue, review or reset")
 	objective := f.String("task", "", "objective for the coordinator")
 	configPath := f.String("config", "", "existing worker Config JSON (otherwise saved defaults)")
 	planPath := f.String("plan", "", "reviewed tasks JSON array to save before execution")
 	workspace := f.String("workspace", "", "Git repository root (plan only)")
 	parallel := f.Int("parallel", 2, "maximum concurrent tasks (1–4)")
+	workerID := f.String("worker-id", "", "attempt ID for activity filtering")
+	before := f.Int64("before", 0, "older activity cursor")
+	limit := f.Int("limit", 100, "activity page size (1–200)")
 	decision := f.String("decision", "", "accepted or rejected")
 	discard := f.Bool("discard", false, "explicitly discard failed work or reviewed temporary worktrees")
 	approve := f.Bool("approve-tools", false, "approve host-brokered commands and writes inside task worktrees")
@@ -109,6 +112,12 @@ func runWorkers(args []string) int {
 		}
 	case "show":
 		output, err = manager.Snapshot(*id)
+	case "activity":
+		output, err = manager.Activity(*id, *workerID, *before, *limit)
+	case "changes":
+		output, err = manager.TaskPreview(*id, *taskID)
+	case "retry":
+		err = manager.RetryDAGTask(*id, *taskID)
 	case "execute":
 		if *planPath != "" {
 			var tasks []orchestrator.DAGTask

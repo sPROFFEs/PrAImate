@@ -13,6 +13,7 @@ import (
 // Request contains only the task context explicitly selected for a worker.
 // A worker never receives the primary chat history through this contract.
 type Request struct {
+	SessionID       string
 	Model           string
 	ReasoningEffort string
 	SystemPrompt    string
@@ -23,8 +24,9 @@ type Request struct {
 }
 
 type ProgressEvent struct {
-	Kind string
-	Text string
+	Kind      string
+	Text      string
+	SessionID string
 }
 
 type Limits struct {
@@ -40,16 +42,18 @@ type Usage struct {
 }
 
 type Result struct {
+	SessionID    string
 	Content      string
 	FinishReason string
 	Usage        Usage
 }
 
 type Capabilities struct {
-	OutputTokenLimit bool
-	ProviderUsage    bool
-	ReadOnly         bool
-	CanEdit          bool
+	PersistentSession bool
+	OutputTokenLimit  bool
+	ProviderUsage     bool
+	ReadOnly          bool
+	CanEdit           bool
 }
 
 type Runtime interface {

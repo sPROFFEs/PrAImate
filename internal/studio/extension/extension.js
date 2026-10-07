@@ -311,6 +311,18 @@ class ChatView {
         workerGraphMerge:async () => {
           if (await vscode.window.showWarningMessage('Merge accepted task commits into the target branch? Conflicts stop in a separate review worktree.',{modal:true},'Merge accepted') === 'Merge accepted') await call('workers.graph.merge',{id:data.id});
         },
+        workerGraphRetry:async () => {
+          await call('workers.graph.retry',{id:data.id,taskID:data.taskID});
+          await call('workers.graph.execute',{id:data.id});
+        },
+        workerTaskPreview:async () => {
+          const preview = await call('workers.task.preview',{id:data.id,taskID:data.taskID});
+          view.webview.postMessage({type:'workerTaskPreview',runId:data.id,taskID:data.taskID,preview});
+        },
+        workerActivity:async () => {
+          const activity = await call('workers.activity',{id:data.id,workerID:data.workerID,before:data.before || 0,limit:100});
+          view.webview.postMessage({type:'workerActivity',runId:data.id,workerID:data.workerID,activity});
+        },
         workerGraphReset:async () => {
           if (await vscode.window.showWarningMessage('Discard this failed task’s worktree and its uncommitted changes? Inspect it before resetting.',{modal:true},'Discard and reset') === 'Discard and reset') await call('workers.graph.reset',{id:data.id,taskID:data.taskID});
         },
@@ -455,7 +467,11 @@ class ChatView {
         await context.workspaceState.update('chatId',this.chatId);
         await this.loadMessages();
       }
-    } catch (err) { this.current.content += '\n'+err.message; this.current.isError = true; }
+      if (result.error) {
+        const message = {role:'assistant',content:result.error,isError:true};
+        this.messages.push(message);
+      }
+    } catch (err) { if(this.current) {this.current.content += '\n'+err.message; this.current.isError = true;} }
     finally { if (this.current) this.current.inProgress = false; this.busy = false; this.current = null; this.render(); refresh(); }
   }
   quickAction(action) {

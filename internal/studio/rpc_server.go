@@ -519,6 +519,28 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 			return nil, err
 		}
 		return true, s.workers.ResetDAGTask(p.ID, p.TaskID)
+	case "workers.graph.retry":
+		var p struct{ ID, TaskID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.RetryDAGTask(p.ID, p.TaskID)
+	case "workers.task.preview":
+		var p struct{ ID, TaskID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return s.workers.TaskPreview(p.ID, p.TaskID)
+	case "workers.activity":
+		var p struct {
+			ID, WorkerID string
+			Before       int64
+			Limit        int
+		}
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return s.workers.Activity(p.ID, p.WorkerID, p.Before, p.Limit)
 	case "workers.graph.profile":
 		var p struct{ ID, TaskID string }
 		if err := json.Unmarshal(body, &p); err != nil {

@@ -17,24 +17,68 @@ import (
 // Run is a snapshot of one orchestrated task. The manager owns cancellation
 // and event recording; adapters never receive another worker's chat history.
 type Run struct {
-	DAG            *DAG      `json:"dag,omitempty"`
-	EntryTier      Tier      `json:"entryTier,omitempty"`
-	ID             string    `json:"id"`
-	Title          string    `json:"title"`
-	Task           string    `json:"task"`
-	Workspace      string    `json:"workspace"`
-	CurrentTask    string    `json:"currentTask"`
-	Status         string    `json:"status"`
-	Result         string    `json:"result,omitempty"`
-	Error          string    `json:"error,omitempty"`
-	StartedAt      time.Time `json:"startedAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
-	Profiles       []Profile `json:"profiles"`
-	Events         []Event   `json:"events"`
-	Turns          []Turn    `json:"turns"`
-	cancel         context.CancelFunc
-	config         Config
-	lastCheckpoint time.Time
+	AccessMode        string     `json:"accessMode,omitempty"`
+	MaxRetries        int        `json:"maxRetries,omitempty"`
+	RetryDelaySeconds int        `json:"retryDelaySeconds,omitempty"`
+	AutoRetriesUsed   int        `json:"autoRetriesUsed,omitempty"`
+	NextRetryAt       *time.Time `json:"nextRetryAt,omitempty"`
+	Attempts          []Attempt  `json:"attempts,omitempty"`
+	Usage             RunUsage   `json:"usage"`
+	ActivityVersion   int        `json:"activityVersion,omitempty"`
+	EventSequence     uint64     `json:"eventSequence,omitempty"`
+	DAG               *DAG       `json:"dag,omitempty"`
+	EntryTier         Tier       `json:"entryTier,omitempty"`
+	ID                string     `json:"id"`
+	Title             string     `json:"title"`
+	Task              string     `json:"task"`
+	Workspace         string     `json:"workspace"`
+	CurrentTask       string     `json:"currentTask"`
+	Status            string     `json:"status"`
+	Result            string     `json:"result,omitempty"`
+	Error             string     `json:"error,omitempty"`
+	StartedAt         time.Time  `json:"startedAt"`
+	UpdatedAt         time.Time  `json:"updatedAt"`
+	Profiles          []Profile  `json:"profiles"`
+	Events            []Event    `json:"events"`
+	Turns             []Turn     `json:"turns"`
+	cancel            context.CancelFunc
+	config            Config
+	lastCheckpoint    time.Time
+	pendingEvents     []Event
+}
+
+// Attempt is the durable identity and outcome of one assignment. Activity is
+// paginated separately so trimming the live buffer cannot erase its state.
+type Attempt struct {
+	ID              string    `json:"id"`
+	TaskID          string    `json:"taskID,omitempty"`
+	ParentID        string    `json:"parentID,omitempty"`
+	Tier            Tier      `json:"tier"`
+	Runtime         string    `json:"runtime"`
+	CLI             string    `json:"cli,omitempty"`
+	Model           string    `json:"model"`
+	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
+	Workspace       string    `json:"workspace"`
+	SessionID       string    `json:"sessionID,omitempty"`
+	ProfileHash     string    `json:"profileHash,omitempty"`
+	Assignment      string    `json:"assignment"`
+	Status          string    `json:"status"`
+	Phase           string    `json:"phase,omitempty"`
+	Step            int       `json:"step,omitempty"`
+	TimeoutSeconds  int       `json:"timeoutSeconds,omitempty"`
+	StartedAt       time.Time `json:"startedAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	CallStartedAt   time.Time `json:"callStartedAt,omitempty"`
+	LastProgressAt  time.Time `json:"lastProgressAt,omitempty"`
+	Output          string    `json:"output,omitempty"`
+	Error           string    `json:"error,omitempty"`
+	Usage           RunUsage  `json:"usage"`
+}
+
+type RunUsage struct {
+	Input  int `json:"input"`
+	Output int `json:"output"`
+	Calls  int `json:"calls"`
 }
 
 type Turn struct {
@@ -72,27 +116,22 @@ func (m *Manager) restore() error {
 		if chat.Settings.Surface != "workers" {
 			continue
 		}
-		messages, err := m.core.ListMessages(m.ctx, chat.ID, 0)
+		initial, latest, err := m.core.LoadWorkerRun(m.ctx, chat.ID)
 		if err != nil {
 			return err
 		}
-		if len(messages) == 0 {
+		if len(initial) == 0 {
 			continue
 		}
 		var config Config
-		if err := json.Unmarshal([]byte(messages[0].Content), &config); err != nil || config.Validate() != nil {
+		if err := json.Unmarshal(initial, &config); err != nil || config.Validate() != nil {
 			continue
 		}
-		run := Run{ID: chat.ID, Title: chat.Title, Task: chat.Title, Workspace: config.Workspace, CurrentTask: chat.Title, Status: "cancelled", StartedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt, Profiles: append([]Profile(nil), config.Profiles...), Events: []Event{}, Turns: []Turn{}, config: config}
-		for _, message := range messages[1:] {
-			if message.Role != "assistant" {
-				continue
-			}
-			var saved Run
-			if json.Unmarshal([]byte(message.Content), &saved) == nil && saved.ID == chat.ID {
-				run = saved
-				run.config = config
-			}
+		run := Run{ID: chat.ID, Title: chat.Title, Task: chat.Title, Workspace: config.Workspace, CurrentTask: chat.Title, Status: "cancelled", StartedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt, Profiles: append([]Profile(nil), config.Profiles...), AccessMode: config.AccessMode, MaxRetries: config.MaxRetries, RetryDelaySeconds: config.RetryDelaySeconds, Events: []Event{}, Turns: []Turn{}, config: config}
+		var saved Run
+		if json.Unmarshal(latest, &saved) == nil && saved.ID == chat.ID {
+			run = saved
+			run.config = config
 		}
 		if run.Status == "merging" && run.DAG != nil && mergedCandidate(run.Workspace, run.DAG) {
 			run.DAG.LastMergedCommit = run.DAG.MergeCommit
@@ -109,6 +148,7 @@ func (m *Manager) restore() error {
 		}
 		if run.Status == "running" || run.Status == "planning" || run.Status == "merging" {
 			run.Status = "cancelled"
+			run.NextRetryAt = nil
 			run.Error = "Worker chat was interrupted; review the recorded activity before continuing."
 			activity := "No worker activity was recorded."
 			if len(run.Events) > 0 {
@@ -119,20 +159,30 @@ func (m *Manager) restore() error {
 			if run.DAG != nil {
 				for i := range run.DAG.Tasks {
 					task := &run.DAG.Tasks[i]
-					if task.Status == "running" || task.Status == "ready" {
+					if task.Status == "running" || task.Status == "ready" || task.Status == "retrying" {
 						task.Status = "failed"
-						task.Error = "Interrupted. Inspect the worktree before explicitly discarding and retrying this task."
+						task.NextRetryAt = nil
+						task.Error = "Interrupted. Inspect the retained worktree before continuing this task."
 					}
 				}
 			}
 		}
 		// Updated per-run profiles live in the encrypted snapshot. The first
 		// system message retains the original creation defaults for old chats.
-		latestConfig := Config{Workspace: run.Workspace, Profiles: run.Profiles}
+		latestConfig := Config{Workspace: run.Workspace, Profiles: run.Profiles, AccessMode: run.AccessMode, MaxRetries: run.MaxRetries, RetryDelaySeconds: run.RetryDelaySeconds}
 		if latestConfig.Validate() == nil {
 			run.config = latestConfig
 		}
 		restoreTaskRequests(&run, config)
+		restoreAttempts(&run)
+		if run.ActivityVersion == 0 {
+			// Preserve the available legacy tail in the journal at the next save.
+			for i := range run.Events {
+				run.EventSequence++
+				run.Events[i].Sequence = run.EventSequence
+			}
+			run.pendingEvents = append([]Event(nil), run.Events...)
+		}
 		run.Title = chat.Title
 		run.Workspace = config.Workspace
 		run.UpdatedAt = chat.UpdatedAt
@@ -255,12 +305,9 @@ func (m *Manager) startWithTier(task, workspace string, config Config, tier Tier
 		return "", err
 	}
 	now := time.Now().UTC()
-	run := &Run{EntryTier: tier, ID: id, Title: title, Task: task, Workspace: config.Workspace, CurrentTask: task, Status: "running", StartedAt: now, UpdatedAt: now, Profiles: append([]Profile(nil), config.Profiles...), Events: []Event{}, Turns: []Turn{}, cancel: cancel, config: config, lastCheckpoint: now}
+	run := &Run{AccessMode: config.AccessMode, MaxRetries: config.MaxRetries, RetryDelaySeconds: config.RetryDelaySeconds, EntryTier: tier, ID: id, Title: title, Task: task, Workspace: config.Workspace, CurrentTask: task, Status: "running", StartedAt: now, UpdatedAt: now, Profiles: append([]Profile(nil), config.Profiles...), Events: []Event{}, Turns: []Turn{}, cancel: cancel, config: config, lastCheckpoint: now}
 	m.runs[id] = run
-	saved, err := json.Marshal(run)
-	if err == nil {
-		_, err = m.core.AddMessage(m.ctx, id, "assistant", string(saved), nil)
-	}
+	err = m.saveRunLocked(run)
 	if err != nil {
 		delete(m.runs, id)
 		_ = m.core.DeleteChat(context.Background(), id)
@@ -337,16 +384,14 @@ func (m *Manager) ContinueWithApproval(id, task string, approvalProvider func(st
 	ctx, cancel := context.WithCancel(m.ctx)
 	previous := *run
 	run.CurrentTask = task
+	run.AutoRetriesUsed, run.NextRetryAt = 0, nil
 	run.Status = "running"
 	run.Result = ""
 	run.Error = ""
 	run.cancel = cancel
 	run.UpdatedAt = time.Now().UTC()
 	run.lastCheckpoint = run.UpdatedAt
-	saved, err := json.Marshal(run)
-	if err == nil {
-		_, err = m.core.AddMessage(m.ctx, id, "assistant", string(saved), nil)
-	}
+	err := m.saveRunLocked(run)
 	if err != nil {
 		*run = previous
 		m.mu.Unlock()
@@ -376,14 +421,9 @@ func (m *Manager) execute(ctx context.Context, cancel context.CancelFunc, id str
 			m.mu.Lock()
 			if run := m.runs[id]; run != nil {
 				recordWorkerActivity(run, event)
-				if time.Since(run.lastCheckpoint) >= 10*time.Second {
-					run.lastCheckpoint = time.Now().UTC()
-					saved, err := json.Marshal(run)
-					if err == nil {
-						_, err = m.core.AddMessage(context.Background(), id, "assistant", string(saved), nil)
-					}
-					if err != nil {
-						run.Events = append(run.Events, Event{Tier: Primary, Kind: "error", Text: "Could not save worker activity: " + err.Error(), Timestamp: time.Now().UTC()})
+				if checkpointActivity(run, event) {
+					if err := m.saveRunLocked(run); err != nil {
+						cancel()
 					}
 				}
 			}
@@ -391,11 +431,24 @@ func (m *Manager) execute(ctx context.Context, cancel context.CancelFunc, id str
 		}}
 		m.mu.Lock()
 		tier := Primary
-		if run := m.runs[id]; run != nil && run.EntryTier != "" {
-			tier = run.EntryTier
+		if run := m.runs[id]; run != nil {
+			if run.EntryTier != "" {
+				tier = run.EntryTier
+			}
+			profile, _ := config.Profile(tier)
+			for i := len(run.Attempts) - 1; i >= 0; i-- {
+				a := run.Attempts[i]
+				if a.TaskID == "" && a.ParentID == "" && a.Tier == tier {
+					if a.ProfileHash == profileHash(profile) && a.SessionID != "" && profile.Runtime == "cli" {
+						runner.SessionID = a.SessionID
+						input = userTask
+					}
+					break
+				}
+			}
 		}
 		m.mu.Unlock()
-		result, runErr := runner.RunFromTier(ctx, config, tier, input)
+		result, runErr := m.runAssignmentWithRetries(ctx, id, config, tier, input, runner)
 		m.mu.Lock()
 		if run := m.runs[id]; run != nil {
 			run.cancel = nil
@@ -417,13 +470,7 @@ func (m *Manager) execute(ctx context.Context, cancel context.CancelFunc, id str
 			if len(run.Turns) > 50 {
 				run.Turns = append([]Turn(nil), run.Turns[len(run.Turns)-50:]...)
 			}
-			saved, err := json.Marshal(run)
-			if err == nil {
-				_, err = m.core.AddMessage(context.Background(), id, "assistant", string(saved), nil)
-			}
-			if err != nil {
-				run.Events = append(run.Events, Event{Tier: Primary, Kind: "error", Text: "Could not save worker chat: " + err.Error(), Timestamp: time.Now().UTC()})
-			}
+			_ = m.saveRunLocked(run)
 		}
 		m.mu.Unlock()
 	}()
@@ -504,6 +551,7 @@ func (m *Manager) Snapshot(id string) (Run, error) {
 	copy := *run
 	copy.Profiles = append([]Profile(nil), run.Profiles...)
 	copy.Events = append([]Event(nil), run.Events...)
+	copy.Attempts = append([]Attempt(nil), run.Attempts...)
 	copy.Turns = append([]Turn(nil), run.Turns...)
 	copy.DAG = cloneDAG(run.DAG)
 	copy.cancel = nil

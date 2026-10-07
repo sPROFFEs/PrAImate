@@ -9,6 +9,9 @@ type workerWindowRequest struct {
 	Decision string `json:"decision,omitempty"`
 	Body     string `json:"body,omitempty"`
 	Parallel int    `json:"parallel,omitempty"`
+	WorkerID string `json:"workerID,omitempty"`
+	Before   int64  `json:"before,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
 }
 
 func (d *detachedCoordinator) callWorker(w *detachedWindow, req detachedRPCRequest) (any, error) {
@@ -28,6 +31,12 @@ func (d *detachedCoordinator) callWorker(w *detachedWindow, req detachedRPCReque
 		return a.WorkerRunApprovals(body.ID), nil
 	case "worker.snapshot":
 		return a.WorkerRunSnapshot(body.ID)
+	case "worker.activity":
+		return a.WorkerRunActivity(body.ID, body.WorkerID, body.Before, body.Limit)
+	case "worker.graph.retry":
+		return nil, a.RetryWorkerDAGTask(body.ID, body.TaskID)
+	case "worker.task.preview":
+		return a.WorkerTaskPreview(body.ID, body.TaskID)
 	case "worker.cancel":
 		return nil, a.CancelWorkerRun(body.ID)
 	case "worker.continue":

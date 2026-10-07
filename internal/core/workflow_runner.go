@@ -119,8 +119,7 @@ type RunResult struct {
 	Err          error
 
 	// ChatID is non-empty when Persist was set and a chat row was
-	// successfully created. GUI workflow chats are temporary and deleted
-	// when the run view is closed.
+	// successfully created. The transcript is retained when its run view closes.
 	ChatID string
 }
 
@@ -326,7 +325,11 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 		ChatSettings: cfg.ChatSettings,
 	})
 	res.ChatID = chatID
+	defer func() {
+		c.maybeEndChat(ctx, chatID, res.Outcome)
+	}()
 
+	completedTools := map[string]bool{}
 	turnIdx := 0
 	var lastReply *Reply
 	var previousResults strings.Builder
@@ -341,6 +344,13 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 		v2 := settings.SkillsV2 != nil
 		if workflowIndex > 0 && (v2 || previousV2) {
 			lastReply = nil
+			res.SessionID = ""
+			if chatID != "" {
+				if err := c.SetChatSessionID(ctx, chatID, ""); err != nil {
+					res.Err = err
+					return res
+				}
+			}
 		}
 		previousV2 = v2
 		if chatID != "" && v2 {
@@ -362,6 +372,12 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 				if barrierTurnIdx > 0 {
 					barrierTurnIdx--
 				}
+				if tool := strings.TrimSpace(step.UntilTool); tool != "" && tool != "complete" && !completedTools[tool] {
+					res.Err = fmt.Errorf("workflow %q: required tool %q did not complete successfully in the preceding turn; inspect activity before continuing", workflow.Name, tool)
+					res.Outcome = OutcomeAgentFailed
+					emitWorkflowEvent(cfg.OnEvent, WorkflowRunEvent{WorkflowName: workflow.Name, TurnIndex: barrierTurnIdx, Type: "error", Detail: res.Err.Error()})
+					return res
+				}
 				emitWaitBarrier(cfg.OnEvent, workflow.Name, barrierTurnIdx, step.UntilTool)
 				continue
 			}
@@ -371,7 +387,6 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 			if err := ctx.Err(); err != nil {
 				res.Outcome = OutcomeCancelled
 				res.Err = err
-				c.maybeEndChat(ctx, chatID, res.Outcome)
 				return res
 			}
 
@@ -394,7 +409,6 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 			}
 			if skillErr != nil {
 				res.Err = skillErr
-				c.maybeEndChat(ctx, chatID, res.Outcome)
 				return res
 			}
 			turnSystem := systemPrompt
@@ -406,7 +420,6 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 			}
 			if err := validateControlledSkillRequest(settings, turnSystem, adapterBody); err != nil {
 				res.Err = err
-				c.maybeEndChat(ctx, chatID, res.Outcome)
 				return res
 			}
 			if settings.SkillsV2 != nil {
@@ -422,49 +435,62 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 			})
 
 			start := time.Now()
+			completedTools = map[string]bool{}
+			toolNames := map[string]string{}
+			observe := func(ev WorkflowRunEvent) {
+				if ev.Type == "tool_start" && ev.ID != "" {
+					toolNames[ev.ID] = ev.Tool
+				}
+				if ev.Type == "tool_end" && ev.OK {
+					name := ev.Tool
+					if name == "" {
+						name = toolNames[ev.ID]
+					}
+					if name != "" {
+						completedTools[name] = true
+					}
+				}
+				emitWorkflowEvent(cfg.OnEvent, ev)
+			}
 			reply, runErr := runWorkflowTurn(ctx, adapter, workflow.Name, turnIdx, cfg, tools,
-				turnSystem, adapterBody, lastReply, cfg.OnEvent)
-			if runErr != nil {
+				turnSystem, adapterBody, lastReply, observe)
+			reply = revealReply(privacy, reply)
+			if reply != nil {
+				if reply.SessionID != "" {
+					res.SessionID = reply.SessionID
+					if chatID != "" {
+						persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+						_ = c.SetChatSessionID(persistCtx, chatID, res.SessionID)
+						persistCancel()
+					}
+				}
+				turn := TurnResult{Index: turnIdx, WorkflowName: workflow.Name, UserMsg: body, Reply: reply, DurationMs: time.Since(start).Milliseconds()}
+				res.Turns = append(res.Turns, turn)
+				persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				c.maybeAddMessage(persistCtx, chatID, "assistant", reply.Text)
+				persistCancel()
+				if cfg.OnTurn != nil {
+					cfg.OnTurn(turn)
+				}
+			}
+			if runErr != nil || reply == nil || reply.ExitCode != 0 {
 				res.Outcome = OutcomeAdapterErr
 				res.Err = runErr
-				emitWorkflowEvent(cfg.OnEvent, WorkflowRunEvent{
-					WorkflowName: workflow.Name, TurnIndex: turnIdx, Type: "error", Detail: runErr.Error(), OK: false,
-				})
-				c.maybeEndChat(ctx, chatID, res.Outcome)
-				return res
-			}
-			reply = revealReply(privacy, reply)
-			if reply.ExitCode != 0 {
-				res.Outcome = OutcomeAgentFailed
-				res.Err = fmt.Errorf("%s exited with code %d", adapter.Name(), reply.ExitCode)
-				emitWorkflowEvent(cfg.OnEvent, WorkflowRunEvent{
-					WorkflowName: workflow.Name, TurnIndex: turnIdx, Type: "error", Detail: res.Err.Error(), OK: false,
-				})
-				res.Turns = append(res.Turns, TurnResult{
-					Index:        turnIdx,
-					WorkflowName: workflow.Name,
-					UserMsg:      body,
-					Reply:        reply,
-					DurationMs:   time.Since(start).Milliseconds(),
-				})
-				c.maybeAddMessage(ctx, chatID, "assistant", reply.Text)
-				c.maybeEndChat(ctx, chatID, res.Outcome)
+				if errors.Is(runErr, context.Canceled) {
+					res.Outcome = OutcomeCancelled
+				}
+				if runErr == nil {
+					if reply == nil {
+						res.Err = fmt.Errorf("%s returned no reply", adapter.Name())
+					} else {
+						res.Outcome = OutcomeAgentFailed
+						res.Err = fmt.Errorf("%s exited with code %d", adapter.Name(), reply.ExitCode)
+					}
+				}
+				emitWorkflowEvent(cfg.OnEvent, WorkflowRunEvent{WorkflowName: workflow.Name, TurnIndex: turnIdx, Type: "error", Detail: res.Err.Error(), OK: false})
 				return res
 			}
 
-			c.maybeAddMessage(ctx, chatID, "assistant", reply.Text)
-
-			turn := TurnResult{
-				Index:        turnIdx,
-				WorkflowName: workflow.Name,
-				UserMsg:      body,
-				Reply:        reply,
-				DurationMs:   time.Since(start).Milliseconds(),
-			}
-			res.Turns = append(res.Turns, turn)
-			if cfg.OnTurn != nil {
-				cfg.OnTurn(turn)
-			}
 			emitWorkflowEvent(cfg.OnEvent, WorkflowRunEvent{
 				WorkflowName: workflow.Name, TurnIndex: turnIdx, Type: "turn_finish", OK: true,
 			})
@@ -489,14 +515,26 @@ func (c *Core) runWorkflowSequence(ctx context.Context, cfg workflowRunConfig, p
 		_ = c.SetChatSessionID(ctx, chatID, res.SessionID)
 	}
 	res.Outcome = OutcomeCompleted
-	c.maybeEndChat(ctx, chatID, res.Outcome)
 	return res
 }
 
 func runWorkflowTurn(ctx context.Context, adapter CLIAdapter, workflowName string, turnIdx int,
 	cfg workflowRunConfig, tools, systemPrompt, adapterBody string, lastReply *Reply,
 	onEvent func(WorkflowRunEvent)) (*Reply, error) {
+	var partial strings.Builder
+	sessionID := ""
+	if lastReply != nil {
+		sessionID = lastReply.SessionID
+	}
 	emit := func(ev StreamEvent) {
+		if ev.Type == "text" {
+			if remaining := 64<<10 - partial.Len(); remaining > 0 {
+				partial.WriteString(truncate(ev.Text, remaining))
+			}
+		}
+		if ev.Type == "status" && ev.ID != "" && strings.Contains(strings.ToLower(ev.Detail), "session") {
+			sessionID = ev.ID
+		}
 		emitWorkflowEvent(onEvent, WorkflowRunEvent{
 			WorkflowName: workflowName,
 			TurnIndex:    turnIdx,
@@ -523,6 +561,21 @@ func runWorkflowTurn(ctx context.Context, adapter CLIAdapter, workflowName strin
 			}, emit)
 		}
 		if !errors.Is(err, ErrStreamUnsupported) {
+			// Some adapters fail after emitting text/session progress without a
+			// final Reply. Retain that evidence for the saved conversation.
+			if err != nil && (partial.Len() > 0 || sessionID != "") {
+				saved := Reply{}
+				if reply != nil {
+					saved = *reply
+				}
+				if saved.Text == "" {
+					saved.Text = partial.String()
+				}
+				if saved.SessionID == "" {
+					saved.SessionID = sessionID
+				}
+				reply = &saved
+			}
 			return reply, err
 		}
 	}
@@ -618,7 +671,9 @@ func (c *Core) maybeEndChat(ctx context.Context, chatID string, outcome RunOutco
 	if chatID == "" || c.store == nil {
 		return
 	}
-	_ = c.EndChat(ctx, chatID, string(outcome))
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	_ = c.EndChat(persistCtx, chatID, string(outcome))
 }
 
 func validateRunOptions(opts RunOptions) error {

@@ -435,8 +435,21 @@ func TestParallelDAGPersistsProvenanceAndIsolatedBackends(t *testing.T) {
 	}
 	final := waitGraph(t, manager, id, "completed")
 	messages, err := c.ListMessages(context.Background(), id, 0)
-	if err != nil || len(messages) != 2 {
-		t.Fatalf("graph snapshots accumulate duplicate diffs: %d %v", len(messages), err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshots := 0
+	for _, message := range messages {
+		if message.Role == "assistant" {
+			snapshots++
+		}
+	}
+	if snapshots != 1 {
+		t.Fatalf("graph snapshots accumulate duplicate diffs: %d", snapshots)
+	}
+	activity, err := manager.Activity(id, "", 0, 200)
+	if err != nil || len(activity.Events) == 0 {
+		t.Fatalf("durable activity is missing: %v", err)
 	}
 	for _, task := range final.DAG.Tasks {
 		if task.Review != "merged" || task.Worktree != nil {

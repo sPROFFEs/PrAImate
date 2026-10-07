@@ -8,6 +8,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 
 	workerruntime "github.com/sPROFFEs/PrAImate/internal/runtime"
 )
@@ -24,19 +25,24 @@ type WorkerConfig struct {
 }
 
 type DAGTask struct {
-	ID           string       `json:"id"`
-	Description  string       `json:"description"`
-	Dependencies []string     `json:"dependencies"`
-	Worker       WorkerConfig `json:"worker"`
+	AutoRetriesUsed int          `json:"autoRetriesUsed,omitempty"`
+	NextRetryAt     *time.Time   `json:"nextRetryAt,omitempty"`
+	FailurePhase    string       `json:"failurePhase,omitempty"`
+	ID              string       `json:"id"`
+	Description     string       `json:"description"`
+	Dependencies    []string     `json:"dependencies"`
+	Worker          WorkerConfig `json:"worker"`
 	// RequestedWorker retains profile inheritance and explicit overrides. Worker
 	// records the last resolved route, which must never become a retry override.
-	RequestedWorker *WorkerConfig `json:"requestedWorker,omitempty"`
-	Status          string        `json:"status"`
-	Review          string        `json:"review,omitempty"`
-	Error           string        `json:"error,omitempty"`
-	Output          string        `json:"output,omitempty"`
-	Worktree        *Worktree     `json:"worktree,omitempty"`
-	Result          *TaskResult   `json:"result,omitempty"`
+	RequestedWorker   *WorkerConfig `json:"requestedWorker,omitempty"`
+	Status            string        `json:"status"`
+	Review            string        `json:"review,omitempty"`
+	Error             string        `json:"error,omitempty"`
+	Output            string        `json:"output,omitempty"`
+	Worktree          *Worktree     `json:"worktree,omitempty"`
+	Result            *TaskResult   `json:"result,omitempty"`
+	ResumeContext     string        `json:"resumeContext,omitempty"`
+	DependenciesReady bool          `json:"dependenciesReady,omitempty"`
 }
 
 type TaskResult struct {
@@ -268,6 +274,8 @@ func (r Runner) Plan(ctx context.Context, config Config, objective string) (plan
 		r.Resolve = ResolveRuntime
 	}
 	profile, _ := config.Profile(Primary)
+	// Planning remains read-only even when execution has full access.
+	profile.FullAccess, profile.AllowEdits, profile.AllowCommands = false, false, false
 	r = r.traced(config, profile, "planning")
 	r.emit(Primary, "started", objective, workerruntime.Usage{})
 	defer func() { r.finish(profile, planErr) }()
@@ -285,12 +293,23 @@ func (r Runner) Plan(ctx context.Context, config Config, objective string) (plan
 		instructions += "\nAdditional coordinator guidance (the task-graph JSON contract still applies):\n" + profile.Instructions
 	}
 	var tasks []DAGTask
+	sessionID := r.SessionID
+	input := objective
 	for attempt := 0; attempt < 2; attempt++ {
 		r.trace.Step = attempt + 1
-		r.emit(Primary, "input", objective, workerruntime.Usage{})
-		result, runErr := worker.Execute(ctx, workerruntime.Request{Model: profile.Model, ReasoningEffort: profile.ReasoningEffort, SystemPrompt: instructions, Task: objective, WorkspaceRoot: config.Workspace, Limits: workerruntime.Limits{MaxInputBytes: profile.MaxInputBytes, MaxOutputTokens: profile.MaxOutputTokens, Timeout: profile.Timeout()}, Progress: func(event workerruntime.ProgressEvent) {
+		r.emit(Primary, "input", input, workerruntime.Usage{})
+		result, runErr := worker.Execute(ctx, workerruntime.Request{SessionID: sessionID, Model: profile.Model, ReasoningEffort: profile.ReasoningEffort, SystemPrompt: instructions, Task: input, WorkspaceRoot: config.Workspace, Limits: workerruntime.Limits{MaxInputBytes: profile.MaxInputBytes, MaxOutputTokens: profile.MaxOutputTokens, Timeout: profile.Timeout()}, Progress: func(event workerruntime.ProgressEvent) {
+			if event.SessionID != "" && worker.Capabilities().PersistentSession {
+				sessionID = event.SessionID
+				r.trace.SessionID = sessionID
+			}
 			r.emit(Primary, event.Kind, event.Text, workerruntime.Usage{})
 		}})
+		if result != nil && result.SessionID != "" && worker.Capabilities().PersistentSession {
+			sessionID = result.SessionID
+			r.trace.SessionID = sessionID
+			r.emit(Primary, "session", "Planning session is available for inspection.", workerruntime.Usage{})
+		}
 		if runErr != nil {
 			if result != nil && (result.Content != "" || result.Usage.Source == "provider") {
 				r.emit(Primary, "output", result.Content, result.Usage)
@@ -306,6 +325,9 @@ func (r Runner) Plan(ctx context.Context, config Config, objective string) (plan
 			return tasks, nil
 		}
 		instructions += "\nThe previous plan was invalid: " + err.Error() + ". Return a corrected JSON object; no prose."
+		if sessionID != "" {
+			input = "Correct the previous task graph: " + err.Error() + ". Return only the corrected JSON plan."
+		}
 		r.emit(Primary, "error", "Invalid plan: "+err.Error(), workerruntime.Usage{})
 	}
 	return nil, err

@@ -31,7 +31,10 @@
   let runDraft = ''
   let runChatSending = false
   let runChatStream = null
-  let cleanedWorkflowChatID = ''
+  let executionID = ''
+  let runTools = 'agent'
+  let agentTools = ''
+  let disposed = false
   let preflight = null
   let unsubscribe = () => {}
   let unsubscribeWorkflow = () => {}
@@ -68,6 +71,7 @@
     if (runLocalOpt === null) {
       api.localLLMModels().then((r) => { runLocalOpt = r }).catch(() => { runLocalOpt = { configured: false } })
     }
+    api.agentRuntimeConfig(a.id).then(config => { agentTools = config?.defaultTools || '' }).catch(() => {})
     loadRunModels()
   }
 
@@ -195,7 +199,7 @@
       return
     }
     const local = runLocalParams()
-    preflight = await api.preflightExecution(agent.id, 'workflow', cli, local.model, '', cwd.trim(), local.endpoint, local.localModel)
+    preflight = await api.preflightExecution(agent.id, 'workflow', cli, local.model, runTools === 'agent' ? agentTools : runTools, cwd.trim(), local.endpoint, local.localModel)
       .catch((e) => ({ ok: false, issues: [{ severity: 'error', message: String(e) }] }))
     if (!preflight?.ok) {
       error = (preflight?.issues || []).filter((i) => i.severity === 'error').map((i) => i.message).join('\n') || 'Execution preflight failed.'
@@ -203,6 +207,8 @@
     }
     const warnings = (preflight.issues || []).filter((i) => i.severity === 'warning')
     if (warnings.length && !window.confirm(`${warnings.map((i) => i.message).join('\n\n')}\n\nContinue with this workflow run?`)) return
+    if (disposed) return
+    executionID = globalThis.crypto?.randomUUID?.() || 'workflow-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2)
     running = true
     turns = []
     result = null
@@ -212,14 +218,14 @@
     runChatSending = false
     runChatStream = null
     error = ''
-    unsubscribe = onTurn((t) => { turns = [...turns, t] })
-    unsubscribeWorkflow = onWorkflowStream(handleWorkflowStream)
+    unsubscribe = onTurn((t) => { if (t.run_id === executionID) turns = [...turns, t] })
+    unsubscribeWorkflow = onWorkflowStream(ev => { if (ev.run_id === executionID) handleWorkflowStream(ev) })
     const runCwd = cwd.trim()
     try {
       result = runMode === 'all'
-        ? await api.runAllWorkflows(agent.id, cli, local.model, runCwd, inputsByWorkflow, local.endpoint, local.apiKey, local.localModel)
-        : await api.runWorkflow(agent.id, workflow.name, cli, local.model, runCwd, inputs, local.endpoint, local.apiKey, local.localModel)
-      if (result?.chat_id) {
+        ? await api.runAllWorkflowsTracked(executionID, agent.id, cli, local.model, runCwd, inputsByWorkflow, local.endpoint, local.localModel, runTools)
+        : await api.runWorkflowTracked(executionID, agent.id, workflow.name, cli, local.model, runCwd, inputs, local.endpoint, local.localModel, runTools)
+      if (result?.chat_id && !disposed) {
         runConversation = (await api.chatMessages(result.chat_id).catch(() => [])) || []
         unsubscribeRunChat()
         unsubscribeRunChat = onChatStream(handleRunChatStream)
@@ -269,26 +275,25 @@
     try { await api.cancelChatTurn(result.chat_id) } catch {}
   }
 
-  async function cleanupRunWorkflowChat() {
-    const chatID = result?.chat_id
-    unsubscribeRunChat()
-    unsubscribeRunChat = () => {}
-    if (chatID && chatID !== cleanedWorkflowChatID) {
-      cleanedWorkflowChatID = chatID
-      try { await api.cancelChatTurn(chatID) } catch {}
-      try { await api.deleteChat(chatID) } catch {}
+  async function stopWorkflow() {
+    if (running && executionID) {
+      try { await api.cancelWorkflowRun(executionID) } catch (e) { error = String(e) }
     }
   }
 
   async function close() {
-    await cleanupRunWorkflowChat()
+    await stopWorkflow()
+    await stopRunChat()
     dispatch('close')
   }
 
   onDestroy(() => {
+    disposed = true
     unsubscribe()
     unsubscribeWorkflow()
-    cleanupRunWorkflowChat()
+    unsubscribeRunChat()
+    if (running && executionID) api.cancelWorkflowRun(executionID).catch(() => {})
+    if (runChatSending && result?.chat_id) api.cancelChatTurn(result.chat_id).catch(() => {})
   })
 
   $: matchTotal = privacyCounts ? Object.values(privacyCounts).reduce((a, b) => a + b, 0) : 0
@@ -297,6 +302,7 @@
 {#if agent}
   {#if running}
     <div class="card">
+      <div class="row"><button class="btn" on:click={stopWorkflow}>Stop workflow</button><span class="muted">Transcript is saved in Chats.</span></div>
       <div class="card-title">
         Running {agent.name} · {runMode === 'all' ? 'all workflows' : workflow.name} on {cli}…
       </div>
@@ -344,7 +350,7 @@
     <div class="row" style="margin-bottom:14px">
       <button class="btn" on:click={close}>← Agents</button>
       <span class="pill" class:ok={result.outcome === 'completed'} class:err={result.outcome !== 'completed'}>{result.outcome}</span>
-      {#if result.chat_id}<span class="pill">temporary session</span>{/if}
+      {#if result.chat_id}<span class="pill">saved conversation</span>{/if}
     </div>
     {#if error}<div class="banner">{error}</div>{/if}
     {#if result.error}<div class="banner">{result.error}</div>{/if}
@@ -409,6 +415,14 @@
     </div>
     {#if error}<div class="banner">{error}</div>{/if}
     {#if (agent.workflows || []).length > 0}
+      <label class="lbl" for="workflow-tools">Tool permissions</label>
+      <select id="workflow-tools" class="field" bind:value={runTools}>
+        <option value="agent">Agent default ({agentTools || 'safe'})</option>
+        <option value="">Safe / read only</option>
+        <option value="ask">Ask for approval</option>
+        <option value="edits">Apply edits</option>
+        <option value="full">Full / autonomous</option>
+      </select>
       <label class="lbl">Run mode</label>
       <div class="row" style="flex-wrap:wrap">
         <button class="btn" class:primary={runMode === 'single'} on:click={() => (runMode = 'single', privacyCounts = null)}>One workflow</button>

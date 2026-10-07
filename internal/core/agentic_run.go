@@ -32,6 +32,7 @@ type ManagedRunEvent struct {
 }
 
 type ManagedRunRequest struct {
+	artifactSource string // Host-only preceding completed workflow step; never decoded from model/RPC input.
 	ChatID         string
 	TaskBudgetID   string
 	FinishEvidence []agentic.EvidenceRequirement
@@ -92,9 +93,10 @@ type ManagedRun struct {
 }
 
 type ManagedRunArtifact struct {
-	Name      string `json:"name"`
-	Size      int64  `json:"size"`
-	CreatedAt string `json:"createdAt"`
+	SourceRunID string `json:"sourceRunId,omitempty"`
+	Name        string `json:"name"`
+	Size        int64  `json:"size"`
+	CreatedAt   string `json:"createdAt"`
 }
 
 type ManagedRunMemoryItem struct {
@@ -309,6 +311,38 @@ func (c *Core) RunManagedAgent(ctx context.Context, req ManagedRunRequest) (*Man
 		instructions = AgentSystemPrompt(req.Agent)
 	}
 	result, runErr := agentic.Run(ctx, agentic.Config{
+		PrepareArtifacts: func(ctx context.Context, accept func(agentic.ArtifactInput) error) error {
+			if req.artifactSource == "" {
+				return nil
+			}
+			previous, err := c.GetManagedRun(req.artifactSource)
+			if err != nil {
+				return err
+			}
+			if previous.AgentID != req.Agent.ID || previous.State != "completed" {
+				return errors.New("workflow artifacts require a completed preceding step from this agent")
+			}
+			seen := map[string]bool{}
+			// Last write wins, matching the source run's artifact store.
+			for i := len(previous.Artifacts) - 1; i >= 0; i-- {
+				artifact := previous.Artifacts[i]
+				if seen[artifact.Name] {
+					continue
+				}
+				seen[artifact.Name] = true
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				body, err := c.ReadManagedArtifact(previous.ID, artifact.Name)
+				if err != nil {
+					return err
+				}
+				if err := accept(agentic.ArtifactInput{Name: artifact.Name, Content: string(body), SourceRunID: previous.ID}); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
 		ReserveInput: func(ctx context.Context, input, skill, limit int64) error {
 			fallback := req.TaskBudgetID
 			if fallback == "" {
@@ -427,14 +461,18 @@ func (m *managedCLIModel) Turn(ctx context.Context, input agentic.ModelInput, em
 			return
 		}
 		payload := ev.Raw
-		if ev.Usage != nil || ev.Model != "" {
+		if ev.Usage != nil || ev.Model != "" || ev.ID != "" {
 			payload = make(map[string]any, len(ev.Raw)+3)
 			for key, value := range ev.Raw {
 				payload[key] = value
 			}
 			payload["provider_usage"], payload["provider_model"], payload["provider_event_id"] = ev.Usage, ev.Model, ev.ID
 		}
-		emit(agentic.Event{Type: "model." + ev.Type, Tool: ev.Tool, Detail: ev.Detail, OK: ev.OK, Payload: payload})
+		detail := ev.Detail
+		if ev.Type == "reasoning" && detail == "" {
+			detail = ev.Text
+		}
+		emit(agentic.Event{Type: "model." + ev.Type, Tool: ev.Tool, Detail: detail, OK: ev.OK, Payload: payload})
 	}
 	// V2 requests carry the complete measured payload each time. Starting a
 	// fresh safe CLI call prevents private native history duplicating it.
@@ -610,7 +648,7 @@ func managedRunFromInstance(instance *agentic.Instance, memory *agentic.Memory) 
 		out.CompletedAt = instance.CompletedAt.Format(time.RFC3339Nano)
 	}
 	for _, artifact := range instance.Artifacts {
-		out.Artifacts = append(out.Artifacts, ManagedRunArtifact{Name: artifact.Name, Size: artifact.Size, CreatedAt: artifact.CreatedAt.Format(time.RFC3339Nano)})
+		out.Artifacts = append(out.Artifacts, ManagedRunArtifact{SourceRunID: artifact.SourceRunID, Name: artifact.Name, Size: artifact.Size, CreatedAt: artifact.CreatedAt.Format(time.RFC3339Nano)})
 	}
 	if memory != nil {
 		for _, item := range memory.Items {

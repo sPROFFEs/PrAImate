@@ -21,6 +21,7 @@ export function workerTaskRoute(task, run, recorded = false) {
 // Invocation routes come from recorded events, so changing a profile cannot
 // relabel past work as if it had run on the new CLI/model.
 export function workerExecutions(run) {
+	if (run?.attempts?.length) return run.attempts.map(attempt => ({ ...attempt, events: (run.events || []).filter(event => event.workerID === attempt.id) }))
   const groups = new Map()
   for (const event of run?.events || []) {
     const key = event.workerID || `${event.taskID || 'legacy'}:${event.tier}`
@@ -56,14 +57,15 @@ export function workerExecutions(run) {
 }
 
 export function workerEventLabel(event) {
-  return ({ started: 'Assignment started', request: 'Model input', input: 'Planning input', stream: 'Model output', reasoning: 'Reported reasoning',
-    response: 'Model response', output: 'Plan response', backend_status: 'Backend activity', tool_start: 'Tool started', tool_end: 'Tool finished', tool: 'Tool result',
+  return ({ retry_scheduled: 'Automatic retry scheduled', started: 'Assignment started', request: 'Model input', input: 'Planning input', stream: 'Model output', reasoning: 'Reported reasoning',
+    result: 'Assignment result', response: 'Model response', output: 'Plan response', backend_status: 'Backend activity', tool_start: 'Tool started', tool_end: 'Tool finished', tool: 'Tool result',
     delegation: `Delegated to ${workerLabel(event.target)}`, delegated_result: `Returned from ${workerLabel(event.target)}`,
     delegated_error: 'Delegation failed', error: 'Operation error', failed: 'Worker failed', completed: 'Assignment completed',
     cancelled: 'Worker stopped', edited: 'File changed', inspect: 'File inspected', list: 'Directory listed' })[event.kind] || event.kind
 }
 
 export function workerUsage(run) {
+	if (run?.activityVersion) return run.usage || { input: 0, output: 0, calls: 0 }
   let input = 0, output = 0, calls = 0
   for (const event of run?.events || []) {
     if (['response', 'output'].includes(event.kind) && (event.usage?.source || event.usage?.Source) === 'provider') {

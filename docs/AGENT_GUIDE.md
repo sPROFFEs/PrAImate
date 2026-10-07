@@ -345,15 +345,17 @@ steps:
 
 - `user_message` renders and sends its nonblank `template`.
 - `wait_for_assistant` is an explicit barrier after the preceding assistant
-  reply. `until_tool` is retained in the format for compatibility, but the
-  current runner does not wait for a particular tool call.
+  reply. When `until_tool` is specified, the preceding turn must report that
+  named tool completed successfully. The legacy `complete` marker waits for a successful final assistant reply. Missing/failed/unobservable named tool execution
+  stops the workflow before the next user step; inspect its retained transcript.
 
 The first message runs as a new CLI turn. Later messages resume the native CLI
 session where supported. Running all workflows together requires a resumable
 CLI because context is shared between workflows.
 
-Workflow execution currently uses the runner's full tool mode. The agent-level
-`tools` list does not restrict it.
+Desktop workflow runs provide an explicit permission selector, including Agent default and safe mode. Native CLI permissions use the selected level; managed agents use their configured capabilities and host approvals. The agent-level `tools` list alone does not restrict a native CLI.
+
+Managed workflows execute user steps separately in declaration order, passing bounded previous results to subsequent steps. Artifacts from a completed step are copied by the host into the next step with their source run recorded. Artifact finish requirements apply to the final user step of each workflow and still verify actual file bytes, size and any configured SHA256. Closing the Desktop workflow view retains its transcript in Chats; Stop cancels only that execution. Failed or cancelled turns retain available partial replies and native session IDs.
 
 ## Attach a requirements script
 

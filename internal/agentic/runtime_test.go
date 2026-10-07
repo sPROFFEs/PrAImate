@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,43 @@ func (m *scriptedModel) Turn(_ context.Context, input ModelInput, _ EventSink) (
 	out := m.outputs[0]
 	m.outputs = m.outputs[1:]
 	return &ModelOutput{Text: out, SessionID: "session-1"}, nil
+}
+
+func TestPrepareArtifactsFailureRetainsCheckpoint(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		t.Run(fmt.Sprint(cancelled), func(t *testing.T) {
+			root := t.TempDir()
+			model := &scriptedModel{}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			prepareErr := errors.New("source artifact is unavailable")
+			wantState := StateFailed
+			result, err := Run(ctx, Config{
+				RootDir: root, RunID: "next-step", AgentID: "reviewer", Task: "Continue the workflow.", Model: model,
+				PrepareArtifacts: func(_ context.Context, accept func(ArtifactInput) error) error {
+					if err := accept(ArtifactInput{Name: "report.md", Content: "Existing work", SourceRunID: "first-step"}); err != nil {
+						return err
+					}
+					if cancelled {
+						cancel()
+						prepareErr, wantState = context.Canceled, StateStopped
+					}
+					return prepareErr
+				},
+			})
+			if !errors.Is(err, prepareErr) || result == nil || result.Instance.State != wantState || len(model.inputs) != 0 {
+				t.Fatalf("result=%+v err=%v model calls=%d", result, err, len(model.inputs))
+			}
+			loaded, _, _, err := loadRunState(filepath.Join(root, "next-step"))
+			if err != nil || loaded.State != wantState || loaded.Error != prepareErr.Error() || loaded.InputLimitBytes == 0 || len(loaded.Artifacts) != 1 {
+				t.Fatalf("checkpoint=%+v err=%v", loaded, err)
+			}
+			body, err := ReadArtifact(root, "next-step", "report.md")
+			if err != nil || string(body) != "Existing work" {
+				t.Fatalf("artifact=%q err=%v", body, err)
+			}
+		})
+	}
 }
 
 func TestRunLifecycleMemoryArtifactsAndExplicitFinish(t *testing.T) {
@@ -246,5 +284,23 @@ func TestParseDecisionRobustPreambleThinkingAndMultipleJSON(t *testing.T) {
 		if c.tool != "" && dec.Tool != c.tool {
 			t.Fatalf("parseDecision(%q).Tool = %q, want %q", c.input, dec.Tool, c.tool)
 		}
+	}
+}
+
+func TestReadArtifactRejectsSymlinksAcrossWorkflowSteps(t *testing.T) {
+	root := t.TempDir()
+	run := filepath.Join(root, "run", "artifacts")
+	if err := os.MkdirAll(run, 0700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(target, []byte("fixture data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(run, "report.md")); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	if _, err := ReadArtifact(root, "run", "report.md"); err == nil {
+		t.Fatal("inherited artifact followed a symlink")
 	}
 }

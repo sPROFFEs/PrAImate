@@ -21,15 +21,16 @@
     allowCommands: false,
     maxOutputTokens: runtime === 'native' ? 2048 : 0,
   })
-  let config = { workspace: '', profiles: [profile('primary', 'codex'), profile('middle', 'claude'), profile('fast', '', 'native')] }
+  let config = { workspace: '', accessMode:'supervised',maxRetries:0,retryDelaySeconds:5, profiles: [profile('primary', 'codex'), profile('middle', 'claude'), profile('fast', '', 'native')] }
   let clis = []
   let modelSuggestions = {}
   let runs = []
   let selected = $openWorkerId || ''
   let snapshot = null
+	let approvals = []
   let task = ''
   let newTask = ''
-  let executionMode = 'hierarchical'
+  let executionMode = 'parallel'
   let maxParallel = 2
   let error = ''
   let loading = true
@@ -52,6 +53,8 @@
       if ($openWorkerId && runs.some(run => run.id === $openWorkerId)) { selected = $openWorkerId; openWorkerId.set(null) }
       if (!runs.some((run) => run.id === selected)) selected = runs[0]?.id || ''
       const id = selected
+      const pending = id ? await api.workerRunApprovals(id) : []
+      if (!disposed && selected === id) approvals = pending || []
       const summary = runs.find((run) => run.id === id)
       const stamp = `${id}:${summary?.updatedAt}:${summary?.status}`
       if (id && (!snapshot || summary?.status === 'running' || snapshotStamp !== stamp)) {
@@ -177,7 +180,7 @@
         </div>
         <p class="chat-meta">{snapshot.workspace} · Started {new Date(snapshot.startedAt).toLocaleString()}</p>
         <div class="monitor-link"><button on:click={async () => { try { await api.detachSession('workers', snapshot.id, snapshot.title || 'Worker execution') } catch (e) { error = String(e) } }}>Open execution window ↗</button><span>Track assignments, backend activity and handoffs in a separate window.</span></div>
-        <WorkerMonitor {snapshot} {clis} models={modelSuggestions} on:models={event => loadModels(event.detail)} on:refresh={refresh} />
+        <WorkerMonitor {snapshot} {clis} {approvals} models={modelSuggestions} on:models={event => loadModels(event.detail)} on:refresh={refresh} />
       {:else}
         <p class="empty">Select a saved worker chat or create a new one.</p>
       {/if}

@@ -24,6 +24,7 @@ const (
 )
 
 type Profile struct {
+	FullAccess      bool   `json:"fullAccess,omitempty"`
 	Tier            Tier   `json:"tier"`
 	Runtime         string `json:"runtime"` // "cli" or "native"
 	CLI             string `json:"cli,omitempty"`
@@ -39,13 +40,22 @@ type Profile struct {
 }
 
 type Config struct {
-	Workspace string    `json:"workspace"`
-	Profiles  []Profile `json:"profiles"`
+	AccessMode        string    `json:"accessMode,omitempty"`
+	MaxRetries        int       `json:"maxRetries,omitempty"`
+	RetryDelaySeconds int       `json:"retryDelaySeconds,omitempty"`
+	Workspace         string    `json:"workspace"`
+	Profiles          []Profile `json:"profiles"`
 }
 
 func (c Config) Profile(tier Tier) (Profile, bool) {
 	for _, p := range c.Profiles {
 		if p.Tier == tier {
+			if c.AccessMode == "supervised" {
+				p.FullAccess = false
+			}
+			if c.AccessMode == "full" || p.FullAccess {
+				p.FullAccess, p.AllowEdits, p.AllowCommands = true, true, true
+			}
 			return p, true
 		}
 	}
@@ -53,6 +63,12 @@ func (c Config) Profile(tier Tier) (Profile, bool) {
 }
 
 func (c Config) Validate() error {
+	if c.AccessMode != "" && c.AccessMode != "supervised" && c.AccessMode != "full" {
+		return errors.New("worker access mode must be supervised or full")
+	}
+	if c.MaxRetries < 0 || c.MaxRetries > 10 || c.RetryDelaySeconds < 0 || c.RetryDelaySeconds > 60 {
+		return errors.New("automatic retries must be 0–10 and retry delay 0–60 seconds")
+	}
 	if c.Workspace == "" || !filepath.IsAbs(c.Workspace) {
 		return errors.New("worker workspace must be an absolute path")
 	}
@@ -104,7 +120,8 @@ func (c Config) Validate() error {
 			return fmt.Errorf("%s worker runtime must be cli or native", p.Tier)
 		}
 	}
-	for _, p := range c.Profiles {
+	for _, raw := range c.Profiles {
+		p, _ := c.Profile(raw.Tier)
 		if len(workerInstructions(c, p.Tier, p))+512 > p.MaxInputBytes {
 			return fmt.Errorf("%s worker input limit is too small for its instructions", p.Tier)
 		}

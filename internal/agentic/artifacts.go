@@ -12,9 +12,10 @@ import (
 )
 
 type Artifact struct {
-	Name      string    `json:"name"`
-	Size      int64     `json:"size"`
-	CreatedAt time.Time `json:"createdAt"`
+	SourceRunID string    `json:"sourceRunId,omitempty"`
+	Name        string    `json:"name"`
+	Size        int64     `json:"size"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 var artifactNameRE = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)

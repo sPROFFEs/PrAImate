@@ -15,11 +15,12 @@ import (
 )
 
 type Worktree struct {
-	ID      string `json:"id"`
-	TaskID  string `json:"taskID"`
-	Path    string `json:"path"`
-	Branch  string `json:"branch"`
-	BaseRef string `json:"baseRef"`
+	ID                string   `json:"id"`
+	TaskID            string   `json:"taskID"`
+	Path              string   `json:"path"`
+	Branch            string   `json:"branch"`
+	BaseRef           string   `json:"baseRef"`
+	IntegratedCommits []string `json:"integratedCommits,omitempty"`
 }
 
 type WorktreeManager struct {
@@ -175,15 +176,26 @@ func (w WorktreeManager) IntegrateDependencies(ctx context.Context, tree *Worktr
 		return err
 	}
 	for _, commit := range commits {
+		already := false
+		for _, saved := range tree.IntegratedCommits {
+			if saved == commit {
+				already = true
+				break
+			}
+		}
+		if already {
+			continue
+		}
 		if _, err := gitCommand(ctx, tree.Path, "cherry-pick", commit); err != nil {
 			return fmt.Errorf("dependency conflict in %s (resolve or discard this worktree): %w", tree.Path, err)
 		}
+		tree.IntegratedCommits = append(tree.IntegratedCommits, commit)
+		if head, err := gitCommand(ctx, tree.Path, "rev-parse", "HEAD"); err == nil {
+			tree.BaseRef = head
+		} else {
+			return err
+		}
 	}
-	base, err := gitCommand(ctx, tree.Path, "rev-parse", "HEAD")
-	if err != nil {
-		return err
-	}
-	tree.BaseRef = base
 	return nil
 }
 

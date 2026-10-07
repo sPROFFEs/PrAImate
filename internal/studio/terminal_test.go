@@ -13,6 +13,11 @@ import (
 
 func terminalExecutables(t *testing.T) string {
 	t.Helper()
+	// Isolate managed CLI discovery from executables installed by the developer.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", home)
 	dir := filepath.Join(t.TempDir(), "cli tools with spaces")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
@@ -31,8 +36,8 @@ func terminalExecutables(t *testing.T) string {
 }
 
 func TestTerminalPlanUsesSelectedCLIAndModelWithoutMutatingSession(t *testing.T) {
-	s, _ := fixture(t)
 	dir := terminalExecutables(t)
+	s, _ := fixture(t)
 	s.session.Model = "selected-model"
 	t.Setenv("PRAIMATE_STUDIO_TOKEN", "test-secret-not-for-terminal")
 	for _, cli := range []string{"claude", "openclaude", "codex", "opencode", "praimate-code", "praimate-cli", "copilot", "antigravity"} {
@@ -108,8 +113,8 @@ func TestTerminalPlanRejectsMissingUnknownAndUnauthenticatedLaunches(t *testing.
 }
 
 func TestNativeTerminalSnapshotPreservesCoreConfiguration(t *testing.T) {
-	s, _ := fixture(t)
 	terminalExecutables(t)
+	s, _ := fixture(t)
 	s.session.CLI = "praimate-cli"
 	s.session.AgentID = "dev-team"
 	s.session.Tools = "edits"

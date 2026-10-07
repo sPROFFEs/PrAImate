@@ -290,6 +290,7 @@ function webviewHarness(withAssistant = false) {
   vm.createContext(sandbox);vm.runInContext(script,sandbox);
   return {elements,posted,send:data=>(listeners.message || []).forEach(fn=>fn({data})),eval:code=>vm.runInContext(code,sandbox)};
 }
+const descendants = node => [node,...(node.children || []).flatMap(descendants)];
 test('webview renders escaped prose and code using text nodes and clears old history', () => {
   const h = webviewHarness(); assert.equal(h.posted[0].type,'ready');
   h.send({type:'messages',messages:[{role:'assistant',content:'line one\nline two <img src=x>\n'+'```js\n<script>alert(1)</script>\n```'}]});
@@ -370,7 +371,15 @@ test('Workers view keeps separate models for the same CLI and renders live event
   assert.equal(h.posted.at(-1).type,'workerLoad');
   const profiles=['primary','middle','fast'].map((tier,index) => ({tier,runtime:'cli',cli:'codex',model:['astra','medium','small'][index],timeoutSeconds:120,maxInputBytes:65536,maxOutputTokens:0}));
   h.send({type:'workerState',config:{workspace:'/project',profiles},runs:[]});
-  assert.equal(h.elements.get('worker-profiles').children.length,3);
+  const sections=h.elements.get('worker-profiles').children;
+  assert.equal(sections.filter(section=>section.className!=='worker-policy').length,3);
+  const policy=sections.find(section=>section.className==='worker-policy');
+  assert.ok(policy);
+  descendants(policy).find(e=>e.tag==='select').value='full';
+  descendants(policy).find(e=>e.tag==='select').fire('change');
+  const controls=descendants(h.elements.get('worker-profiles').children[0]).filter(e=>e.tag==='input');
+  controls[0].value='3';controls[0].fire('input');
+  controls[1].value='5';controls[1].fire('input');
   h.elements.get('worker-new').fire('click');
   assert.equal(h.elements.get('worker-create').hidden,false);
   h.eval("$('worker-task').value='Fix a bug'");
@@ -378,24 +387,28 @@ test('Workers view keeps separate models for the same CLI and renders live event
   const request=h.posted.at(-1);
   assert.equal(request.type,'workerStart');
   assert.deepEqual(request.config.profiles.map(p=>p.model),['astra','medium','small']);
+  assert.equal(request.config.accessMode,'full');
+  assert.equal(request.config.maxRetries,3);
+  assert.equal(request.config.retryDelaySeconds,5);
   h.send({type:'workerStarted',id:'run-1'});
   assert.equal(h.elements.get('worker-create').hidden,true);
   h.send({type:'workerSnapshot',runs:[{id:'run-1',task:'Fix a bug',status:'running'}],snapshot:{id:'run-1',task:'Fix a bug',status:'running',profiles,events:[{tier:'fast',kind:'stream',text:'<script>unsafe</script>',timestamp:'2026-01-01T00:00:00Z'}]}});
-  const fast=h.elements.get('worker-lanes').children[2];
-  assert.equal(fast.children[1].children[1].textContent,'<script>unsafe</script>');
-  assert.equal(fast.children[1].children[1].innerHTML,'');
+  const output=descendants(h.elements.get('worker-lanes')).find(e=>e.tag==='pre' && e.textContent==='<script>unsafe</script>');
+  assert.ok(output);assert.equal(output.innerHTML,'');
+  assert.deepEqual(descendants(h.elements.get('worker-lanes')).filter(e=>e.tag==='h2').map(e=>e.textContent),['Needs you · 0','Working · 1','Done · 0','Queued · 0']);
 });
 
-test('worker activity displays other CLI lifecycle, reasoning and provider errors in the assigned lane', () => {
+test('worker console displays other CLI lifecycle, reasoning and provider errors for the selected attempt', () => {
   const h=webviewHarness();
   h.send({type:'status',status:{connected:true,activeWorkspace:'/project'}});
   h.send({type:'navigate',page:'workers',workerID:'run'});
   const profiles=[{tier:'primary',cli:'codex',model:'reasoner'},{tier:'middle',cli:'praimate-code',model:'router/medium'},{tier:'fast',cli:'openclaude',model:'small'}];
   const events=['backend_status','reasoning','error'].map((kind,index)=>({workerID:'middle-call',tier:'middle',cli:'praimate-code',model:'router/medium',kind,text:['praimate-code process started','Reported model activity','Provider unavailable (ref: err_fixture)'][index],timestamp:'2026-10-04T10:00:00Z'}));
   h.send({type:'workerSnapshot',selectedId:'run',runs:[{id:'run',status:'failed'}],snapshot:{id:'run',status:'failed',profiles,events}});
-  const lane=h.elements.get('worker-lanes').children[1];
+  const items=descendants(h.elements.get('worker-lanes')).filter(e=>e.className==='worker-event');
+  assert.equal(items.length,events.length);
   for(let index=0;index<events.length;index++) {
-    const item=lane.children[index+1];
+    const item=items[index];
     assert.match(item.children[0].textContent,/praimate-code \/ router\/medium/);
     assert.equal(item.children[1].textContent,events[index].text);
   }
@@ -441,7 +454,7 @@ test('parallel worker drafts keep independent backend overrides and display Git 
   const tasks=[{id:'a',description:'<img src=x>',dependencies:[],worker:{profile:'middle',cli:'claude',model:'sonnet'},status:'pending'}];
   const snapshot={id:'dag-run',task:'parallel objective',status:'draft',updatedAt:'one',profiles,events:[],dag:{tasks,maxParallel:2,targetBranch:'main',baseCommit:'1234567890abcdef'}};
   h.send({type:'workerSnapshot',runs:[{id:'dag-run',status:'draft'}],snapshot});
-  const graph=h.elements.get('worker-result').children.find(e=>e.className==='worker-graph');
+  const graph=descendants(h.elements.get('worker-result')).find(e=>e.className==='worker-graph');
   assert.ok(graph);
   graph.children.find(e=>e.tag==='button' && e.textContent==='Run task graph').fire('click');
   const saved=h.posted.at(-1);
@@ -449,7 +462,7 @@ test('parallel worker drafts keep independent backend overrides and display Git 
   h.send({type:'actionResult',id:saved.requestId,ok:true});assert.equal(h.posted.at(-1).type,'workerGraphExecute');
   const completed={...tasks[0],status:'completed',review:'pending',result:{baseCommit:'basecommit',resultCommit:'resultcommit',changedFiles:['file.js'],diff:'<script>malicious</script>'}};
   h.send({type:'workerSnapshot',runs:[{id:'dag-run',status:'review'}],snapshot:{...snapshot,status:'review',updatedAt:'two',dag:{...snapshot.dag,tasks:[completed]}}});
-  const rendered=h.elements.get('worker-result').children.find(e=>e.className==='worker-graph');
+  const rendered=descendants(h.elements.get('worker-result')).find(e=>e.className==='worker-graph');
   const card=rendered.children.find(e=>e.tag==='article');
   const diff=card.children.find(e=>e.tag==='details' && e.children[0].textContent==='Git diff').children[1];
   assert.equal(diff.textContent,'<script>malicious</script>');assert.equal(diff.innerHTML,'');
@@ -463,13 +476,15 @@ test('failed worker tasks show next and previous routes, with an explicit profil
   const pending={id:'pending',description:'Wait',dependencies:['retry'],status:'pending',worker:{profile:'fast'}};
   const snapshot={id:'retry-run',task:'Retry objective',status:'failed',updatedAt:'one',profiles,events:[],dag:{tasks:[failed,pending],maxParallel:1,targetBranch:'main',baseCommit:'abcdef'}};
   const render=run=>h.send({type:'workerSnapshot',runs:[{id:run.id,status:run.status}],snapshot:run});
-  const graph=()=>h.elements.get('worker-result').children.find(e=>e.className==='worker-graph');
+  const graph=()=>descendants(h.elements.get('worker-result')).find(e=>e.className==='worker-graph');
   const card=()=>graph().children.find(e=>e.tag==='article');
   render(snapshot);
   assert.ok(card().children.some(e=>e.textContent==='Next attempt: codex / replacement-middle'));
   assert.ok(card().children.some(e=>e.textContent==='Last attempt: praimate-code / agy/broken'));
   assert.ok(!card().children.some(e=>e.textContent==='Use current profile'));
-  assert.equal(graph().children.find(e=>e.textContent==='Resume pending tasks').disabled,true);
+  assert.equal(graph().children.find(e=>e.textContent==='Resume pending tasks').disabled,false);
+  card().children.find(e=>e.textContent==='Continue with existing changes').fire('click');
+  assert.equal(h.posted.at(-1).type,'workerGraphRetry');assert.equal(h.posted.at(-1).taskID,'retry');
   const pinned={...failed,requestedWorker:{profile:'middle',cli:'praimate-code',model:'agy/broken'}};
   render({...snapshot,updatedAt:'two',dag:{...snapshot.dag,tasks:[pinned,pending]}});
   assert.ok(card().children.some(e=>e.textContent==='Next attempt: praimate-code / agy/broken'));
@@ -545,4 +560,57 @@ test('Application Assistant webview shares config, escapes replies and keeps err
 
 test('Application Assistant command has its own section',async()=>{
  const h=extensionHarness('linux');try{await h.commands.get('praimate.openAssistant')();assert.equal(h.provider().requestedPage,'assistant');}finally{h.close();}
+});
+
+
+test('worker console retains durable attempts and loads paginated activity without cross-run leakage', () => {
+  const h=webviewHarness();h.send({type:'status',status:{connected:true}});
+  const profiles=[{tier:'middle',cli:'codex',model:'new-model'}];
+  const attempts=[{id:'old',taskID:'a',tier:'middle',cli:'praimate-code',model:'old-model',status:'failed',output:'partial'},{id:'new',taskID:'a',tier:'middle',cli:'codex',model:'new-model',status:'completed',output:'done'}];
+  const run={id:'run',status:'review',updatedAt:'one',profiles,attempts,activityVersion:1,usage:{input:23,output:7,calls:2},events:[],dag:{targetBranch:'main',baseCommit:'abc',tasks:[{id:'a',description:'Fix it',status:'completed',worker:{profile:'middle'}}]}};
+  h.send({type:'workerSnapshot',runs:[run],snapshot:run});
+  assert.equal(h.elements.get('worker-followup-panel').hidden,true);
+  assert.equal(h.posted.at(-1).type,'workerActivity');assert.equal(h.posted.at(-1).workerID,'new');
+  const event=(sequence,text)=>({sequence,workerID:'new',kind:'tool',text,timestamp:'2026-10-07T12:00:00Z'});
+  h.send({type:'workerActivity',runId:'run',workerID:'new',activity:{events:[event(2,'latest')],before:20,hasMore:true}});
+  const root=h.elements.get('worker-lanes');descendants(root).find(e=>e.textContent==='Load earlier activity').fire('click');
+  assert.equal(h.posted.at(-1).before,20);
+  h.send({type:'workerActivity',runId:'run',workerID:'new',activity:{events:[event(1,'earlier'),event(2,'latest')],before:10,hasMore:false}});
+  assert.deepEqual(descendants(root).filter(e=>e.tag==='pre').map(e=>e.textContent),['earlier','latest']);
+  const select=descendants(root).find(e=>e['aria-label']==='Execution attempt');select.value='old';select.fire('change');
+  assert.equal(h.posted.at(-1).workerID,'old');
+  h.send({type:'workerActivity',runId:'run',workerID:'new',activity:{events:[event(3,'wrong attempt')],hasMore:false}});
+  assert.ok(!descendants(root).some(e=>e.textContent==='wrong attempt'));
+  const chat={...run,id:'chat',dag:null,status:'completed'};
+  h.send({type:'workerSnapshot',runs:[chat],snapshot:chat});
+  assert.equal(h.elements.get('worker-followup-panel').hidden,false);
+  h.send({type:'workerSnapshot',runs:[],snapshot:null});
+  assert.equal(h.elements.get('worker-followup-panel').hidden,true);
+  h.send({type:'workerActivity',runId:'run',workerID:'old',activity:{events:[event(4,'wrong run')],hasMore:false}});
+  assert.ok(!descendants(root).some(e=>e.textContent==='wrong run'));
+});
+
+
+test('worker recovery bridge preserves task identity and only executes after retry succeeds',async()=>{
+  const h=extensionHarness('linux',true,null,req=>{
+    if(req.method==='workers.activity')return {events:[],before:10,hasMore:true};
+    if(req.method==='workers.task.preview')return {path:'/task',diff:'changes'};
+  });
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    let receive;const messages=[];
+    const view={webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage:m=>messages.push(m),onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){}};
+    h.provider().resolveWebviewView(view);
+    receive({type:'workerGraphRetry',id:'run',taskID:'failed',requestId:1});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(h.requests.filter(r=>r.method.startsWith('workers.graph')).map(r=>r.method),['workers.graph.retry','workers.graph.execute']);
+    assert.equal(h.requests.find(r=>r.method==='workers.graph.retry').params.taskID,'failed');
+    receive({type:'workerActivity',id:'run',workerID:'attempt',before:20,requestId:2});
+    receive({type:'workerTaskPreview',id:'run',taskID:'failed',requestId:3});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(h.requests.find(r=>r.method==='workers.activity').params.before,20);
+    assert.ok(messages.some(m=>m.type==='workerActivity' && m.runId==='run' && m.workerID==='attempt' && m.activity.before===10));
+    assert.ok(messages.some(m=>m.type==='workerTaskPreview' && m.taskID==='failed' && m.preview.path==='/task'));
+  } finally {h.close();}
 });

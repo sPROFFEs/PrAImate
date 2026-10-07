@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
 )
@@ -30,17 +29,9 @@ func (m *Manager) UpdateRunConfig(id string, config Config) error {
 	run.Profiles = append([]Profile(nil), config.Profiles...)
 	config.Profiles = run.Profiles
 	run.config = config
+	run.AccessMode, run.MaxRetries, run.RetryDelaySeconds = config.AccessMode, config.MaxRetries, config.RetryDelaySeconds
 	run.UpdatedAt = time.Now().UTC()
-	var err error
-	if run.DAG != nil {
-		err = m.saveDAGLocked(run)
-	} else {
-		var raw []byte
-		raw, err = json.Marshal(run)
-		if err == nil {
-			_, err = m.core.AddMessage(m.ctx, id, "assistant", string(raw), nil)
-		}
-	}
+	err := m.saveRunLocked(run)
 	if err != nil {
 		*run = previous
 		return err
@@ -107,6 +98,7 @@ func (m *Manager) RetryPlanning(id string) error {
 	previous := *run
 	ctx, cancel := context.WithCancel(m.ctx)
 	run.cancel, run.Status, run.Error = cancel, "planning", ""
+	run.AutoRetriesUsed, run.NextRetryAt = 0, nil
 	if err := m.saveDAGLocked(run); err != nil {
 		*run = previous
 		cancel()

@@ -22,6 +22,9 @@ const (
 )
 
 type Event struct {
+	Sequence        uint64              `json:"sequence,omitempty"`
+	SessionID       string              `json:"sessionID,omitempty"`
+	ProfileHash     string              `json:"profileHash,omitempty"`
 	TaskID          string              `json:"taskID,omitempty"`
 	WorkerID        string              `json:"workerID,omitempty"`
 	ParentID        string              `json:"parentID,omitempty"`
@@ -42,6 +45,7 @@ type Event struct {
 }
 
 type Runner struct {
+	SessionID    string
 	NoDelegation bool
 	Resolve      func(Profile) (workerruntime.Runtime, error)
 	Emit         func(Event)
@@ -63,9 +67,9 @@ func ResolveRuntime(profile Profile) (workerruntime.Runtime, error) {
 		if err != nil {
 			return nil, err
 		}
-		// All worker CLI processes stay in their safe mode. The host brokers
-		// edits and commands separately, so each profile permission is exact.
-		return workerruntime.CLI{Adapter: adapter}, nil
+		// Supervised workers use safe mode and host tools. Explicit full access
+		// also enables the adapter’s autonomous CLI mode.
+		return workerruntime.CLI{Adapter: adapter, FullAccess: profile.FullAccess}, nil
 	}
 	return nil, fmt.Errorf("unsupported worker runtime %q", profile.Runtime)
 }
@@ -374,6 +378,13 @@ For a workspace operation return {"action":"tool","tool":"project.search|project
 	if profile.AllowCommands {
 		b.WriteString("For a command use {\"action\":\"tool\",\"tool\":\"command.run\",\"arguments\":{\"command\":\"executable\",\"args\":[\"arg\"],\"timeout_seconds\":60}}. Use separate argv, not a shell string; every command requires user approval. git.run uses {\"args\":[\"status\",\"--short\"]}.\n")
 	}
+	if profile.FullAccess {
+		text := strings.ReplaceAll(b.String(), "requires user approval", "runs without an approval prompt")
+		text = strings.ReplaceAll(text, "every command requires user approval", "commands run without approval prompts")
+		b.Reset()
+		b.WriteString(text)
+		b.WriteString("Full access is explicitly enabled for this assignment. Execute necessary commands and edits autonomously. Inspect existing effects before retrying failed operations.\n")
+	}
 	if profile.Runtime == "cli" {
 		b.WriteString("Your selected CLI can also use its own tools within its configured permission mode. Use those tools for focused operations, then return the JSON action.\n")
 	}
@@ -422,9 +433,6 @@ func workerInputWithEvidence(task string, observations []string, budget int) str
 		}
 		selected = candidateEntries
 		input = candidate
-		if len(selected) >= 3 {
-			break
-		}
 	}
 	return input
 }
@@ -446,17 +454,28 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 	if r.NoDelegation {
 		instructions += "\nThis is one isolated parallel task. Delegation is disabled. Complete only this assignment in its worktree, and return a final action. Do not change Git branches or commit; the host creates the task commit and review diff. Dependencies are already integrated into this worktree."
 	}
-	tools, err := core.NewWorkerToolBroker(ctx, config.Workspace, profile.AllowEdits, profile.AllowCommands, r.Approval)
+	approval := r.Approval
+	if profile.FullAccess {
+		approval = &core.ApprovalConfig{Request: func(ctx context.Context, _ string, _ map[string]any) (bool, error) {
+			return ctx.Err() == nil, ctx.Err()
+		}}
+	}
+	tools, err := core.NewWorkerToolBroker(ctx, config.Workspace, profile.AllowEdits, profile.AllowCommands, approval)
 	if err != nil {
 		return "", err
 	}
 	defer tools.Close()
 	input := task
+	sessionID := r.SessionID
 	var observations []string
 	consecutiveFailures := 0
 	appendObservation := func(value string) {
 		observations = append(observations, value)
-		input = workerInputWithEvidence(task, observations, profile.MaxInputBytes-len(instructions)-64)
+		if cap.PersistentSession && sessionID != "" {
+			input = truncateWorkerText(value, profile.MaxInputBytes-len(instructions)-256) + "\nContinue the current assignment using the JSON action protocol."
+		} else {
+			input = workerInputWithEvidence(task, observations, profile.MaxInputBytes-len(instructions)-64)
+		}
 	}
 	for step := 0; step < maxWorkerSteps; step++ {
 		if err := ctx.Err(); err != nil {
@@ -470,13 +489,30 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 		r.trace.Phase = "inference"
 		r.emit(tier, "request", input, workerruntime.Usage{})
 		result, err := worker.Execute(ctx, workerruntime.Request{
-			Model: profile.Model, ReasoningEffort: profile.ReasoningEffort, SystemPrompt: instructions + fmt.Sprintf("\nTurns left: %d (run: %d). Finish before this limit.", maxWorkerSteps-step, *remaining+1), Task: input, WorkspaceRoot: config.Workspace,
-			Limits:   workerruntime.Limits{MaxInputBytes: profile.MaxInputBytes, MaxOutputTokens: profile.MaxOutputTokens, Timeout: profile.Timeout()},
-			Progress: func(event workerruntime.ProgressEvent) { r.emit(tier, event.Kind, event.Text, workerruntime.Usage{}) },
+			SessionID: sessionID,
+			Model:     profile.Model, ReasoningEffort: profile.ReasoningEffort, SystemPrompt: instructions + fmt.Sprintf("\nTurns left: %d (run: %d). Finish before this limit.", maxWorkerSteps-step, *remaining+1), Task: input, WorkspaceRoot: config.Workspace,
+			Limits: workerruntime.Limits{MaxInputBytes: profile.MaxInputBytes, MaxOutputTokens: profile.MaxOutputTokens, Timeout: profile.Timeout()},
+			Progress: func(event workerruntime.ProgressEvent) {
+				if event.SessionID != "" && cap.PersistentSession {
+					sessionID = event.SessionID
+					r.trace.SessionID = event.SessionID
+				}
+				r.emit(tier, event.Kind, event.Text, workerruntime.Usage{})
+			},
 		})
+		if result != nil && result.SessionID != "" && cap.PersistentSession {
+			if sessionID != result.SessionID {
+				r.trace.SessionID = result.SessionID
+				r.emit(tier, "session", "CLI session is available for continuation.", workerruntime.Usage{})
+			}
+			sessionID = result.SessionID
+		}
 		if err != nil {
 			if result != nil && (result.Content != "" || result.Usage.Source == "provider") {
 				r.emit(tier, "response", result.Content, result.Usage)
+			}
+			if result != nil {
+				return result.Content, workerError(ctx, profile, "model response", err)
 			}
 			return "", workerError(ctx, profile, "model response", err)
 		}
@@ -484,17 +520,19 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 			return "", fmt.Errorf("%s worker returned an oversized or empty result", tier)
 		}
 		r.emit(tier, "response", result.Content, result.Usage)
+		output = result.Content
 		d, err := parseDecision(result.Content)
 		if err != nil {
 			consecutiveFailures++
 			if consecutiveFailures >= 2 {
-				return "", fmt.Errorf("%s worker could not follow the action protocol: %w", tier, err)
+				return output, fmt.Errorf("%s worker could not follow the action protocol: %w", tier, err)
 			}
 			r.emit(tier, "error", err.Error(), workerruntime.Usage{})
 			appendObservation("Invalid response; no host action was executed. " + err.Error() + ". Return exactly one JSON action object. Do not repeat any CLI tool side effects.")
 			continue
 		}
 		if d.Action == "final" {
+			r.emit(tier, "result", d.Content, workerruntime.Usage{})
 			return d.Content, nil
 		}
 		if d.Action == "tool" {
@@ -557,7 +595,9 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 		}
 		r.trace.Phase, r.trace.Target = "waiting", d.Tier
 		r.emit(tier, "delegation", d.Task, workerruntime.Usage{})
-		childResult, err := r.runTier(ctx, config, d.Tier, d.Task, remaining)
+		child := r
+		child.SessionID = ""
+		childResult, err := child.runTier(ctx, config, d.Tier, d.Task, remaining)
 		r.trace.Phase = "execution"
 		if err != nil {
 			consecutiveFailures++
@@ -577,5 +617,5 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 		r.trace.Target = ""
 		appendObservation("Delegated " + string(d.Tier) + " result:\n" + childResult)
 	}
-	return "", fmt.Errorf("%s worker exceeded the %d-step limit", tier, maxWorkerSteps)
+	return output, fmt.Errorf("%s worker exceeded the %d-step limit; continue this assignment after inspecting its activity", tier, maxWorkerSteps)
 }

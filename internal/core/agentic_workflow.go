@@ -3,15 +3,16 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
 
+// Managed workflows execute declared user steps in order. A later step cannot
+// run before the preceding task and its explicit tool gate have completed.
 func (c *Core) runManagedWorkflowSequence(ctx context.Context, cfg workflowRunConfig, plans []workflowRunPlan, res *RunResult) *RunResult {
-	var selections []ChatSettings
-	v2 := false
+	selections := make([]ChatSettings, 0, len(plans))
 	for _, plan := range plans {
-		// Preflight the complete sequence before any model request.
 		if _, err := RenderWorkflow(cfg.Agent, plan.Workflow, plan.Inputs); err != nil {
 			res.Err = err
 			return res
@@ -22,20 +23,12 @@ func (c *Core) runManagedWorkflowSequence(ctx context.Context, cfg workflowRunCo
 			return res
 		}
 		selections = append(selections, settings)
-		v2 = v2 || settings.SkillsV2 != nil || len(plan.Workflow.FinishEvidence) > 0
 	}
-	chatID := c.maybeCreateChat(ctx, RunOptions{
-		Agent: cfg.Agent, WorkflowName: res.WorkflowName, CLI: cfg.CLI,
-		Cwd: cfg.Cwd, Model: cfg.Model, Tools: cfg.Tools, Persist: cfg.Persist,
-		ChatTitle: cfg.ChatTitle, ChatSettings: selections[0],
-	})
+	chatID := c.maybeCreateChat(ctx, RunOptions{Agent: cfg.Agent, WorkflowName: res.WorkflowName, CLI: cfg.CLI,
+		Cwd: cfg.Cwd, Model: cfg.Model, Tools: cfg.Tools, Persist: cfg.Persist, ChatTitle: cfg.ChatTitle, ChatSettings: selections[0]})
 	res.ChatID = chatID
-	if !v2 {
-		res = c.runManagedWorkflowBatch(ctx, cfg, plans, res, "", 0)
-		c.maybeEndChat(ctx, chatID, res.Outcome)
-		return res
-	}
-	var previous strings.Builder
+	defer func() { c.maybeEndChat(ctx, chatID, res.Outcome) }()
+	previous := ""
 	for i, plan := range plans {
 		partCfg := cfg
 		partCfg.ChatSettings = selections[i]
@@ -46,30 +39,90 @@ func (c *Core) runManagedWorkflowSequence(ctx context.Context, cfg workflowRunCo
 			}); err != nil {
 				res.Err = err
 				res.Outcome = OutcomeAdapterErr
-				break
+				return res
 			}
 		}
-		part := c.runManagedWorkflowBatch(ctx, partCfg, []workflowRunPlan{plan}, &RunResult{
-			AgentID: res.AgentID, WorkflowName: plan.Workflow.Name, ChatID: chatID, Outcome: OutcomeAdapterErr,
-		}, previous.String(), len(res.Turns))
-		res.Turns = append(res.Turns, part.Turns...)
-		res.RunID, res.SessionID, res.Outcome, res.Err = part.RunID, part.SessionID, part.Outcome, part.Err
-		if part.Err != nil {
-			break
+		artifactSource := ""
+		lastUser := -1
+		for j, step := range plan.Workflow.Steps {
+			if step.Kind == StepUserMessage {
+				lastUser = j
+			}
 		}
-		for _, turn := range part.Turns {
-			if turn.Reply != nil {
-				previous.WriteString(plan.Workflow.Name + ":\n" + turn.Reply.Text + "\n")
+		completedTools := map[string]bool{}
+		for j, step := range plan.Workflow.Steps {
+			if err := ctx.Err(); err != nil {
+				res.Err = err
+				res.Outcome = managedRunOutcome(err)
+				return res
+			}
+			if step.Kind == StepWaitForAssistant {
+				if tool := strings.TrimSpace(step.UntilTool); tool != "" && tool != "complete" && !completedTools[tool] {
+					res.Err = fmt.Errorf("workflow %q: required tool %q did not complete successfully in the preceding task", plan.Workflow.Name, tool)
+					res.Outcome = OutcomeAgentFailed
+					emitWorkflowEvent(cfg.OnEvent, WorkflowRunEvent{WorkflowName: plan.Workflow.Name, TurnIndex: max(len(res.Turns)-1, 0), Type: "error", Detail: res.Err.Error()})
+					return res
+				}
+				emitWaitBarrier(cfg.OnEvent, plan.Workflow.Name, max(len(res.Turns)-1, 0), step.UntilTool)
+				continue
+			}
+			if step.Kind != StepUserMessage {
+				continue
+			}
+			completedTools = map[string]bool{}
+			toolNames := map[string]string{}
+			turnIndex := len(res.Turns)
+			partCfg.OnEvent = func(ev WorkflowRunEvent) {
+				if ev.Type == "tool_start" && ev.ID != "" {
+					toolNames[ev.ID] = ev.Tool
+				}
+				if ev.Type == "tool_end" && ev.OK {
+					name := ev.Tool
+					if name == "" {
+						name = toolNames[ev.ID]
+					}
+					if name != "" {
+						completedTools[name] = true
+					}
+				}
+				ev.TurnIndex = turnIndex
+				emitWorkflowEvent(cfg.OnEvent, ev)
+			}
+			workflow := *plan.Workflow
+			workflow.Steps = []WorkflowStep{step}
+			if j != lastUser {
+				workflow.FinishEvidence = nil
+			}
+			part := c.runManagedWorkflowBatch(ctx, partCfg, []workflowRunPlan{{Workflow: &workflow, Inputs: plan.Inputs}}, &RunResult{
+				AgentID: res.AgentID, WorkflowName: plan.Workflow.Name, ChatID: chatID, Outcome: OutcomeAdapterErr,
+			}, previous, turnIndex, artifactSource)
+			res.Turns = append(res.Turns, part.Turns...)
+			res.RunID, res.SessionID, res.Outcome, res.Err = part.RunID, part.SessionID, part.Outcome, part.Err
+			if part.Err != nil {
+				return res
+			}
+			artifactSource = part.RunID
+			for _, turn := range part.Turns {
+				if turn.Reply != nil {
+					// Keep a compact handoff instead of replaying every full result.
+					runes := []rune(turn.Reply.Text)
+					if len(runes) > 4096 {
+						runes = append(runes[:4096], []rune("… (see saved transcript)")...)
+					}
+					previous += plan.Workflow.Name + ":\n" + string(runes) + "\n"
+					prior := []rune(previous)
+					if len(prior) > 8192 {
+						previous = string(prior[len(prior)-8192:])
+					}
+				}
 			}
 		}
 	}
-	c.maybeEndChat(ctx, chatID, res.Outcome)
+	res.Outcome = OutcomeCompleted
 	return res
 }
 
-// Legacy sequences remain one managed task. V2 sequences use one bounded run
-// per workflow, carrying results as task data, never the previous skill body.
-func (c *Core) runManagedWorkflowBatch(ctx context.Context, cfg workflowRunConfig, plans []workflowRunPlan, res *RunResult, previous string, turnIndex int) *RunResult {
+func (c *Core) runManagedWorkflowBatch(ctx context.Context, cfg workflowRunConfig, plans []workflowRunPlan, res *RunResult, previous string, turnIndex int, artifactSource string) *RunResult {
 	redaction := c.PrivacyScanner().NewRedactionSession()
 	var task strings.Builder
 	if previous != "" {
@@ -107,6 +160,7 @@ func (c *Core) runManagedWorkflowBatch(ctx context.Context, cfg workflowRunConfi
 		return res
 	}
 	managed, runErr := c.RunManagedAgent(ctx, ManagedRunRequest{
+		artifactSource: artifactSource,
 		FinishEvidence: plans[0].Workflow.FinishEvidence,
 		SkillSettings:  &skillSettings,
 		Surface:        SurfaceWorkflow, Agent: cfg.Agent, CLI: cfg.CLI, Cwd: cfg.Cwd,
@@ -131,7 +185,9 @@ func (c *Core) runManagedWorkflowBatch(ctx context.Context, cfg workflowRunConfi
 	}
 	res.Turns = append(res.Turns, turn)
 	res.SessionID = managed.SessionID
-	c.maybeAddMessageWithMeta(ctx, chatID, "assistant", final, map[string]any{
+	persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer persistCancel()
+	c.maybeAddMessageWithMeta(persistCtx, chatID, "assistant", final, map[string]any{
 		"managed_run_id": managed.ID, "managed_state": managed.State,
 		"artifacts": managed.Artifacts, "working_memory_items": len(managed.Memory),
 	})
@@ -152,6 +208,9 @@ func managedWorkflowEvent(workflowName string, event ManagedRunEvent) WorkflowRu
 		WorkflowName: workflowName, TurnIndex: max(event.Turn-1, 0),
 		Type: event.Type, Tool: event.Tool, Detail: event.Detail, OK: event.OK,
 	}
+	if id, ok := event.Payload["provider_event_id"].(string); ok {
+		out.ID = id
+	}
 	switch event.Type {
 	case "run.started":
 		out.Type = "workflow_start"
@@ -171,7 +230,10 @@ func managedWorkflowEvent(workflowName string, event ManagedRunEvent) WorkflowRu
 		out.Type = "tool_start"
 	case "model.tool_end":
 		out.Type = "tool_end"
-	case "model.reasoning", "model.step_start", "model.step_finish":
+	case "model.reasoning":
+		out.Type = "reasoning"
+		out.Text = event.Detail
+	case "model.step_start", "model.step_finish":
 		out.Type = strings.TrimPrefix(event.Type, "model.")
 	}
 	return out

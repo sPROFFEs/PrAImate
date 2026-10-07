@@ -67,6 +67,8 @@ type App struct {
 	chatCancels            map[string]context.CancelFunc
 	chatCancelIDs          map[string]uint64
 	chatCancelSeq          uint64
+	workflowCancelMu       sync.Mutex
+	workflowCancels        map[string]context.CancelFunc
 	managedCancelMu        sync.Mutex
 	managedCancels         map[string]context.CancelFunc
 	workers                *orchestrator.Manager
@@ -302,6 +304,11 @@ func (a *App) initializeUnlockedStore(ctx context.Context, st *store.Store) erro
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	a.workflowCancelMu.Lock()
+	for _, cancel := range a.workflowCancels {
+		cancel()
+	}
+	a.workflowCancelMu.Unlock()
 	if a.detachedClient != nil {
 		a.detachedClient.close()
 		return
@@ -1041,6 +1048,7 @@ func (a *App) PickFolder() (string, error) {
 // TurnEvent is the payload emitted on the "praimate:turn" event while
 // a workflow run is in flight.
 type TurnEvent struct {
+	RunID        string `json:"run_id,omitempty"`
 	Index        int    `json:"index"`
 	WorkflowName string `json:"workflow_name,omitempty"`
 	UserMsg      string `json:"user_msg"`
@@ -1051,6 +1059,7 @@ type TurnEvent struct {
 // WorkflowStreamEvent is emitted on "praimate:workflow-stream" while a
 // workflow run is active.
 type WorkflowStreamEvent struct {
+	RunID        string `json:"run_id,omitempty"`
 	WorkflowName string `json:"workflow_name"`
 	TurnIndex    int    `json:"turn_index"`
 	Type         string `json:"type"`
@@ -1074,11 +1083,15 @@ type RunResult struct {
 // promise resolves when the run completes); per-turn progress streams
 // via the "praimate:turn" event.
 func (a *App) RunWorkflow(agentID, workflowName, cli, model, cwd string, inputs map[string]string, localEndpoint, _ string, localModel string) (*RunResult, error) {
+	return a.runWorkflow(a.ctx, "", agentID, workflowName, cli, model, cwd, inputs, localEndpoint, localModel, "")
+}
+
+func (a *App) runWorkflow(ctx context.Context, runID, agentID, workflowName, cli, model, cwd string, inputs map[string]string, localEndpoint, localModel, tools string) (*RunResult, error) {
 	c, err := a.requireCore()
 	if err != nil {
 		return nil, err
 	}
-	agent, err := c.GetAgent(a.ctx, agentID)
+	agent, err := c.GetAgent(ctx, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -1087,8 +1100,16 @@ func (a *App) RunWorkflow(agentID, workflowName, cli, model, cwd string, inputs 
 		return nil, fmt.Errorf("a working folder is required")
 	}
 	settings := workflowChatSettings(model, localEndpoint, localModel)
+	if tools == "agent" {
+		config, configErr := c.ResolveEffectiveAgentConfig(ctx, agent)
+		if configErr != nil {
+			return nil, configErr
+		}
+		tools = config.DefaultTools
+	}
+	settings.Tools = tools
 
-	res := c.RunWorkflow(a.ctx, core.RunOptions{
+	res := c.RunWorkflow(ctx, core.RunOptions{
 		Agent:        agent,
 		WorkflowName: workflowName,
 		Inputs:       inputs,
@@ -1100,7 +1121,8 @@ func (a *App) RunWorkflow(agentID, workflowName, cli, model, cwd string, inputs 
 		ChatTitle:    agent.Name + " · " + workflowName,
 		ChatSettings: settings,
 		OnTurn: func(t core.TurnResult) {
-			wruntime.EventsEmit(a.ctx, "praimate:turn", TurnEvent{
+			a.emitUIEvent("praimate:turn", TurnEvent{
+				RunID:        runID,
 				Index:        t.Index,
 				WorkflowName: t.WorkflowName,
 				UserMsg:      t.UserMsg,
@@ -1109,7 +1131,8 @@ func (a *App) RunWorkflow(agentID, workflowName, cli, model, cwd string, inputs 
 			})
 		},
 		OnEvent: func(ev core.WorkflowRunEvent) {
-			wruntime.EventsEmit(a.ctx, "praimate:workflow-stream", WorkflowStreamEvent{
+			a.emitUIEvent("praimate:workflow-stream", WorkflowStreamEvent{
+				RunID:        runID,
 				WorkflowName: ev.WorkflowName,
 				TurnIndex:    ev.TurnIndex,
 				Type:         ev.Type,
@@ -1129,11 +1152,15 @@ func (a *App) RunWorkflow(agentID, workflowName, cli, model, cwd string, inputs 
 // RunAllWorkflows executes every workflow on the agent in declaration
 // order, sharing one resumable CLI session across the sequence.
 func (a *App) RunAllWorkflows(agentID, cli, model, cwd string, inputsByWorkflow map[string]map[string]string, localEndpoint, _ string, localModel string) (*RunResult, error) {
+	return a.runAllWorkflows(a.ctx, "", agentID, cli, model, cwd, inputsByWorkflow, localEndpoint, localModel, "")
+}
+
+func (a *App) runAllWorkflows(ctx context.Context, runID, agentID, cli, model, cwd string, inputsByWorkflow map[string]map[string]string, localEndpoint, localModel, tools string) (*RunResult, error) {
 	c, err := a.requireCore()
 	if err != nil {
 		return nil, err
 	}
-	agent, err := c.GetAgent(a.ctx, agentID)
+	agent, err := c.GetAgent(ctx, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -1142,8 +1169,16 @@ func (a *App) RunAllWorkflows(agentID, cli, model, cwd string, inputsByWorkflow 
 		return nil, fmt.Errorf("a working folder is required")
 	}
 	settings := workflowChatSettings(model, localEndpoint, localModel)
+	if tools == "agent" {
+		config, configErr := c.ResolveEffectiveAgentConfig(ctx, agent)
+		if configErr != nil {
+			return nil, configErr
+		}
+		tools = config.DefaultTools
+	}
+	settings.Tools = tools
 
-	res := c.RunAllWorkflows(a.ctx, core.RunAllOptions{
+	res := c.RunAllWorkflows(ctx, core.RunAllOptions{
 		Agent:            agent,
 		InputsByWorkflow: inputsByWorkflow,
 		CLI:              cli,
@@ -1154,7 +1189,8 @@ func (a *App) RunAllWorkflows(agentID, cli, model, cwd string, inputsByWorkflow 
 		ChatTitle:        agent.Name + " · all workflows",
 		ChatSettings:     settings,
 		OnTurn: func(t core.TurnResult) {
-			wruntime.EventsEmit(a.ctx, "praimate:turn", TurnEvent{
+			a.emitUIEvent("praimate:turn", TurnEvent{
+				RunID:        runID,
 				Index:        t.Index,
 				WorkflowName: t.WorkflowName,
 				UserMsg:      t.UserMsg,
@@ -1163,7 +1199,8 @@ func (a *App) RunAllWorkflows(agentID, cli, model, cwd string, inputsByWorkflow 
 			})
 		},
 		OnEvent: func(ev core.WorkflowRunEvent) {
-			wruntime.EventsEmit(a.ctx, "praimate:workflow-stream", WorkflowStreamEvent{
+			a.emitUIEvent("praimate:workflow-stream", WorkflowStreamEvent{
+				RunID:        runID,
 				WorkflowName: ev.WorkflowName,
 				TurnIndex:    ev.TurnIndex,
 				Type:         ev.Type,

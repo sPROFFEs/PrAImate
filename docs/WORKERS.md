@@ -4,9 +4,32 @@ Workers coordinates three independently configured model profiles: **Reasoner**
 (`primary`), **Middle** and **Fast**. The feature is available in the Desktop
 Workers page and the Studio / VS Code extension's **PrAImate: Workers** view.
 
+## Task board and attempts
+
+The execution monitor uses four columns: **Needs you**, **Working**, **Done** and
+**Queued**. Failed/interrupted assignments and completed changes awaiting review
+appear in Needs you. A card identifies the task, backend, model, dependencies
+and attempt count. Search by task/model or filter by backend in Desktop.
+
+Select a card to focus its console. The attempt selector preserves the actual
+CLI/model of each historical attempt, even after Run settings change. **Activity**
+shows live output, reported reasoning, tool results, delegations and errors;
+**Result** shows its reported result; **Changes** previews the current task worktree;
+**Assignment** shows its task, workspace, parent and CLI session. Follow active
+focuses a working assignment; selecting a card allows inspecting another task.
+
+The board and separate execution window/panel share the same Core state and
+operations in Desktop and VS Code. This design adapts the durable run/task/attempt
+and agent dashboard patterns reviewed in [ORCA](https://github.com/stablyai/orca)
+(revision `7b26725ff4b38e1981ad2e1153118fa24faa7ac3`). PrAImate retains its
+three profiles, host tool protocol and encrypted database. Execution belongs to
+the owning PrAImate process: closing a monitor keeps it running; closing the app
+interrupts it and requires explicit continuation after reopening. There is no
+independent persistent terminal daemon in this implementation.
+
 ## Parallel task graphs
 
-Select **Parallel task graph** when creating a worker chat. The workspace must
+Select **Parallel task graph** (Desktop) or **Task board** (VS Code) when creating a worker chat. This is the default mode for new runs. The workspace must
 be a clean Git repository root on a checked-out branch with an initial commit.
 The Reasoner returns a draft DAG; it does not modify the project while planning.
 Review task descriptions, dependencies, profile, CLI/local endpoint and model
@@ -26,8 +49,7 @@ claimed changes. A no-change task has a saved result without a new commit.
 
 Task cards preserve profile, CLI, provider/model route, branch, worktree path,
 base/result commits, changed files, result and Git diff. Diff previews are capped
-at 256 KiB; the worktree and saved commits provide the complete patch. Live
-events include task IDs in the existing worker panes.
+at 256 KiB; the worktree and saved commits provide the complete patch. Live events and saved attempts include task IDs in the board and activity console.
 
 Accept dependencies before accepting their dependent results. **Merge accepted
 changes** cherry-picks the accepted task commits, in dependency order, into a
@@ -42,21 +64,21 @@ Merged worktrees are removed after integration. Rejected worktrees can be cleane
 explicitly; saved diffs and private Git result refs preserve review history.
 Deleting a worker chat removes its temporary worktrees and result refs, including
 unmerged work, after a frontend confirmation. Interrupted tasks never restart
-automatically: inspect their worktrees, then explicitly **Discard failed work
-and reset** before resuming pending tasks. Completed descendants prevent resetting
+automatically: inspect their worktrees, then choose **Continue with existing changes** to queue another attempt, or **Start over…** to explicitly discard failed work. Ready tasks can run while unrelated failed tasks remain for review. Completed descendants prevent retrying or resetting
 their dependencies. Task worktrees remain pinned to the original planning base.
 Pending tasks can resume after this run merges its accepted results, including
 after an app restart. Unrelated workspace HEAD changes require a new plan.
 
 Worktrees separate checkouts, not operating-system permissions. They share Git
-metadata, and commands still require the existing host approvals. Each task has
+metadata. Supervised runs use the existing host approvals; Full access runs execute
+commands and edits autonomously. Each task has
 the existing per-worker turn/request/time bounds. The graph supports up to 32
 tasks; concurrent run limits also remain in place. Plans, task states, activity
 and review results use the same encrypted local chat storage as Workers.
 Task IDs use lowercase letters, numbers, underscores and hyphens (up to 64
 characters); `review-merge` is reserved for the host. Graph checkpoints replace
 the current stored snapshot instead of duplicating all diffs. Retained graph
-activity is capped at 500 events and 1 MiB of event text.
+live activity is capped at 500 events and 1 MiB of event text. Attempt summaries, reported token totals and the paginated activity journal are persisted separately, so trimming the live buffer does not remove completed/failed attempts or their usage. Existing runs retain the legacy activity tail that is still available; previously discarded events cannot be recovered.
 
 The same operations are available in VS Code and the maintenance CLI:
 
@@ -64,6 +86,10 @@ The same operations are available in VS Code and the maintenance CLI:
 praimate workers plan --config workers.json --workspace /path/to/repo \
   --task "Implement the feature and its tests" --parallel 2
 praimate workers show --id RUN_ID
+praimate workers activity --id RUN_ID --worker-id ATTEMPT_ID --limit 100
+praimate workers changes --id RUN_ID --task-id task-a
+# Queue a continuation while preserving its worktree; then execute ready tasks.
+praimate workers retry --id RUN_ID --task-id task-a
 # Optionally edit a tasks JSON array and pass --plan tasks.json.
 praimate workers execute --id RUN_ID
 praimate workers review --id RUN_ID --task-id task-a --decision accepted
@@ -72,7 +98,8 @@ praimate workers merge --id RUN_ID
 
 `workers.json` is the existing `Config` format with `workspace` and the three
 `profiles`; saved defaults are used when `--config` is omitted. CLI execution
-denies approval-dependent tools unless explicitly given `--approve-tools`.
+denies approval-dependent tools in supervised mode unless explicitly given
+`--approve-tools`. `accessMode: "full"` enables autonomous execution.
 `reset` and `cleanup` require `--discard`; inspect affected worktrees first.
 The existing hierarchical mode below remains available for non-Git workspaces.
 
@@ -96,9 +123,7 @@ and continued with a follow-up to Reasoner. Closing and reopening the app
 restores the saved runs. A previously running task is marked cancelled with an interruption notice; review recorded activity and workspace state
 before continuing.
 
-Follow-up reinjects bounded excerpts from the last three user/result pairs;
-children still receive only their delegated tasks. The coordinator does not
-restore third-party CLI session histories or roll back filesystem changes.
+CLI backends that support resume keep a session ID per assignment. Continuations reuse that session only when the complete effective profile is unchanged. Changing the model, CLI, permissions, instructions or limits starts a fresh session with bounded task context; the worktree is retained. Stateless backends receive bounded observations and previous results. Children receive their own delegated tasks and sessions, and never inherit the parent session. Filesystem changes are not rolled back.
 
 Each new invocation records its worker ID, parent invocation, task ID (parallel
 tasks), actual CLI/runtime, model, workspace, phase and call number. The monitor
@@ -119,7 +144,7 @@ After changing a profile, failed, cancelled, blocked and pending tasks that inhe
 it show the updated CLI/model as **Next attempt**. **Last attempt** and recorded
 activity keep the previous route. **Use current profile** removes a task-specific
 route without deleting its worktree or starting another attempt. Inspect partial
-changes, explicitly discard/reset unsuccessful tasks, then **Resume pending tasks**.
+changes, choose **Continue with existing changes**, then run ready tasks. **Start over…** remains the confirmed destructive alternative.
 Completed tasks and accepted results are retained. Older saved runs recover
 inheritance by comparing resolved routes with their original creation profiles;
 legacy pins equal to those defaults cannot be distinguished from inheritance.
@@ -141,13 +166,12 @@ and token usage remain available on failure. OpenCode/PrAImate Code error
 references are retained when the CLI supplies them, for correlation with its
 server logs. A failing router/provider must be fixed in that backend or changed
 explicitly in **Run settings**; PrAImate does not silently switch models.
-Timeout failures report the worker, CLI/model and phase. No failed mutation is
-automatically retried. Pending approvals remain available in the main window
+Timeout failures report the worker, CLI/model and phase. Automatic retries are
+disabled by default and follow the configured policy below. Pending approvals remain available in the main window
 and are recovered when opening the independent monitor.
 
 Refreshes run sequentially, slow down while idle and pause requests while the
-window is hidden; active runs continue in the core. Activity previews are bounded
-by the retained event history, rather than loading third-party CLI session logs.
+window is hidden; active runs continue in the core. Live previews remain bounded. **Load earlier activity** reads older entries from the encrypted journal, without reading third-party CLI session log files.
 
 For local server routing, detected context windows and output reservations,
 see [PrAImate CLI](native-cli.md#context-and-output-budgets).
@@ -163,14 +187,63 @@ instructions; its result goes back to its caller as bounded evidence.
 Supported external adapters include Codex, Claude Code, OpenClaude, GitHub Copilot,
 OpenCode and PrAImate Code. Antigravity is available for native chats and terminals,
 but not managed Workers: its plan mode does not enforce a read-only tool policy.
-Selecting `praimate-cli` resolves the saved core host/model route. Third-party CLI adapters run with their existing
-safe permissions. Workspace reads, edits and commands requested through the
+Selecting `praimate-cli` resolves the saved core host/model route. Third-party CLI adapters use their safe permissions in supervised mode,
+and their autonomous full access mode when Full access is selected. Workspace reads, edits and commands requested through the
 JSON protocol execute through the PrAImate host and its configured approvals.
 Native workers use the core model transport and validate their input/output
 budget before sending the request. Their model transport has no direct tools;
 the coordinator executes the returned host action. Edit and command permissions
 are selected independently; commands and brokered writes use the host approval
 flow. Bounded exact replacements require the profile's edit permission.
+
+## Autonomous execution and retries
+
+**Execution controls** appear when creating a run and in **Run settings** in
+Desktop and VS Code. **Supervised** is the default. **Full access · autonomous**
+enables edits and commands for every execution profile, approves host operations
+without a user prompt, and selects the external CLI's full access mode. This is
+scoped to the worker run; agent manifests and global application permissions are
+not changed. Planning remains read-only. Task graphs still require reviewing the
+initial plan and accepting/merging the resulting Git changes explicitly.
+
+**Automatic retries per task** accepts 0–10 additional attempts (0 disables them).
+The policy covers planning, hierarchical assignments and individual graph tasks.
+**Retry delay** accepts 0–60 seconds, doubles between attempts and caps at 60
+seconds. The board shows **Retry scheduled**, the attempt count and next attempt
+time. **Stop** cancels both running calls and scheduled retries.
+
+Retries retain partial files, results, activity and compatible CLI sessions. The
+worker is instructed to inspect prior effects before repeating operations;
+commands are not transactionally rolled back or guaranteed to be idempotent.
+Only execution failures are automatically retried for graph tasks. Dependency
+integration, worktree setup and Git checkpoint failures require inspection.
+Denied approvals, cancelled runs and persistence failures are not retried.
+
+The automatic retry count is persisted per graph task and survives continuation
+and app restarts. A manual continuation preserves that count; increase the run's
+retry limit if additional automatic attempts are desired. A new hierarchical
+follow-up or explicit planning retry gets a new bounded allowance. Closing the
+app interrupts execution and does not restart retries automatically. A recovery
+summary uses only the available input space; it does not replay complete logs.
+
+Failed tasks show their specific error and retained attempt history. Blocked tasks
+name the dependency problem. Completed results stay available for review even
+when another task fails. The board groups attempts under the same assignment,
+with separate Activity, Result, Changes and Assignment views.
+
+Example configuration additions:
+
+```json
+{
+  "accessMode": "full",
+  "maxRetries": 3,
+  "retryDelaySeconds": 5
+}
+```
+
+Add these fields alongside the existing `workspace` and three `profiles` in
+`workers.json`. An external provider failure never silently changes the model
+or CLI; change its route in Run settings if needed.
 
 ## Execution limits and verification
 

@@ -140,15 +140,15 @@ func TestContinueChatStream_PersistsCompactOpenCodeActivity(t *testing.T) {
 }
 
 func TestContinueChat_PrAImateCodeInjectsEncryptedLocalLLMKey(t *testing.T) {
+	withTempConfigDir(t)
 	mock := &mockAdapter{name: "praimate-code", replies: []string{"connected"}}
 	withMockAdapter(t, mock)
 
 	c, _ := New(Options{Store: openTempStore(t)})
 	ctx := context.Background()
-	if err := c.SetSetting(ctx, ScopeCLI, "local_llm.api_key", []byte(`"db-secret"`)); err != nil {
+	if _, err := c.SaveLocalHost(ctx, LocalHost{ID: "fixture", Name: "Fixture", Endpoint: "https://llm.example", IsDefault: true, APIKey: "db-secret"}); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if _, err := ollama.ApplyOpenCode(ollama.Settings{
 		Endpoint: "https://llm.example", Model: "qwen3", APIKey: "db-secret",
 	}, true); err != nil {
@@ -174,12 +174,13 @@ func TestContinueChat_PrAImateCodeInjectsEncryptedLocalLLMKey(t *testing.T) {
 }
 
 func TestContinueChat_OpenClaudeResolvesLocalKeyFromEncryptedSetting(t *testing.T) {
+	withTempConfigDir(t)
 	mock := &mockAdapter{name: "openclaude", replies: []string{"connected"}}
 	withMockAdapter(t, mock)
 
 	c, _ := New(Options{Store: openTempStore(t)})
 	ctx := context.Background()
-	if err := c.SetSetting(ctx, ScopeCLI, "local_llm.api_key", []byte(`"db-secret"`)); err != nil {
+	if _, err := c.SaveLocalHost(ctx, LocalHost{ID: "fixture", Name: "Fixture", Endpoint: "https://llm.example", IsDefault: true, APIKey: "db-secret"}); err != nil {
 		t.Fatal(err)
 	}
 	chat, err := c.CreateChat(ctx, CreateChatRequest{

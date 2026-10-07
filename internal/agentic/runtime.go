@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,7 +60,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	instance := &Instance{ID: runID, AgentID: cfg.AgentID, AgentName: cfg.AgentName, State: StateRunning, StartedAt: now, UpdatedAt: now}
+	instance := &Instance{ID: runID, AgentID: cfg.AgentID, AgentName: cfg.AgentName, State: StateRunning, StartedAt: now, UpdatedAt: now, InputLimitBytes: limits.MaxTotalInputBytes}
 	memory := Memory{Items: []MemoryItem{}}
 	bus := eventBus{runID: runID, agentID: cfg.AgentID, sink: cfg.OnEvent}
 	artifacts := artifactStore{dir: filepath.Join(runDir, "artifacts"), maxSize: limits.MaxArtifactSize}
@@ -97,6 +98,28 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	} else {
 		instance.FinishEvidence = append([]EvidenceRequirement(nil), cfg.FinishEvidence...)
 		contextWindow.add("user task", cfg.Task)
+		if cfg.PrepareArtifacts != nil {
+			if err := cfg.PrepareArtifacts(ctx, func(input ArtifactInput) error {
+				if input.Name == "" || filepath.Base(input.Name) != input.Name || strings.Trim(artifactNameRE.ReplaceAllString(input.Name, "-"), "-.") != input.Name || input.SourceRunID == "" || len(instance.Artifacts) >= 128 {
+					return errors.New("invalid inherited workflow artifact")
+				}
+				artifact, err := artifacts.writeText(input.Name, input.Content)
+				if err != nil {
+					return err
+				}
+				artifact.SourceRunID = input.SourceRunID
+				instance.Artifacts = append(instance.Artifacts, artifact)
+				contextWindow.add("workflow artifact", "Available artifact://"+artifact.Name+" inherited from the preceding completed workflow step. The host verifies its bytes; inspect it before replacing it.")
+				bus.emit("artifact.inherited", 0, "", artifact.Name, true, map[string]any{"sourceRunId": input.SourceRunID})
+				return nil
+			}); err != nil {
+				state := StateFailed
+				if ctx.Err() != nil {
+					state = StateStopped
+				}
+				return finishRun(runDir, instance, memory, contextWindow, state, "", err, bus)
+			}
+		}
 	}
 	if instance.InputLimitBytes == 0 {
 		instance.InputLimitBytes = limits.MaxTotalInputBytes
@@ -558,8 +581,46 @@ func ListInstances(rootDir, agentID string) ([]Instance, error) {
 }
 
 func ReadArtifact(rootDir, runID, name string) ([]byte, error) {
-	if filepath.Base(runID) != runID || filepath.Base(name) != name {
+	if filepath.Base(runID) != runID || runID == "." || runID == ".." || filepath.Base(name) != name || name == "." || name == ".." {
 		return nil, errors.New("invalid run or artifact name")
 	}
-	return os.ReadFile(filepath.Join(rootDir, runID, "artifacts", name))
+	root, err := os.OpenRoot(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	runRoot, err := root.OpenRoot(runID)
+	if err != nil {
+		return nil, err
+	}
+	defer runRoot.Close()
+	artifactRoot, err := runRoot.OpenRoot("artifacts")
+	if err != nil {
+		return nil, err
+	}
+	defer artifactRoot.Close()
+	info, err := artifactRoot.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("artifact is not a regular file")
+	}
+	file, err := artifactRoot.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return nil, errors.New("artifact changed while opening")
+	}
+	body, err := io.ReadAll(io.LimitReader(file, (8<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > 8<<20 {
+		return nil, errors.New("artifact exceeds the 8 MiB read limit")
+	}
+	return body, nil
 }

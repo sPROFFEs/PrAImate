@@ -279,8 +279,13 @@ func (s *Server) runWorkflow(ctx context.Context, body []byte) (any, error) {
 			s.Broadcast("run.event", map[string]any{"type": ev.Type, "text": ev.Text, "tool": ev.Tool, "detail": ev.Detail, "id": ev.ID, "ok": ev.OK})
 		},
 	})
+	// Return the retained transcript even on failure; RPC errors discard results.
+	out := struct {
+		*core.RunResult
+		Error string `json:"error,omitempty"`
+	}{RunResult: result}
 	if result.Err != nil {
-		return nil, result.Err
+		out.Error = result.Err.Error()
 	}
-	return result, nil
+	return out, nil
 }

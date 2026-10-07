@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -38,12 +39,15 @@ func TestFailedDAGTaskRetryUsesUpdatedProfileAndKeepsExplicitOverrides(t *testin
 		worker             WorkerConfig
 		wantCLI, wantModel string
 		legacy, useProfile bool
+		preserve           bool
 	}{
-		{"inherit", WorkerConfig{ProfileID: Middle}, "codex", "replacement-model", false, false},
-		{"override", WorkerConfig{ProfileID: Middle, CLI: "opencode", Model: "pinned-model"}, "opencode", "pinned-model", false, false},
-		{"legacy-inherit", WorkerConfig{ProfileID: Middle}, "codex", "replacement-model", true, false},
-		{"legacy-override", WorkerConfig{ProfileID: Middle, CLI: "opencode", Model: "pinned-model"}, "opencode", "pinned-model", true, false},
-		{"use-profile", WorkerConfig{ProfileID: Middle, CLI: "opencode", Model: "pinned-model"}, "codex", "replacement-model", false, true},
+		{"inherit", WorkerConfig{ProfileID: Middle}, "codex", "replacement-model", false, false, false},
+		{"override", WorkerConfig{ProfileID: Middle, CLI: "opencode", Model: "pinned-model"}, "opencode", "pinned-model", false, false, false},
+		{"legacy-inherit", WorkerConfig{ProfileID: Middle}, "codex", "replacement-model", true, false, false},
+		{"legacy-override", WorkerConfig{ProfileID: Middle, CLI: "opencode", Model: "pinned-model"}, "opencode", "pinned-model", true, false, false},
+		{"use-profile", WorkerConfig{ProfileID: Middle, CLI: "opencode", Model: "pinned-model"}, "codex", "replacement-model", false, true, false},
+		{"continue-inherit", WorkerConfig{ProfileID: Middle}, "codex", "replacement-model", false, false, true},
+		{"continue-override", WorkerConfig{ProfileID: Middle, CLI: "opencode", Model: "pinned-model"}, "opencode", "pinned-model", false, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -139,13 +143,25 @@ func TestFailedDAGTaskRetryUsesUpdatedProfileAndKeepsExplicitOverrides(t *testin
 				m = NewManager(c, ctx)
 				defer m.Stop(ctx)
 			}
-			if err = m.ResetDAGTask(id, "retry"); err != nil {
+			retainedPath := failed.DAG.Tasks[1].Worktree.Path
+			if err = os.WriteFile(filepath.Join(retainedPath, "partial.txt"), []byte("keep this work"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if tc.preserve {
+				err = m.RetryDAGTask(id, "retry")
+			} else {
+				err = m.ResetDAGTask(id, "retry")
+			}
+			if err != nil {
 				t.Fatal(err)
 			}
 			if err = m.ExecuteDAG(id, nil); err != nil {
 				t.Fatal(err)
 			}
 			review := waitGraph(t, m, id, "review")
+			if body, err := os.ReadFile(filepath.Join(retainedPath, "partial.txt")); tc.preserve && (err != nil || string(body) != "keep this work" || review.DAG.Tasks[1].Worktree.Path != retainedPath) {
+				t.Fatalf("continuation discarded partial work: %s %v", body, err)
+			}
 			calls.mu.Lock()
 			got := append([]WorkerConfig(nil), calls.workers...)
 			calls.mu.Unlock()

@@ -94,20 +94,29 @@ func (l Limits) withDefaults() Limits {
 	return l
 }
 
+// ArtifactInput is host-owned data from a verified preceding workflow step.
+// Model decisions cannot add inputs or select their source runs.
+type ArtifactInput struct {
+	Name        string
+	Content     string
+	SourceRunID string
+}
+
 type Config struct {
-	ReserveInput   func(context.Context, int64, int64, int64) error
-	FinishEvidence []EvidenceRequirement
-	RootDir        string
-	AgentID        string
-	AgentName      string
-	Instructions   string
-	Task           string
-	Limits         Limits
-	Model          Model
-	Tools          ToolExecutor
-	OnEvent        EventSink
-	RunID          string
-	ResumeRunID    string
+	PrepareArtifacts func(context.Context, func(ArtifactInput) error) error
+	ReserveInput     func(context.Context, int64, int64, int64) error
+	FinishEvidence   []EvidenceRequirement
+	RootDir          string
+	AgentID          string
+	AgentName        string
+	Instructions     string
+	Task             string
+	Limits           Limits
+	Model            Model
+	Tools            ToolExecutor
+	OnEvent          EventSink
+	RunID            string
+	ResumeRunID      string
 }
 
 type Instance struct {

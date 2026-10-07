@@ -23,6 +23,24 @@ type fakeCLI struct {
 	seen core.SingleShotOpts
 }
 
+type resumableWorkerCLI struct {
+	fakeCLI
+	resumes []string
+}
+
+func (*resumableWorkerCLI) SupportsResume() bool { return true }
+func (f *resumableWorkerCLI) Resume(_ context.Context, id string, _ core.ResumeOpts) (*core.Reply, error) {
+	f.resumes = append(f.resumes, id)
+	return &core.Reply{Text: "continued", SessionID: id}, nil
+}
+func TestCLIWorkerResumesAnExplicitSession(t *testing.T) {
+	fake := &resumableWorkerCLI{fakeCLI: fakeCLI{safe: true}}
+	result, err := (CLI{Adapter: fake}).Execute(context.Background(), Request{SessionID: "task-session", Task: "Tool result: done", WorkspaceRoot: t.TempDir()})
+	if err != nil || result.Content != "continued" || result.SessionID != "task-session" || len(fake.resumes) != 1 {
+		t.Fatalf("session not resumed: %+v %v %v", result, err, fake.resumes)
+	}
+}
+
 type fakeStreamCLI struct {
 	fakeCLI
 	events []core.StreamEvent
@@ -284,5 +302,33 @@ func TestNativeWorkerTimeoutCancelsProviderRequest(t *testing.T) {
 	_, err := (Native{Route: core.ChatLocalEndpoint{Endpoint: server.URL}}).Execute(context.Background(), req)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("native worker timeout = %v, want deadline exceeded", err)
+	}
+}
+
+func TestCLIWorkerRetainsEarlySessionAndPartialOutputOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancel()
+	fake := &fakeStreamCLI{fakeCLI: fakeCLI{safe: true}, events: []core.StreamEvent{{Type: "status", Detail: "CLI session initialized.", ID: "early-session"}}}
+	var session string
+	result, err := (CLI{Adapter: fake}).Execute(ctx, Request{Task: "work", WorkspaceRoot: t.TempDir(), Progress: func(event ProgressEvent) {
+		if event.SessionID != "" {
+			session = event.SessionID
+		}
+	}})
+	if !errors.Is(err, context.Canceled) || result.SessionID != "early-session" || result.Content != "scoped answer" || session != "early-session" {
+		t.Fatalf("interrupted session lost: %+v %v %s", result, err, session)
+	}
+}
+
+func TestCLIWorkerFullAccessUsesAutonomousAdapterMode(t *testing.T) {
+	fake := &fakeCLI{safe: true}
+	worker := CLI{Adapter: fake, FullAccess: true}
+	if !worker.Capabilities().CanEdit || worker.Capabilities().ReadOnly {
+		t.Fatal("full access capabilities are incorrect")
+	}
+	_, err := worker.Execute(context.Background(), Request{Task: "work", WorkspaceRoot: t.TempDir()})
+	if err != nil || fake.seen.Tools != "full" {
+		t.Fatalf("tools=%q err=%v", fake.seen.Tools, err)
 	}
 }

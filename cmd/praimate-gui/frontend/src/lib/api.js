@@ -43,6 +43,9 @@ export const api = {
   startWorkerRunWithConfig: (task, config) => call('StartWorkerRunWithConfig', task, JSON.stringify(config)),
   workerRuns: () => call('WorkerRuns'),
   workerRunSnapshot: (id) => call('WorkerRunSnapshot', id),
+	workerRunActivity: (id, workerID = '', before = 0, limit = 100) => call('WorkerRunActivity', id, workerID, before, limit),
+	retryWorkerDAGTask: (id, taskID) => call('RetryWorkerDAGTask', id, taskID),
+	workerTaskPreview: (id, taskID) => call('WorkerTaskPreview', id, taskID),
   renameWorkerRun: (id, title) => call('RenameWorkerRun', id, title),
   deleteWorkerRun: (id) => call('DeleteWorkerRun', id),
   cancelWorkerRun: (id) => call('CancelWorkerRun', id),
@@ -259,6 +262,11 @@ export const api = {
     call('RunWorkflow', agentID, workflow, cli, model || '', cwd, inputs || {}, localEndpoint || '', localApiKey || '', localModel || ''),
   runAllWorkflows: (agentID, cli, model, cwd, inputsByWorkflow, localEndpoint, localApiKey, localModel) =>
     call('RunAllWorkflows', agentID, cli, model || '', cwd, inputsByWorkflow || {}, localEndpoint || '', localApiKey || '', localModel || ''),
+  runWorkflowTracked: (runID, agentID, workflow, cli, model, cwd, inputs, endpoint, localModel, tools) =>
+    call('RunWorkflowTracked', runID, agentID, workflow, cli, model || '', cwd, inputs || {}, endpoint || '', localModel || '', tools || ''),
+  runAllWorkflowsTracked: (runID, agentID, cli, model, cwd, inputs, endpoint, localModel, tools) =>
+    call('RunAllWorkflowsTracked', runID, agentID, cli, model || '', cwd, inputs || {}, endpoint || '', localModel || '', tools || ''),
+  cancelWorkflowRun: (runID) => call('CancelWorkflowRun', runID),
   privacyPreview: (text) => call('PrivacyPreview', text),
   storedDataInfo: () => call('StoredDataInfo'),
   deleteAllStoredData: (projectsRoot, phrase) =>

@@ -63,6 +63,40 @@ func (a *App) WorkerRunSnapshot(id string) (orchestrator.Run, error) {
 	return a.workers.Snapshot(id)
 }
 
+func (a *App) WorkerRunActivity(id, workerID string, before int64, limit int) (orchestrator.ActivityPage, error) {
+	if a.detachedClient != nil {
+		var page orchestrator.ActivityPage
+		err := a.detachedClient.rpc("worker.activity", workerWindowRequest{ID: id, WorkerID: workerID, Before: before, Limit: limit}, &page)
+		return page, err
+	}
+	if a.workers == nil {
+		return orchestrator.ActivityPage{}, errors.New("worker runtime is unavailable")
+	}
+	return a.workers.Activity(id, workerID, before, limit)
+}
+
+func (a *App) RetryWorkerDAGTask(id, taskID string) error {
+	if a.detachedClient != nil {
+		return a.detachedClient.rpc("worker.graph.retry", workerWindowRequest{ID: id, TaskID: taskID}, nil)
+	}
+	if a.workers == nil {
+		return errors.New("worker runtime is unavailable")
+	}
+	return a.workers.RetryDAGTask(id, taskID)
+}
+
+func (a *App) WorkerTaskPreview(id, taskID string) (orchestrator.TaskPreview, error) {
+	if a.detachedClient != nil {
+		var preview orchestrator.TaskPreview
+		err := a.detachedClient.rpc("worker.task.preview", workerWindowRequest{ID: id, TaskID: taskID}, &preview)
+		return preview, err
+	}
+	if a.workers == nil {
+		return orchestrator.TaskPreview{}, errors.New("worker runtime is unavailable")
+	}
+	return a.workers.TaskPreview(id, taskID)
+}
+
 func (a *App) CancelWorkerRun(id string) error {
 	if a.detachedClient != nil {
 		return a.detachedClient.rpc("worker.cancel", workerWindowRequest{ID: id}, nil)

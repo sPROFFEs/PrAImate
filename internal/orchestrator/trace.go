@@ -2,6 +2,9 @@ package orchestrator
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -12,8 +15,14 @@ func (r Runner) traced(config Config, profile Profile, phase string) Runner {
 	id, _ := newRunID()
 	r.trace = Event{WorkerID: id, ParentID: r.trace.WorkerID, Tier: profile.Tier,
 		Runtime: profile.Runtime, CLI: profile.CLI, Model: profile.Model, ReasoningEffort: profile.ReasoningEffort,
-		Workspace: config.Workspace, Phase: phase, TimeoutSeconds: profile.TimeoutSeconds}
+		Workspace: config.Workspace, SessionID: r.SessionID, Phase: phase, TimeoutSeconds: profile.TimeoutSeconds, ProfileHash: profileHash(profile)}
 	return r
+}
+
+func profileHash(profile Profile) string {
+	body, _ := json.Marshal(profile)
+	digest := sha256.Sum256(body)
+	return hex.EncodeToString(digest[:])
 }
 
 func (r Runner) finish(profile Profile, err error) {

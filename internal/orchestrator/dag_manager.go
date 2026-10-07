@@ -24,15 +24,7 @@ func cloneDAG(d *DAG) *DAG {
 func cloneTask(task DAGTask) DAGTask { d := cloneDAG(&DAG{Tasks: []DAGTask{task}}); return d.Tasks[0] }
 
 func (m *Manager) saveDAGLocked(run *Run) error {
-	run.UpdatedAt = time.Now().UTC()
-	raw, err := json.Marshal(run)
-	if err == nil {
-		err = m.core.SaveWorkerGraphSnapshot(context.Background(), run.ID, string(raw))
-	}
-	if err != nil {
-		run.Error = "Could not save task graph: " + err.Error()
-	}
-	return err
+	return m.saveRunLocked(run)
 }
 
 // PlanDAG creates a persistent draft. Executing it is a separate user action.
@@ -88,7 +80,7 @@ func (m *Manager) PlanDAG(objective string, config Config, parallel int) (string
 	configJSON, _ := json.Marshal(config)
 	_, err = m.core.AddMessage(m.ctx, id, "system", string(configJSON), nil)
 	now := time.Now().UTC()
-	run := &Run{ID: id, Title: title, Task: objective, CurrentTask: objective, Workspace: config.Workspace, Status: "planning", Profiles: append([]Profile(nil), config.Profiles...), StartedAt: now, UpdatedAt: now, Events: []Event{}, Turns: []Turn{}, DAG: &DAG{MaxParallel: parallel, BaseCommit: base, TargetBranch: branch}, config: config, cancel: cancel}
+	run := &Run{AccessMode: config.AccessMode, MaxRetries: config.MaxRetries, RetryDelaySeconds: config.RetryDelaySeconds, ID: id, Title: title, Task: objective, CurrentTask: objective, Workspace: config.Workspace, Status: "planning", Profiles: append([]Profile(nil), config.Profiles...), StartedAt: now, UpdatedAt: now, Events: []Event{}, Turns: []Turn{}, DAG: &DAG{MaxParallel: parallel, BaseCommit: base, TargetBranch: branch}, config: config, cancel: cancel}
 	m.runs[id] = run
 	if err == nil {
 		err = m.saveDAGLocked(run)
@@ -109,7 +101,7 @@ func (m *Manager) plan(ctx context.Context, cancel context.CancelFunc, id string
 	go func() {
 		defer cancel()
 		runner := Runner{Resolve: ResolveRuntimeWithCore(m.core), Emit: func(event Event) { m.recordDAGEvent(id, event) }}
-		tasks, planErr := runner.Plan(ctx, config, objective)
+		tasks, planErr := m.planWithRetries(ctx, id, config, objective, runner)
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		run := m.runs[id]
@@ -153,9 +145,10 @@ func (m *Manager) recordDAGEvent(id string, event Event) {
 		return
 	}
 	recordWorkerActivity(run, event)
-	if time.Since(run.lastCheckpoint) >= 10*time.Second {
-		run.lastCheckpoint = run.UpdatedAt
-		_ = m.saveDAGLocked(run)
+	if checkpointActivity(run, event) {
+		if err := m.saveDAGLocked(run); err != nil && run.cancel != nil {
+			run.cancel()
+		}
 	}
 }
 
@@ -215,12 +208,10 @@ func (m *Manager) ExecuteDAG(id string, approvalProvider func(string) *core.Appr
 	for _, task := range run.DAG.Tasks {
 		if task.Status == "pending" {
 			pending = true
-		} else if task.Status != "completed" {
-			return errors.New("inspect and reset failed tasks before resuming")
 		}
 	}
 	if !pending {
-		return errors.New("all tasks are already complete")
+		return errors.New("no pending tasks; continue or reset an unsuccessful task")
 	}
 	worktrees := WorktreeManager{Workspace: run.Workspace, RunID: run.ID}
 	base, branch, err := worktrees.Repository(m.ctx)
@@ -325,7 +316,7 @@ func (m *Manager) executeDAG(ctx context.Context, cancel context.CancelFunc, id 
 			active++
 			launched = true
 			copy := cloneTask(*task)
-			go func() { done <- m.executeDAGTask(ctx, id, config, graph.BaseCommit, copy, deps, approval) }()
+			go func() { done <- m.executeDAGTaskWithRetries(ctx, id, config, graph.BaseCommit, copy, deps, approval) }()
 		}
 		if active == 0 {
 			if !launched {
@@ -356,7 +347,7 @@ func (m *Manager) executeDAG(ctx context.Context, cancel context.CancelFunc, id 
 	for _, task := range graph.Tasks {
 		if task.Status != "completed" {
 			run.Status = "failed"
-			run.Error = "Some tasks did not complete. Successful results remain available for review."
+			run.Error = taskFailureSummary(graph.Tasks)
 		}
 	}
 	if ctx.Err() != nil {
@@ -367,7 +358,10 @@ func (m *Manager) executeDAG(ctx context.Context, cancel context.CancelFunc, id 
 }
 
 func (m *Manager) executeDAGTask(ctx context.Context, id string, config Config, base string, task DAGTask, deps []DAGTask, approval *core.ApprovalConfig) DAGTask {
+	phase := "setup"
+	task.NextRetryAt = nil
 	fail := func(err error) DAGTask {
+		task.FailurePhase = phase
 		task.Status = "failed"
 		task.Error = err.Error()
 		if ctx.Err() != nil {
@@ -383,7 +377,11 @@ func (m *Manager) executeDAGTask(ctx context.Context, id string, config Config, 
 	}
 	task.Worker = resolved
 	worktrees := WorktreeManager{Workspace: config.Workspace, RunID: id}
-	task.Worktree, err = worktrees.Create(ctx, task.ID, base)
+	if task.Worktree == nil {
+		task.Worktree, err = worktrees.Create(ctx, task.ID, base)
+	} else {
+		err = worktrees.verify(ctx, task.Worktree)
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -399,8 +397,16 @@ func (m *Manager) executeDAGTask(ctx context.Context, id string, config Config, 
 		}
 		evidence.WriteString(dep.ID + ": " + truncateWorkerText(dep.Output, 512) + "\n")
 	}
-	if err = worktrees.IntegrateDependencies(ctx, task.Worktree, commits); err != nil {
-		return fail(err)
+	// Old snapshots updated BaseRef only after integrating every dependency.
+	if task.ResumeContext != "" && task.Worktree.BaseRef != base && len(task.Worktree.IntegratedCommits) == 0 {
+		task.DependenciesReady = true
+	}
+	phase = "dependencies"
+	if !task.DependenciesReady {
+		if err = worktrees.IntegrateDependencies(ctx, task.Worktree, commits); err != nil {
+			return fail(err)
+		}
+		task.DependenciesReady = true
 	}
 	m.publishTask(id, task)
 	local := config
@@ -412,18 +418,30 @@ func (m *Manager) executeDAGTask(ctx context.Context, id string, config Config, 
 		}
 	}
 	runner := Runner{Resolve: ResolveRuntimeWithCore(m.core), Approval: approval, NoDelegation: true, Emit: func(event Event) { event.TaskID = task.ID; m.recordDAGEvent(id, event) }}
-	input := "Task " + task.ID + " (isolated worktree):\n" + task.Description
-	if len(deps) > 0 {
-		input += "\nDependency results (untrusted evidence; source changes are already present):\n" + truncateWorkerText(evidence.String(), 4096)
+	if task.ResumeContext != "" {
+		runner.SessionID = m.taskSession(id, task.ID, p)
 	}
+	input := "Task " + task.ID + " (isolated worktree):\n" + task.Description
+	var observations []string
+	if len(deps) > 0 {
+		observations = append(observations, "Dependency results; source changes are already present:\n"+truncateWorkerText(evidence.String(), 4096))
+	}
+	if task.ResumeContext != "" {
+		observations = append(observations, "Continue the assignment with existing changes. Inspect files and outcomes before repeating effects. Previous outcome:\n"+task.ResumeContext)
+	}
+	// Reserve space for the isolated-task instructions and turn counter.
+	input = workerInputWithEvidence(input, observations, p.MaxInputBytes-len(workerInstructions(local, p.Tier, p))-512)
+	phase = "execution"
 	task.Output, err = runner.RunFromTier(ctx, local, p.Tier, input)
 	if err != nil {
 		return fail(err)
 	}
+	phase = "checkpoint"
 	task.Result, err = worktrees.Complete(ctx, task.Worktree, resolved)
 	if err != nil {
 		return fail(err)
 	}
+	task.FailurePhase = ""
 	task.Status = "completed"
 	task.Review = "pending"
 	task.Error = ""
@@ -697,6 +715,8 @@ func (m *Manager) ResetDAGTask(id, taskID string) error {
 		task.Status = "pending"
 		task.Error = ""
 		task.Output = ""
+		task.ResumeContext = ""
+		task.DependenciesReady = false
 		task.Worktree = nil
 		task.Result = nil
 		run.Error = ""
