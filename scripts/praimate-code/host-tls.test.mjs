@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { mkdtempSync, readFileSync, rmSync, mkdirSync, copyFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, mkdirSync, copyFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -56,14 +56,17 @@ test('build patch applies to the pinned provider, is idempotent and fails on dri
   const target = resolve(dir, 'packages/opencode/src/provider')
   mkdirSync(target, { recursive: true })
   try {
-    copyFileSync(resolve(root, 'third_party/opencode/packages/opencode/src/provider/provider.ts'), resolve(target, 'provider.ts'))
     const patch = resolve(root, 'scripts/praimate-code-tls.mjs')
-    execFileSync(process.execPath, [patch, dir])
-    const first = readFileSync(resolve(target, 'provider.ts'), 'utf8')
-    execFileSync(process.execPath, [patch, dir])
-    assert.equal(readFileSync(resolve(target, 'provider.ts'), 'utf8'), first)
-    assert.match(first, /trustedTLS \? \{ tls: trustedTLS, redirect: "manual" \}/)
-    assert.ok(readFileSync(resolve(target, 'praimate-host-tls.ts'), 'utf8').includes('rejectUnauthorized: true'))
+    const pristine = readFileSync(resolve(root, 'third_party/opencode/packages/opencode/src/provider/provider.ts'), 'utf8').replace(/\r\n/g, '\n')
+    for (const newline of ['\n', '\r\n']) {
+      writeFileSync(resolve(target, 'provider.ts'), pristine.replace(/\n/g, newline))
+      execFileSync(process.execPath, [patch, dir])
+      const first = readFileSync(resolve(target, 'provider.ts'), 'utf8')
+      execFileSync(process.execPath, [patch, dir])
+      assert.equal(readFileSync(resolve(target, 'provider.ts'), 'utf8'), first)
+      assert.match(first, /trustedTLS \? \{ tls: trustedTLS, redirect: "manual" \}/)
+      assert.ok(readFileSync(resolve(target, 'praimate-host-tls.ts'), 'utf8').includes('rejectUnauthorized: true'))
+    }
     const invalid = mkdtempSync(resolve(tmpdir(), 'praimate-patch-invalid-'))
     try {
       mkdirSync(resolve(invalid, 'packages/opencode/src/provider'), { recursive: true })
