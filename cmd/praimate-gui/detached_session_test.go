@@ -147,6 +147,30 @@ func TestDetachedStudioConfigUsesScopedMainCore(t *testing.T) {
 	if _, err := d.call(&detachedWindow{kind: "terminal", sessionID: chat.ID}, detachedRPCRequest{Method: "studio.config.save"}); err == nil {
 		t.Fatal("terminal window gained Studio configuration access")
 	}
+	// A detached chat owns no DB: both metadata and tool changes must cross
+	// the authenticated broker and stay within its assigned conversation.
+	w.kind = "chat"
+	child.detachedClient.mode.kind = "chat"
+	config, err := child.DetachedChatConfig()
+	if err != nil || config.ID != chat.ID || config.Settings.Tools != "edits" {
+		t.Fatalf("detached chat configuration: %+v, %v", config, err)
+	}
+	if err := child.SetChatTools(chat.ID, "plan"); err != nil {
+		t.Fatal(err)
+	}
+	if err := child.SetChatTools("another-chat", "full"); err == nil {
+		t.Fatal("tool change escaped chat scope")
+	}
+	if err := child.SetChatTools(chat.ID, "unknown"); err == nil {
+		t.Fatal("invalid permission level accepted")
+	}
+	config, err = child.DetachedChatConfig()
+	if err != nil || config.Settings.Tools != "plan" {
+		t.Fatalf("persisted tools: %+v, %v", config, err)
+	}
+	if _, err := d.call(&detachedWindow{kind: "terminal", sessionID: chat.ID}, detachedRPCRequest{Method: "chat.tools.set", Body: []byte(`"full"`)}); err == nil {
+		t.Fatal("terminal window gained chat permission controls")
+	}
 }
 
 func TestDetachedTerminalRPCIsAuthenticatedAndScoped(t *testing.T) {

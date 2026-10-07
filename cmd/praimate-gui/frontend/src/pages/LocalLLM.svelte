@@ -222,11 +222,12 @@
     const modelName = item.model || item.Model || ''
     const hostId = item.hostId || item.HostID || ''
     const cliStr = item.cli || item.CLI || ''
-    applyBusy = modelName
+    const providerKey = item.providerKey || item.ProviderKey || ''
+    applyBusy = `${cliStr}:${hostId}:${providerKey}:${modelName}`
     error = ''
     try {
       const cliTarget = cliStr === 'praimate-cli' ? 'praimate-cli' : cliStr.includes('openclaude') ? 'openclaude' : 'opencode'
-      notice = await api.removeModelFromCLI(cliTarget, hostId, modelName)
+      notice = await api.removeAppliedModelFromCLI(cliTarget, hostId, providerKey, modelName)
       if (cliTarget === 'praimate-cli' && activeHost.id === hostId) {
         activeHost.nativeModels = (activeHost.nativeModels || []).filter(m => m !== modelName)
         hosts = hosts.map(h => h.id === hostId ? { ...h, nativeModels: activeHost.nativeModels } : h)
@@ -420,17 +421,20 @@
           {@const hostName = item.hostName || item.HostName || 'Local Host'}
           {@const endpoint = item.endpoint || item.Endpoint || ''}
           {@const cliLabel = item.cli || item.CLI || ''}
+          {@const providerKey = item.providerKey || item.ProviderKey || ''}
+          {@const modelRef = cliLabel.includes('opencode') && providerKey ? `${providerKey}/${modelName}` : modelName}
+          {@const removalKey = `${cliLabel}:${item.hostId || item.HostID || ''}:${providerKey}:${modelName}`}
           <div class="applied-card">
             <div class="applied-info grow">
-              <div class="applied-model-title mono" title={modelName}>{modelName}</div>
+              <div class="applied-model-title mono" title={modelRef}>{modelRef}</div>
               <div class="row" style="gap:5px; margin-top:4px; align-items:center; flex-wrap:wrap">
                 <span class="pill sm">{hostName}</span>
                 {#if endpoint}<span class="card-sub mono" style="font-size:10.5px">{endpoint}</span>{/if}
                 <span class="pill sm ok" style="font-size:10px">{cliLabel}</span>
               </div>
             </div>
-            <button class="btn sm danger" on:click={() => removeAppliedModel(item)} disabled={applyBusy === modelName} title="Remove this model from CLI configuration">
-              {applyBusy === modelName ? '…' : '×'}
+            <button class="btn sm danger" on:click={() => removeAppliedModel(item)} disabled={applyBusy === removalKey} title="Remove this model from CLI configuration">
+              {applyBusy === removalKey ? '…' : '×'}
             </button>
           </div>
         {/each}

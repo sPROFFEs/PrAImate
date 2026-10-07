@@ -83,9 +83,17 @@ func TestOpenCodeInstalledCompatibility(t *testing.T) {
 	}
 	var mcpRequested, commandRequested, skillRequested atomic.Bool
 	var toolsLogged atomic.Bool
+	var quotaExceeded atomic.Bool
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
 			http.NotFound(w, r)
+			return
+		}
+		if quotaExceeded.Load() {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(http.StatusTooManyRequests)
+			fmt.Fprint(w, `{"error":{"message":"Free usage exceeded, subscribe to Go","type":"FreeUsageLimitError"}}`)
 			return
 		}
 		var request struct {
@@ -252,5 +260,16 @@ func TestOpenCodeInstalledCompatibility(t *testing.T) {
 			t.Fatal("usage plugin did not report completed steps")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	// Test the real CLI's otherwise silent long quota wait. The launch plugin
+	// must stop it while preserving the session for a different model.
+	quotaExceeded.Store(true)
+	quotaCtx, stop := context.WithTimeout(ctx, 25*time.Second)
+	defer stop()
+	limited, quotaErr := adapter.ResumeStream(quotaCtx, first.SessionID, ResumeOpts{
+		Cwd: project, Message: "compat-quota", Model: "praimate-local/compat", Tools: "full", Env: env,
+	}, emit)
+	if quotaErr == nil || !strings.Contains(quotaErr.Error(), "Free usage exceeded") || !strings.Contains(quotaErr.Error(), "choose another model") || limited == nil || limited.SessionID != first.SessionID {
+		t.Fatalf("upstream quota bridge: reply=%+v err=%v", limited, quotaErr)
 	}
 }

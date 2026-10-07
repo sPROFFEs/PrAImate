@@ -216,6 +216,9 @@ func Apply(asset *Asset, progress func(stage string)) error {
 	}
 	exePath, _ = filepath.EvalSymlinks(exePath)
 
+	if err := checkUpdateDirectory(exePath); err != nil {
+		return err
+	}
 	progress("downloading " + asset.Name)
 	archivePath, err := downloadToTemp(asset)
 	if err != nil {

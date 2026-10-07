@@ -43,6 +43,7 @@ type Core struct {
 	managedMu        sync.Mutex
 	managedActive    map[string]bool
 	nativeLimits     nativeLimitCache
+	nativeCatalogue  modelCatalogueCache
 	artifactMu       sync.Mutex
 	artifacts        *artifacts.Service
 	artifactCancel   context.CancelFunc

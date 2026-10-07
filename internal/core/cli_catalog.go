@@ -3,12 +3,16 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"github.com/sPROFFEs/PrAImate/internal/launcher"
-	"github.com/sPROFFEs/PrAImate/internal/ollama"
+	"errors"
 	"os/exec"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sPROFFEs/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/ollama"
 )
 
 // CLIInfo describes one launchable CLI for the "new chat" picker.
@@ -20,6 +24,71 @@ type CLIInfo struct {
 	UnavailableReason string          `json:"unavailableReason,omitempty"`
 	ModelHint         string          `json:"modelHint"` // expected --model format, "" = no model flag
 	Models            []string        `json:"models"`    // suggestions; free text always allowed
+}
+
+// Catalogue probes must use the same bundled executable as actual turns.
+func cliCatalogueBinary(cli string) (string, error) {
+	if adapter, err := GetCLIAdapter(cli); err == nil {
+		if finder, ok := adapter.(interface{ resolveBin() (string, error) }); ok {
+			return finder.resolveBin()
+		}
+	}
+	for _, agent := range launcher.KnownAgents() {
+		if string(agent.ID) == cli {
+			return exec.LookPath(agent.Binary)
+		}
+	}
+	return exec.LookPath(cli)
+}
+
+var catalogueANSI = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+var catalogueModelID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/@+-]*$`)
+
+func parseCLIModelIDs(raw []byte, qualified bool) []string {
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) != nil {
+		var payload struct {
+			Models []json.RawMessage `json:"models"`
+			Data   []json.RawMessage `json:"data"`
+		}
+		if json.Unmarshal(raw, &payload) == nil {
+			items = append(payload.Models, payload.Data...)
+		}
+	}
+	var values []string
+	if items != nil {
+		for _, item := range items {
+			var id string
+			if json.Unmarshal(item, &id) != nil {
+				var model struct{ ID, Slug, Model string }
+				if json.Unmarshal(item, &model) != nil {
+					continue
+				}
+				id = model.ID
+				if id == "" {
+					id = model.Slug
+				}
+				if id == "" {
+					id = model.Model
+				}
+			}
+			values = append(values, id)
+		}
+	} else {
+		values = strings.Split(catalogueANSI.ReplaceAllString(string(raw), ""), "\n")
+	}
+	seen := map[string]bool{}
+	var models []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if !catalogueModelID.MatchString(value) || qualified && !strings.Contains(value, "/") || seen[value] {
+			continue
+		}
+		seen[value] = true
+		models = append(models, value)
+	}
+	sort.Strings(models)
+	return models
 }
 
 // modelHints documents each CLI's --model format. Empty string means
@@ -89,6 +158,10 @@ func ListCLIs(parent context.Context) []CLIInfo {
 // ListCLIModels returns live model suggestions when the CLI exposes a
 // catalogue; otherwise it falls back to the static suggestions.
 func ListCLIModels(parent context.Context, cli string) []string {
+	return cachedCLIModels(parent, cli, false)
+}
+
+func listCLIModelsUncached(parent context.Context, cli string) ([]string, error) {
 	seen := map[string]bool{}
 	var models []string
 	add := func(m string) {
@@ -108,62 +181,80 @@ func ListCLIModels(parent context.Context, cli string) []string {
 		for _, m := range staticModelSuggestions["openclaude"] {
 			add(m)
 		}
-		return models
+		return models, nil
 	}
 
 	if cli == "codex" {
-		live := listCodexModels(parent)
+		live, err := listCodexModels(parent)
 		for _, m := range live {
 			add(m)
 		}
-		for _, m := range staticModelSuggestions["codex"] {
-			add(m)
+		if len(models) == 0 {
+			for _, m := range staticModelSuggestions["codex"] {
+				add(m)
+			}
 		}
-		return models
+		return models, err
+	}
+	if cli == "antigravity" {
+		bin, err := cliCatalogueBinary(cli)
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(parent, 8*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, bin, "models")
+		hideConsole(cmd)
+		raw, err := cmd.Output()
+		return parseCLIModelIDs(raw, false), err
 	}
 
 	if cli == "opencode" || cli == "praimate-code" {
+		var discoveryErr error
 		// Include models configured in opencode.json
 		if ocModels, err := ollama.ListConfiguredOpenCodeModels(); err == nil {
 			for pKey, mList := range ocModels {
 				for _, m := range mList {
 					add(pKey + "/" + m)
-					add(m)
 				}
 			}
 		}
 		// Probe opencode CLI models if available
-		if bin, err := exec.LookPath(cli); err == nil {
+		if bin, err := cliCatalogueBinary(cli); err == nil {
 			ctx, cancel := context.WithTimeout(parent, 8*time.Second)
 			cmd := exec.CommandContext(ctx, bin, "models")
 			hideConsole(cmd)
 			if outBytes, err := cmd.Output(); err == nil {
-				for _, line := range strings.Split(string(outBytes), "\n") {
-					line = strings.TrimSpace(line)
-					if line != "" && strings.Contains(line, "/") && !strings.Contains(line, " ") {
-						add(line)
-					}
+				for _, model := range parseCLIModelIDs(outBytes, true) {
+					add(model)
 				}
+			} else {
+				discoveryErr = err
 			}
 			cancel()
+		} else {
+			discoveryErr = err
 		}
 		// Fallback defaults
-		for _, m := range []string{"anthropic/claude-sonnet-4-5", "openai/gpt-5", "anthropic/claude-opus-4-6", "anthropic/claude-haiku-4-5"} {
-			add(m)
+		if len(models) == 0 {
+			for _, m := range []string{"anthropic/claude-sonnet-4-5", "openai/gpt-5", "anthropic/claude-opus-4-6", "anthropic/claude-haiku-4-5"} {
+				add(m)
+			}
 		}
-		return models
+		sort.Strings(models)
+		return models, discoveryErr
 	}
 
 	for _, m := range staticModelSuggestions[cli] {
 		add(m)
 	}
-	return models
+	return models, nil
 }
 
-func listCodexModels(parent context.Context) []string {
-	bin, err := exec.LookPath("codex")
+func listCodexModels(parent context.Context) ([]string, error) {
+	bin, err := cliCatalogueBinary("codex")
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
@@ -171,9 +262,13 @@ func listCodexModels(parent context.Context) []string {
 	hideConsole(cmd)
 	outBytes, err := cmd.Output()
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return ParseCodexDebugModels(outBytes)
+	models := ParseCodexDebugModels(outBytes)
+	if len(models) == 0 {
+		return nil, errors.New("Codex returned no selectable models")
+	}
+	return models, nil
 }
 
 func ParseCodexDebugModels(raw []byte) []string {

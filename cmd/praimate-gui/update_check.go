@@ -37,6 +37,9 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 
 // PerformUpdate downloads and applies the latest update, then restarts the application.
 func (a *App) PerformUpdate() error {
+	if err := updater.CheckPermissions(); err != nil {
+		return err
+	}
 	rel, err := updater.FetchLatest()
 	if err != nil {
 		return err

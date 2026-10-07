@@ -430,6 +430,25 @@ func (a *App) StudioListCLIModels(cli string) ([]string, error) {
 	return a.ListCLIModels(cli), nil
 }
 
+func (a *App) StudioRefreshCLIModels(cli string) ([]string, error) {
+	if a.detachedClient != nil {
+		var models []string
+		err := a.detachedClient.rpc("studio.cli.models.refresh", cli, &models)
+		return models, err
+	}
+	return a.RefreshCLIModels(cli), nil
+}
+
+// DetachedChatConfig exposes only the conversation assigned to this window.
+func (a *App) DetachedChatConfig() (*core.Chat, error) {
+	if a.detachedClient == nil {
+		return nil, errors.New("not a detached chat window")
+	}
+	var chat core.Chat
+	err := a.detachedClient.rpc("chat.config", nil, &chat)
+	return &chat, err
+}
+
 func (a *App) StudioLocalLLMModels() (*LocalLLMOption, error) {
 	if a.detachedClient != nil {
 		return a.detachedClient.studioLocalLLMModels()
@@ -698,6 +717,24 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 			return nil, errors.New("operation is outside this window's scope")
 		}
 		return d.app.ChatMessages(w.sessionID)
+	case "chat.config":
+		if w.kind != "chat" && w.kind != "studio" {
+			return nil, errors.New("operation is outside this window's scope")
+		}
+		c, err := d.app.requireCore()
+		if err != nil {
+			return nil, err
+		}
+		return c.GetChat(d.app.ctx, w.sessionID)
+	case "chat.tools.set":
+		if w.kind != "chat" && w.kind != "studio" {
+			return nil, errors.New("operation is outside this window's scope")
+		}
+		var tools string
+		if err := decodeRPCBody(req.Body, &tools); err != nil {
+			return nil, err
+		}
+		return nil, d.app.SetChatTools(w.sessionID, tools)
 	case "chat.list":
 		if w.kind != "studio" {
 			return nil, errors.New("operation is outside this window's scope")
@@ -713,13 +750,16 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 			return nil, errors.New("operation is outside this window's scope")
 		}
 		return d.app.ListCLIs(), nil
-	case "studio.cli.models":
+	case "studio.cli.models", "studio.cli.models.refresh":
 		if w.kind != "studio" && w.kind != "workers" {
 			return nil, errors.New("operation is outside this window's scope")
 		}
 		var cli string
 		if err := decodeRPCBody(req.Body, &cli); err != nil {
 			return nil, err
+		}
+		if req.Method == "studio.cli.models.refresh" {
+			return d.app.RefreshCLIModels(cli), nil
 		}
 		return d.app.ListCLIModels(cli), nil
 	case "studio.local.models":

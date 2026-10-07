@@ -283,7 +283,7 @@ func (s *Server) ServeStdio(r io.Reader, w io.Writer) error {
 				defer func() { <-assistantWork }()
 				s.write(s.dispatch(req))
 			}(req)
-		} else if req.ID != nil && (req.Method == "clis.list" || req.Method == "models.list" || req.Method == "tools.detect" || req.Method == "mcp.probe" || req.Method == "local.hosts.test") {
+		} else if req.ID != nil && (req.Method == "clis.list" || req.Method == "models.list" || req.Method == "models.refresh" || req.Method == "tools.detect" || req.Method == "mcp.probe" || req.Method == "local.hosts.test") {
 			// Version/model probes can take seconds. They must not block Stop,
 			// approvals or history, and concurrent probes are bounded.
 			select {
@@ -423,7 +423,7 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 			return nil, err
 		}
 		return true, s.installCLI(ctx, p.CLI, p.MethodID)
-	case "models.list":
+	case "models.list", "models.refresh":
 		var p struct{ CLI string }
 		if err := json.Unmarshal(body, &p); err != nil {
 			return nil, err
@@ -439,7 +439,13 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 				}
 				return models, nil
 			}
+			if method == "models.refresh" {
+				return s.core.RefreshNativeModels(ctx, s.sessionSnapshot().LocalEndpoint)
+			}
 			return s.core.NativeModels(ctx, s.sessionSnapshot().LocalEndpoint)
+		}
+		if method == "models.refresh" {
+			return core.RefreshCLIModels(ctx, p.CLI), nil
 		}
 		return core.ListCLIModels(ctx, p.CLI), nil
 	case "workers.config.get":

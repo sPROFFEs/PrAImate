@@ -1,4 +1,5 @@
 <script>
+  import ModelRefresh from '../lib/ModelRefresh.svelte'
   // Agents — see / edit / add / delete agents, and launch them on any
   // allowed surface: Chat (interpreter), Terminal (live CLI), or
   // Editor (document studio). Editing happens on the YAML wire format
@@ -168,10 +169,13 @@
     dlg.preflightChecked = false
     dlg = dlg
     const selectedCLI = dlg.cli
+    const requestedDialog = dlg
     api.executionCapabilities(selectedCLI).then((r) => {
       if (dlg?.cli === selectedCLI) { dlg.capabilities = r; dlg = dlg }
     }).catch(() => {})
-    dlg.suggestions = (await api.listCLIModels(dlg.cli).catch(() => [])) || []
+    const suggestions = (await api.listCLIModels(selectedCLI).catch(() => [])) || []
+    if (dlg !== requestedDialog || dlg.cli !== selectedCLI) return
+    dlg.suggestions = suggestions
     dlg.modelLoading = false
     dlg = dlg
   }
@@ -765,6 +769,7 @@
           {#each dlg.suggestions as m}<option value={m}></option>{/each}
         </datalist>
         {#if dlg.modelLoading}<div class="card-sub">Loading models...</div>{/if}
+        <ModelRefresh cli={dlg.cli} on:models={event => { if (dlg && dlg.cli === event.detail.cli) dlg = { ...dlg, suggestions: event.detail.models } }} />
       {/if}
       {#if dlg.capabilities}
         <div class="card-sub" style="margin-top:10px">

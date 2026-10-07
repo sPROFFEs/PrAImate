@@ -1,4 +1,5 @@
 <script>
+  import { versionLabel } from '../lib/versionLabel.js'
   import { onMount, onDestroy, tick } from 'svelte'
   import { api } from '../lib/api.js'
   import AssistantSettings from '../lib/AssistantSettings.svelte'
@@ -426,9 +427,9 @@
       <div class="card-sub">
         {#if updateInfo}
           {#if updateInfo.hasUpdate}
-            v{updateInfo.current} → <strong>v{updateInfo.latest} available</strong> — you can update automatically or download from <span class="mono">{updateInfo.url}</span>
+            {versionLabel(updateInfo.current)} → <strong>{versionLabel(updateInfo.latest)} available</strong> — you can update automatically or download from <span class="mono">{updateInfo.url}</span>
           {:else}
-            v{updateInfo.current} — up to date
+            {versionLabel(updateInfo.current)} — up to date
           {/if}
         {:else}
           Check for a newer release from GitHub or Gitea mirror.

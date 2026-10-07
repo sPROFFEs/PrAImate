@@ -43,6 +43,7 @@ type managedToolBroker struct {
 	approval     *ApprovalConfig
 	knowledgeDir string
 	mcp          *managedMCPSet
+	systemAccess bool // Explicit native Full mode; managed agents remain workspace-scoped.
 }
 
 func newManagedToolBroker(ctx context.Context, agent *Agent, capabilities AgentCapabilities, root string, approval *ApprovalConfig, mcpServers []MCPServer) (*managedToolBroker, error) {
@@ -227,7 +228,10 @@ func (b *managedToolBroker) networkGet(ctx context.Context, raw json.RawMessage)
 		if len(via) >= 5 {
 			return errors.New("too many redirects")
 		}
-		if len(via) > 0 && (next.URL.Scheme != via[0].URL.Scheme || !strings.EqualFold(next.URL.Host, via[0].URL.Host)) {
+		if next.URL.User != nil || (next.URL.Scheme != "http" && next.URL.Scheme != "https") {
+			return errors.New("redirect requires an http or https URL without embedded credentials")
+		}
+		if !b.systemAccess && len(via) > 0 && (next.URL.Scheme != via[0].URL.Scheme || !strings.EqualFold(next.URL.Host, via[0].URL.Host)) {
 			return errors.New("cross-origin redirect requires a separate approved request")
 		}
 		return nil
@@ -299,6 +303,12 @@ func decodeManagedArgs(raw json.RawMessage, dst any) error {
 }
 
 func (b *managedToolBroker) resolveProjectPath(rel string, forWrite bool) (string, error) {
+	if b.systemAccess {
+		if filepath.IsAbs(rel) {
+			return filepath.Clean(rel), nil
+		}
+		return filepath.Join(b.root, rel), nil
+	}
 	return resolveContainedPath(b.root, b.rootReal, rel, forWrite)
 }
 
@@ -593,6 +603,7 @@ func (b *managedToolBroker) runCommand(ctx context.Context, raw json.RawMessage)
 		Command        string   `json:"command"`
 		Args           []string `json:"args"`
 		TimeoutSeconds int      `json:"timeout_seconds"`
+		Cwd            string   `json:"cwd"`
 	}
 	if err := decodeManagedArgs(raw, &args); err != nil {
 		return "", err
@@ -610,10 +621,18 @@ func (b *managedToolBroker) runCommand(ctx context.Context, raw json.RawMessage)
 	if args.TimeoutSeconds > 300 {
 		return "", errors.New("command timeout cannot exceed 300 seconds")
 	}
-	if err := b.requireApproval(ctx, "command.run", map[string]any{"command": args.Command, "args": args.Args, "cwd": b.root}); err != nil {
+	cwd := b.root
+	if args.Cwd != "" {
+		var err error
+		cwd, err = b.resolveProjectPath(args.Cwd, false)
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := b.requireApproval(ctx, "command.run", map[string]any{"command": args.Command, "args": args.Args, "cwd": cwd}); err != nil {
 		return "", err
 	}
-	return b.execBounded(ctx, time.Duration(args.TimeoutSeconds)*time.Second, args.Command, args.Args...)
+	return b.execInDirectory(ctx, cwd, time.Duration(args.TimeoutSeconds)*time.Second, args.Command, args.Args...)
 }
 
 func (b *managedToolBroker) runGit(ctx context.Context, raw json.RawMessage) (string, error) {
@@ -641,6 +660,10 @@ func (b *managedToolBroker) runGit(ctx context.Context, raw json.RawMessage) (st
 }
 
 func (b *managedToolBroker) execBounded(parent context.Context, timeout time.Duration, command string, args ...string) (string, error) {
+	return b.execInDirectory(parent, b.root, timeout, command, args...)
+}
+
+func (b *managedToolBroker) execInDirectory(parent context.Context, cwd string, timeout time.Duration, command string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	path, err := exec.LookPath(command)
@@ -650,8 +673,17 @@ func (b *managedToolBroker) execBounded(parent context.Context, timeout time.Dur
 	cmd := exec.CommandContext(ctx, path, args...)
 	hideConsole(cmd)
 	cmd.WaitDelay = 2 * time.Second
-	cmd.Dir = b.root
+	cmd.Dir = cwd
 	cmd.Env = managedCommandEnv()
+	if b.systemAccess {
+		// Give ordinary user tools their configuration locations without
+		// forwarding provider keys or PrAImate's vault environment.
+		for _, key := range []string{"HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "SSH_AUTH_SOCK"} {
+			if value, ok := os.LookupEnv(key); ok {
+				cmd.Env = append(cmd.Env, key+"="+value)
+			}
+		}
+	}
 	var out limitedBuffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

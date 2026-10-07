@@ -67,9 +67,11 @@ export const api = {
   detachSession: (kind, sessionID, title) => call('DetachSession', kind, sessionID, title || ''),
   detachedWindows: () => call('DetachedWindows'),
   detachedSessionActive: () => call('DetachedSessionActive'),
+  detachedChatConfig: () => call('DetachedChatConfig'),
   detachedRendererReady: () => call('DetachedRendererReady'),
   studioListCLIs: () => call('StudioListCLIs'),
   studioListCLIModels: (cli) => call('StudioListCLIModels', cli),
+  studioRefreshCLIModels: (cli) => call('StudioRefreshCLIModels', cli),
   studioLocalLLMModels: () => call('StudioLocalLLMModels'),
   studioMCPServers: () => call('StudioMCPServers'),
   saveStudioConfig: (chatID, name, cli, model, tools, localEndpoint, localModel, mcpServers, workspacePath) =>
@@ -108,6 +110,7 @@ export const api = {
 
   listCLIs: () => call('ListCLIs'),
   listCLIModels: (cli) => call('ListCLIModels', cli),
+  refreshCLIModels: (cli) => call('RefreshCLIModels', cli),
   executionCapabilities: (cli) => call('ExecutionCapabilities', cli),
   preflightExecution: (agentID, surface, cli, model, tools, cwd, localEndpoint, localModel) =>
     call('PreflightExecution', agentID || '', surface, cli, model || '', tools || '', cwd || '', localEndpoint || '', localModel || ''),
@@ -193,6 +196,7 @@ export const api = {
   applyModelsToCLI: (cli, hostId, models) => call('ApplyModelsToCLI', cli, hostId || '', models || []),
   removeModelFromCLI: (cli, hostId, model) => call('RemoveModelFromCLI', cli, hostId || '', model || ''),
   listAppliedCLIModels: () => call('ListAppliedCLIModels'),
+  removeAppliedModelFromCLI: (cli, hostId, providerKey, model) => call('RemoveAppliedModelFromCLI', cli, hostId, providerKey, model),
 
   editorMode: () => call('EditorMode'),
   editorListFiles: () => call('EditorListFiles'),

@@ -35,7 +35,8 @@ OpenCode **1.18.34** (the stable release checked on October 1, 2026) is compatib
 with the updated adapter. The official Linux binary was tested against an
 isolated OpenAI-compatible HTTP fixture: a new conversation, native session
 resumption, loading a project skill, a stdio MCP call, a shell command that writes
-a temporary file, JSON usage events, and the per-launch usage plugin all passed. This exercises the
+a temporary file, JSON usage events, the per-launch usage plugin, and a simulated
+HTTP 429 quota response with a one-hour retry delay all passed. This exercises the
 adapter shared by chats and OpenCode Worker tiers; it does not test paid accounts
 or an entire multi-provider Worker run.
 
@@ -53,6 +54,68 @@ their contracts. Full mode's `--dangerously-skip-permissions` remains a supporte
 alias for `--auto`; no runtime flag migration is required. Existing V1
 `opencode.json` provider and MCP configuration remains supported. PrAImate Code
 uses its separately bundled version and is not upgraded by this check.
+
+Upstream's JSON command omits retry statuses. PrAImate adds a temporary,
+launch-scoped status plugin for OpenCode and PrAImate Code chats and workers.
+Short retries appear in the activity feed. A quota limit or a retry scheduled
+more than 30 seconds away ends the current call with the provider's explanation,
+leaving the native session and partial activity available for retry or a model
+change. This threshold applies to reported retry waits, not model reasoning or
+normal execution time. Project configuration and interactive terminals are not
+modified by this plugin.
+
+### Model catalogues and detached chats
+
+Model suggestions share a five-minute in-memory cache across Desktop and Studio
+requests. Concurrent probes are coalesced; CLI/configuration changes select a
+new cache entry. **Refresh models** bypasses a completed cached result. Native
+catalogues are scoped to their endpoint, credentials and certificate consent.
+Saved model assignments remain live, and model fields still accept free text.
+
+OpenCode and PrAImate Code retain full `provider/model` identifiers; bare aliases
+are not added because two providers may expose the same model. PrAImate CLI uses
+`HOST_ID::MODEL` for saved local assignments. Catalogues are deduplicated and
+grouped by host; changing the default host preserves provider identities and
+each host's own credential. Active-model removal targets the selected provider.
+CLI probes resolve the same managed executable as normal runs. Live Codex
+results replace fallback suggestions, and Antigravity probes `agy models`.
+Failed probes do not cache fallback suggestions. Local discovery has a five-second
+budget and does not query generation limits; refreshing one host preserves
+other hosts' cached catalogues. Picker results from an older CLI selection or a
+closed dialog are discarded.
+
+### PrAImate CLI Full access
+
+`--tools full` (or `/tools full`) auto-approves enabled tools, including file
+access outside the workspace, command execution with an optional `cwd`, and
+HTTP(S) redirects across origins. Commands retain the user's home/configuration
+directories and SSH agent socket, without inheriting provider credentials or
+PrAImate vault variables. Normal OS permissions and explicit agent manifest
+capabilities still apply. Safe, Ask and Edits retain workspace containment;
+Full does not enable unselected MCP servers or grant administrator privileges.
+
+### Self-signed local endpoints in PrAImate Code
+
+Accept the presented certificate in Local LLM settings before connecting.
+Consent is stored in the encrypted database and supplied at launch to the
+bundled PrAImate Code through `PRAIMATE_HOST_TLS`. The build applies the
+transport patch from `scripts/praimate-code-tls.mjs` to a scratch copy of the
+vendored provider. It trusts only the accepted HTTPS origin and exact leaf
+certificate, retaining certificate expiry and hostname validation. Revoking
+consent clears the exception for subsequent launches. The patched transport
+uses direct endpoints and does not follow redirects for trusted origins.
+
+The same launch preparation serves Desktop chats, Studio, workflows and
+terminals. This extension applies to PrAImate Code; external OpenCode keeps its
+own TLS behavior. Local providers use separate `PRAIMATE_LLM_<provider hash>`
+environment references, so multiple providers in one process receive their own
+keys. Legacy `OPENAI_API_KEY` references remain supported for the selected route.
+
+Detached chats use the same activity renderer and tool choices as embedded
+chats. Tool changes are saved through the authenticated main-process broker and
+apply to the next turn. Code keeps one terminal emulator for each live PTY while
+the page is hidden, retaining its screen, palette and cursor. Terminal state
+remains in memory and is released when the process closes.
 
 The installed-binary test is optional and uses temporary configuration, session,
 cache and skill directories, with model requests directed at localhost. Download

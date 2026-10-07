@@ -133,8 +133,12 @@ func TestNativeToolsFailClosedAndContainPaths(t *testing.T) {
 			}
 			for _, path := range paths {
 				raw, _ := json.Marshal(map[string]string{"path": path})
-				if _, err := executeNativeTool(context.Background(), b, defs, nativeCall("x", "read_file", string(raw))); err == nil {
-					t.Fatalf("read escaped: %s", path)
+				_, err := executeNativeTool(context.Background(), b, defs, nativeCall("x", "read_file", string(raw)))
+				if level != "full" && err == nil {
+					t.Fatalf("restricted mode read escaped: %s", path)
+				}
+				if level == "full" && path != "../private" && err != nil {
+					t.Fatalf("Full could not read an OS-accessible file: %s: %v", path, err)
 				}
 			}
 			if level == "ask" || level == "edits" {

@@ -1,4 +1,5 @@
 <script>
+  import ModelRefresh from '../lib/ModelRefresh.svelte'
   // Document studio window (plan §14-P1) — rendered INSTEAD of the main
   // app when this process was spawned with `-editor <folder>`. Left:
   // file tree. Center: tabbed CodeMirror editors. Right: the chat pane
@@ -85,12 +86,13 @@
     if (cfg.localEndpoint && !supportsLocalRouting(cfg.cli)) { cfg.localEndpoint = ''; cfg.localModel = '' }
     cfg.tools = normalizeToolsForCli(cfg.cli, cfg.tools)
     const requestedCLI = cfg.cli
+    const requestedConfig = cfg
     cfg.modelLoading = true
     cfg = cfg
     const suggestions = (await api.studioListCLIModels(requestedCLI).catch(() => [])) || []
     // Ignore an older request if the user changed the CLI while its model
     // catalogue was loading. Reassign cfg so Svelte renders nested changes.
-    if (!cfg || cfg.cli !== requestedCLI) return
+    if (cfg !== requestedConfig || cfg.cli !== requestedCLI) return
     cfg.suggestions = suggestions
     cfg.modelLoading = false
     cfg = cfg
@@ -1033,6 +1035,7 @@
         {#each cfg.suggestions || [] as m}<option value={m}></option>{/each}
       </datalist>
       {#if cfg.modelLoading}<div class="card-sub">Loading models...</div>{/if}
+      <ModelRefresh cli={cfg.cli} studio on:models={event => { if (cfg && cfg.cli === event.detail.cli) cfg = { ...cfg, suggestions: event.detail.models } }} />
 
       <label class="lbl" style="margin-top:10px">Tools</label>
       <div class="row">

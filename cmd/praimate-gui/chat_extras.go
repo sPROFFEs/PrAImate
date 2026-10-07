@@ -32,6 +32,12 @@ import (
 // "edits", "plan", "full"). The next turn picks it up — resumed sessions re-pin
 // the level on every invocation.
 func (a *App) SetChatTools(chatID, tools string) error {
+	if a.detachedClient != nil {
+		if chatID != a.detachedClient.mode.sessionID {
+			return errors.New("chat is outside this detached window")
+		}
+		return a.detachedClient.rpc("chat.tools.set", tools, nil)
+	}
 	switch tools {
 	case "", "ask", "edits", "plan", "full":
 	default:

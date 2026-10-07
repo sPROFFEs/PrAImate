@@ -1,4 +1,5 @@
 <script>
+  import ModelRefresh from '../lib/ModelRefresh.svelte'
   import { isWorkerRun } from '../lib/workerActivity.js'
   import VoiceButton from '../lib/VoiceButton.svelte'
   import { onMount, onDestroy, tick } from 'svelte'
@@ -7,6 +8,10 @@
   import SkillBindingsEditor from '../lib/SkillBindingsEditor.svelte'
   import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
   import { renderMarkdown } from '../lib/markdown.js'
+  import ChatActivity from '../lib/ChatActivity.svelte'
+  import ChatTools from '../lib/ChatTools.svelte'
+  import { applyChatStreamEvent } from '../lib/chatActivity.js'
+  import { toolLevelsForCli, normalizeToolsForCli } from '../lib/chatTools.js'
   import { findTerminalForChat } from '../lib/terminal.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
   import { localChoice, localChoiceKey } from '../lib/localModelChoice.js'
@@ -33,39 +38,10 @@
   let approvals = [] // pending mid-turn permission requests for this chat
   let detachedChats = new Set()
   let unsubDetached = () => {}
-  const TOOL_LEVELS = [
-    { id: '', label: 'Safe', hint: 'read & answer only — edits/commands denied' },
-    { id: 'ask', label: 'Ask', hint: 'ask you before each edit/command (claude & openclaude; other CLIs run safe)' },
-    { id: 'edits', label: 'Edits', hint: 'auto-approve file edits in the chat folder' },
-    { id: 'full', label: 'Full', hint: 'skip all approvals — edits AND commands' },
-  ]
-  const OPENCODE_TOOL_LEVELS = [
-    { id: 'plan', label: 'Plan', hint: 'OpenCode plan agent — disallows edit tools' },
-    { id: '', label: 'Build', hint: 'OpenCode default build agent' },
-    { id: 'full', label: 'Full', hint: 'OpenCode auto-approves permission requests for this chat' },
-  ]
-
-  function isOpenCodeLikeCli(cli) {
-    return cli === 'opencode' || cli === 'praimate-code'
-  }
+  function isOpenCodeLikeCli(cli) { return cli === 'opencode' || cli === 'praimate-code' }
 
   function supportsNativeTerminalResume(cli) {
     return ['claude', 'openclaude', 'codex', 'opencode', 'praimate-code', 'praimate-cli'].includes(cli)
-  }
-
-  function toolLevelsForCli(cli) {
-    if (cli === 'antigravity') return [
-      {id:'',label:'Native',hint:'Antigravity permission rules apply; workspace edits may be allowed'},
-      {id:'plan',label:'Plan',hint:'Plan instructions; Antigravity permissions still apply'},
-      {id:'edits',label:'Edits',hint:'Automatically accept file edits'},
-      {id:'full',label:'Full',hint:'Automatically approve tools'},
-    ]
-    if (cli === 'copilot') return TOOL_LEVELS.filter(level => level.id !== 'ask')
-    return isOpenCodeLikeCli(cli) ? OPENCODE_TOOL_LEVELS : TOOL_LEVELS
-  }
-
-  function normalizeToolsForCli(cli, tools) {
-    return isOpenCodeLikeCli(cli) && tools !== 'plan' && tools !== 'full' ? '' : (tools || '')
   }
 
   // Escalation hint: when the last reply shows denied/failed tool calls
@@ -233,8 +209,8 @@
         .catch(() => {})
     }
     api.listCLIModels(chat.CLIAgent)
-      .then((r) => { if (cfg && cfg.chat.ID === chat.ID) { cfg.suggestions = r || []; cfg.modelLoading = false; cfg = cfg } })
-      .catch(() => { if (cfg && cfg.chat.ID === chat.ID) { cfg.modelLoading = false; cfg = cfg } })
+      .then((r) => { if (cfg && cfg.chat.ID === chat.ID && cfg.cli === chat.CLIAgent) { cfg.suggestions = r || []; cfg.modelLoading = false; cfg = cfg } })
+      .catch(() => { if (cfg && cfg.chat.ID === chat.ID && cfg.cli === chat.CLIAgent) { cfg.modelLoading = false; cfg = cfg } })
     api.mcpServers()
       .then((r) => {
         mcpServers = (r || []).filter((s) => s.enabled)
@@ -256,7 +232,10 @@
     cfg.tools = normalizeToolsForCli(cfg.cli, cfg.tools)
     cfg.modelLoading = true
     cfg = cfg
-    cfg.suggestions = (await api.listCLIModels(cfg.cli).catch(() => [])) || []
+    const requestedConfig = cfg, requestedCLI = cfg.cli
+    const suggestions = (await api.listCLIModels(requestedCLI).catch(() => [])) || []
+    if (cfg !== requestedConfig || cfg.cli !== requestedCLI) return
+    cfg.suggestions = suggestions
     cfg.modelLoading = false
     cfg = cfg
   }
@@ -322,12 +301,14 @@
     modelSuggestions = []
     if (!newCli) return
     modelLoading = true
+    const requestedCLI = newCli
     try {
-      modelSuggestions = (await api.listCLIModels(newCli)) || []
+      const models = (await api.listCLIModels(requestedCLI)) || []
+      if (newCli === requestedCLI) modelSuggestions = models
     } catch {
-      modelSuggestions = []
+      if (newCli === requestedCLI) modelSuggestions = []
     } finally {
-      modelLoading = false
+      if (newCli === requestedCLI) modelLoading = false
     }
   }
 
@@ -451,23 +432,7 @@
 
   function handleStreamEvent(ev) {
     if (!sending || !selected || ev.chatId !== selected.ID) return
-    if (!stream) stream = { text: '', tools: [], reasoning: [], steps: [] }
-    if (ev.type === 'text') {
-      stream.text += (ev.text || '')
-    } else if (ev.type === 'reasoning') {
-      stream.reasoning = (stream.reasoning || '') + (ev.text || ev.detail || '')
-    } else if (ev.type === 'step_start' || ev.type === 'step_finish' || ev.type === 'context_compacted' || ev.type === 'context_recovery' || ev.type === 'error') {
-      stream.steps = [...(stream.steps || []), { type: ev.type.startsWith('context_') ? 'step_start' : ev.type, detail: ev.detail, ok: ev.type !== 'error' && ev.ok !== false }]
-    } else if (ev.type === 'tool_start') {
-      stream.tools = [...stream.tools, { id: ev.id || '', tool: ev.tool, detail: ev.detail, done: false, ok: true }]
-    } else if (ev.type === 'tool_end') {
-      const t = [...stream.tools]
-      let idx = ev.id ? t.findIndex((x) => x.id === ev.id && !x.done) : -1
-      if (idx < 0) idx = t.findIndex((x) => !x.done)
-      if (idx >= 0) t[idx] = { ...t[idx], done: true, ok: ev.ok }
-      stream.tools = t
-    }
-    stream = stream
+    stream = applyChatStreamEvent(stream, ev)
     scrollToBottom()
   }
 
@@ -647,31 +612,6 @@
     return String(s).replace(/\n*\[The user is looking at:[^\]]*\]\s*$/, '')
   }
 
-  function activityTitle(activity) {
-    const n = activity?.length || 0
-    return `Activity · ${n} event${n === 1 ? '' : 's'}`
-  }
-
-  function activityStatus(t) {
-    if (t.type === 'reasoning') return '💭'
-    if (t.type === 'step_start') return '◌'
-    if (t.type === 'step_finish') return '✓'
-    if (t.type === 'error' || t.ok === false) return '✗'
-    return '✓'
-  }
-
-  function activityName(t) {
-    if (t.type === 'reasoning') return 'thought'
-    if (t.type === 'step_start') return 'step'
-    if (t.type === 'step_finish') return 'step done'
-    if (t.type === 'error') return 'error'
-    return t.tool || t.type || 'tool'
-  }
-
-  function activityDetail(t) {
-    return (t.type === 'reasoning' ? (t.text || t.detail) : (t.detail || t.text)) || ''
-  }
-
   function isImg(p) {
     return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(p))
   }
@@ -683,6 +623,9 @@
     if (window.runtime?.EventsOn) {
       window.runtime.EventsOn('praimate:detached-windows', (items) => {
         detachedChats = new Set((items || []).filter((item) => item.kind === 'chat').map((item) => item.sessionId))
+        // A detached window may have changed tools. Reattach from current DB
+        // metadata rather than the list captured before it was opened.
+        load()
       })
       unsubDetached = () => window.runtime.EventsOff('praimate:detached-windows')
     }
@@ -743,6 +686,7 @@
       {#each cfg.suggestions as m}<option value={m}></option>{/each}
     </datalist>
     {#if cfg.modelLoading}<div class="card-sub">Loading models...</div>{/if}
+      <ModelRefresh cli={cfg.cli} on:models={event => { if (cfg && cfg.cli === event.detail.cli) cfg = { ...cfg, suggestions: event.detail.models } }} />
     <label class="lbl">Tools</label>
     <div class="row">
         {#each toolLevelsForCli(cfg.cli) as lvl}
@@ -854,16 +798,7 @@
         </span>
       {/if}
     </div>
-    <div class="toolpick" title="How much the CLI agent may do: edit files, run commands">
-      <span class="lbl-inline">Tools</span>
-      {#each toolLevelsForCli(selected.CLIAgent) as lvl}
-        <button
-          class="btn sm"
-          class:primary={toolsLevel === lvl.id}
-          title={lvl.hint}
-          on:click={() => setTools(lvl.id)}>{lvl.label}</button>
-      {/each}
-    </div>
+    <ChatTools cli={selected.CLIAgent} value={toolsLevel} on:change={event => setTools(event.detail)} />
     <button class="btn" on:click={() => openConfig(selected)} title="Change the CLI / model / tools behind this chat">⚙ Edit</button>
     <button class="btn danger" on:click={() => remove(selected)}>Delete</button>
   </div>
@@ -884,20 +819,7 @@
         <div class="msg {m.Role === 'user' ? 'user' : 'assistant'}" class:pending={m._pending}>
           <div class="who">{m.Role}{m.TS ? ' · ' + fmtDate(m.TS) : ''}{m.Meta?.interrupted ? ' · interrupted' : ''}</div>
           <!-- content rendered below; studio context block stripped -->
-          {#if m.Meta?.activity?.length}
-            <details class="activity-block">
-              <summary>{activityTitle(m.Meta.activity)}</summary>
-              <div class="tool-feed">
-                {#each m.Meta.activity as t}
-                  <div class="tool-row" class:err={t.ok === false || t.type === 'error'} class:reasoning-row={t.type === 'reasoning'}>
-                    <span class="tool-status">{activityStatus(t)}</span>
-                    <span class="tool-name">{activityName(t)}</span>
-                    {#if activityDetail(t)}<span class="tool-detail mono" class:reasoning-detail={t.type === 'reasoning'}>{activityDetail(t)}</span>{/if}
-                  </div>
-                {/each}
-              </div>
-            </details>
-          {/if}
+          <ChatActivity events={m.Meta?.activity || []} />
           {#if m.Role === 'user'}
             {cleanMsg(m.Content)}
           {:else}
@@ -924,33 +846,7 @@
     {#if sending}
       <div class="msg assistant">
         <div class="who">assistant</div>
-        {#if stream?.reasoning}
-          <div class="tool-feed reasoning-live">
-            <div class="tool-row reasoning-row">
-              <span class="tool-status">💭</span>
-              <span class="tool-name">thought</span>
-              <span class="tool-detail reasoning-detail">{stream.reasoning}</span>
-            </div>
-          </div>
-        {/if}
-        {#if stream?.steps?.length}
-          <div class="tool-feed">
-            {#each stream.steps as s}
-              <div class="tool-row" class:err={!s.ok}><span class="tool-status">{s.ok ? '◌' : '✗'}</span><span class="tool-name">{s.type === 'error' ? 'error' : s.type === 'step_finish' ? 'step done' : 'step'}</span>{#if s.detail}<span class="tool-detail mono">{s.detail}</span>{/if}</div>
-            {/each}
-          </div>
-        {/if}
-        {#if stream?.tools?.length}
-          <div class="tool-feed">
-            {#each stream.tools as t}
-              <div class="tool-row" class:err={t.done && !t.ok}>
-                <span class="tool-status">{t.done ? (t.ok ? '✓' : '✗') : '◌'}</span>
-                <span class="tool-name">{t.tool}</span>
-                {#if t.detail}<span class="tool-detail mono">{t.detail}</span>{/if}
-              </div>
-            {/each}
-          </div>
-        {/if}
+        <ChatActivity events={stream?.activity || []} collapsible={false} />
         {#if stream?.text}
           <div class="markdown">{@html renderMarkdown(stream.text)}</div><span class="cursor">▍</span>
         {:else}
@@ -1097,6 +993,7 @@
             {#each modelSuggestions as m}<option value={m}></option>{/each}
           </datalist>
           {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
+          <ModelRefresh cli={newCli} on:models={event => { if (newCli === event.detail.cli) modelSuggestions = event.detail.models }} />
         {/if}
         {#if newCli === 'praimate-cli'}
           <div class="card-sub" style="margin-top:12px">Use 0 for automatic budgets. Context comes from the loaded backend; if unavailable, the planning threshold adapts without imposing an 8192-token input limit. Output adapts to include reasoning. Nonzero per-chat limits stay fixed.</div>
@@ -1218,31 +1115,6 @@
     padding: 0 0 0 4px;
   }
   .chip-x:hover { color: var(--text); }
-  .tool-feed {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin: 4px 0 8px;
-    padding: 6px 8px;
-    border-left: 2px solid var(--border);
-    font-size: 12px;
-    color: var(--text-dim);
-  }
-  .activity-block { margin: 4px 0 8px; }
-  .activity-block summary { cursor: pointer; color: var(--text-dim); font-size: 12px; user-select: none; }
-  .activity-block .tool-feed { margin-bottom: 0; }
-  .tool-row { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
-  .tool-row.err .tool-status { color: var(--danger, #e5484d); }
-  .reasoning-row .tool-status { color: var(--accent, #7c6cf2); }
-  .tool-status { width: 1em; flex: none; }
-  .tool-name { font-weight: 600; flex: none; }
-  .tool-detail {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 11px;
-  }
-  .reasoning-detail { white-space: pre-wrap; text-overflow: clip; }
   .cursor { animation: blink 1s steps(1) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
   .approval-card {

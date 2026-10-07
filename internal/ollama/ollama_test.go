@@ -161,6 +161,20 @@ func TestOpenAIEnvDoesNotDuplicateV1(t *testing.T) {
 	}
 }
 
+func TestApplyOpenCodeDoesNotDuplicateV1(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if _, err := ApplyOpenCode(Settings{Endpoint: "https://llm.example/proxy/v1/", Model: "qwen"}, true); err != nil {
+		t.Fatal(err)
+	}
+	route, err := ConfiguredOpenCodeRoute("praimate_local/qwen", "")
+	if err != nil || route == nil || route.Endpoint != "https://llm.example/proxy/v1" {
+		t.Fatalf("incorrect registered API root: %v %v", route, err)
+	}
+	if OpenAIEndpoint("https://llm.example/proxy") != OpenAIEndpoint("https://llm.example/proxy/v1/") {
+		t.Fatal("server URL and API root should identify the same provider")
+	}
+}
+
 // TestListModels_SendsBearerWhenKeySet verifies the probe forwards
 // Authorization: Bearer <key> when the user supplied one. GPUStack and
 // other gated providers reject /v1/models without it.
@@ -204,7 +218,7 @@ func TestApplyOpenCode_ReferencesAPIKeyEnvironment(t *testing.T) {
 	prov := cfg["provider"].(map[string]any)
 	entry := prov["praimate_local"].(map[string]any)
 	opts := entry["options"].(map[string]any)
-	if opts["apiKey"] != "{env:OPENAI_API_KEY}" {
+	if opts["apiKey"] != "{env:"+OpenCodeAPIKeyEnv("praimate_local")+"}" {
 		t.Errorf("options.apiKey = %v, want environment reference", opts["apiKey"])
 	}
 	if strings.Contains(string(raw), "sk-abc") {

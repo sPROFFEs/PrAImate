@@ -295,7 +295,7 @@ func (c *Core) ResolveExecutionConfig(ctx context.Context, req ExecutionRequest)
 			return nil, errors.New("execution preflight: local routing requires a model")
 		}
 		if local.APIKey == "" && req.CLI != "praimate-cli" {
-			key, err := c.localLLMAPIKey(ctx)
+			key, err := c.localEndpointCredential(ctx, local.Endpoint)
 			if err != nil {
 				return nil, err
 			}
@@ -338,18 +338,35 @@ func (c *Core) ResolveExecutionConfig(ctx context.Context, req ExecutionRequest)
 			})
 		}
 	} else if req.CLI == "opencode" || req.CLI == "praimate-code" {
-		managed, err := ollama.OpenCodeUsesManagedLocalRoute(out.Model)
+		route, err := ollama.ConfiguredOpenCodeRoute(out.Model, out.Cwd)
 		if err != nil {
 			return nil, fmt.Errorf("resolve OpenCode local route: %w", err)
 		}
-		if managed {
-			key, err := c.localLLMAPIKey(ctx)
+		if route != nil {
+			key, owned, err := c.localEndpointCredentialForRoute(ctx, route.Endpoint)
 			if err != nil {
 				return nil, err
 			}
-			if key != "" {
+			if owned {
+				// A cleared local key also clears an inherited legacy variable.
 				out.Env = map[string]string{"OPENAI_API_KEY": key}
 			}
+		}
+	}
+	if req.CLI == "opencode" || req.CLI == "praimate-code" {
+		routes, _, err := ollama.ConfiguredOpenCodeRoutes(out.Cwd)
+		if err != nil {
+			return nil, fmt.Errorf("resolve provider credentials: %w", err)
+		}
+		if out.Env == nil {
+			out.Env = map[string]string{}
+		}
+		for provider, route := range routes {
+			key, err := c.localEndpointCredential(ctx, route.Endpoint)
+			if err != nil {
+				return nil, err
+			}
+			out.Env[ollama.OpenCodeAPIKeyEnv(provider)] = key
 		}
 	}
 	return out, nil
@@ -363,6 +380,9 @@ func (c *Core) PrepareExecution(ctx context.Context, cfg *EffectiveExecutionConf
 	}
 	if cfg.CLI == "praimate-cli" {
 		return c.prepareNativeExecution(ctx, cfg)
+	}
+	if err := c.prepareCLIHostTLS(ctx, cfg); err != nil {
+		return fmt.Errorf("prepare host certificates: %w", err)
 	}
 	if cfg.Local != nil {
 		if cfg.CLI == "opencode" || cfg.CLI == "praimate-code" {

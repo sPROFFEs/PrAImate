@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -22,11 +23,46 @@ func WithNativeAPIKey(ctx context.Context, endpoint, key string) context.Context
 }
 
 func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpoint, model string) (*ChatLocalEndpoint, error) {
+	explicitContext := requested != nil && requested.ContextTokens != 0
+	explicitOutput := requested != nil && requested.OutputTokens != 0
+	route, err := c.resolveNativeConnection(ctx, requested, model, true)
+	if err != nil {
+		return nil, err
+	}
+	if route.Model == "" {
+		return nil, errors.New("PrAImate CLI requires a model: select one in Local LLM settings or pass --model")
+	}
+	if !explicitContext {
+		window, source := c.nativeLimits.lookup(ctx, *route)
+		if strings.Contains(source, "server window unknown") && route.ContextTokens > 0 {
+			route.ContextSource = "host hint; server window unknown"
+		} else {
+			route.ContextTokens, route.ContextSource = window, source
+		}
+	}
+	// Host values are planning hints. Only an explicit per-chat/CLI limit
+	// opts out of automatic generation and serving-window discovery.
+	route.OutputAutomatic = !explicitOutput
+	if route.OutputAutomatic && (route.OutputTokens == 0 || route.OutputTokens >= route.ContextTokens/2) {
+		route.OutputTokens = autoOutputTokens(route.ContextTokens, 0)
+	}
+	if route.OutputTokens < 1 || route.ContextTokens < 2048 || route.ContextTokens > 2_000_000 || route.OutputTokens >= route.ContextTokens {
+		return nil, errors.New("invalid native context/output token limits")
+	}
+	if route.ContextTokens-route.OutputTokens-max(256, route.ContextTokens/20) < 256 {
+		return nil, errors.New("output and safety reserves must leave at least 256 tokens for input; reduce the output reserve or increase the supported context window")
+	}
+	return route, nil
+}
+
+// Catalogue discovery shares endpoint, credentials and certificate consent
+// with execution, without querying serving limits or requiring a model.
+func (c *Core) resolveNativeConnection(ctx context.Context, requested *ChatLocalEndpoint, model string, resolveModel bool) (*ChatLocalEndpoint, error) {
 	route := ChatLocalEndpoint{}
 	if requested != nil {
 		route = *requested
 	}
-	explicitContext, explicitOutput := route.ContextTokens != 0, route.OutputTokens != 0
+	selectedHostID := ""
 	if route.ContextTokens != 0 {
 		route.ContextSource = "chat override"
 	}
@@ -34,32 +70,35 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 	if err != nil {
 		return nil, err
 	}
-	if route.Model == "" {
-		route.Model = strings.TrimSpace(model)
-	}
-	if route.Model == "" {
-		route.Model = strings.TrimSpace(os.Getenv("PRAIMATE_MODEL"))
-	}
-	if route.Model == "" {
-		route.Model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
-	}
-	if c.store != nil {
-		assignments, err := c.NativeModelAssignments(ctx)
-		if err != nil {
-			return nil, err
+	if resolveModel {
+		if route.Model == "" {
+			route.Model = strings.TrimSpace(model)
 		}
-		selected, err := selectNativeAssignment(assignments, route.Endpoint, route.Model)
-		if err != nil {
-			return nil, err
+		if route.Model == "" {
+			route.Model = strings.TrimSpace(os.Getenv("PRAIMATE_MODEL"))
 		}
-		if selected != nil {
-			// A model qualified with another host must not carry credentials
-			// supplied for the originally requested endpoint.
-			if route.Endpoint != "" && ollama.NormalizeEndpoint(route.Endpoint) != ollama.NormalizeEndpoint(selected.Endpoint) {
-				route.APIKey = ""
+		if route.Model == "" {
+			route.Model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
+		}
+		if c.store != nil {
+			assignments, err := c.NativeModelAssignments(ctx)
+			if err != nil {
+				return nil, err
 			}
-			route.Endpoint = selected.Endpoint
-			route.Model = selected.Model
+			selected, err := selectNativeAssignment(assignments, route.Endpoint, route.Model)
+			if err != nil {
+				return nil, err
+			}
+			if selected != nil {
+				selectedHostID = selected.HostID
+				// A model qualified with another host must not carry credentials
+				// supplied for the originally requested endpoint.
+				if route.Endpoint != "" && ollama.OpenAIEndpoint(route.Endpoint) != ollama.OpenAIEndpoint(selected.Endpoint) {
+					route.APIKey = ""
+				}
+				route.Endpoint = selected.Endpoint
+				route.Model = selected.Model
+			}
 		}
 	}
 	if route.Endpoint == "" {
@@ -95,6 +134,9 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 			return nil, err
 		}
 		for _, host := range hosts {
+			if selectedHostID != "" && host.ID != selectedHostID {
+				continue
+			}
 			hostBase, _ := nativeBaseURL(ollama.NormalizeEndpoint(host.Endpoint))
 			if hostBase != base {
 				continue
@@ -136,29 +178,6 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 	route.TLSCertificate, err = c.LocalHostTLSCertificate(ctx, route.Endpoint)
 	if err != nil {
 		return nil, err
-	}
-	if route.Model == "" {
-		return nil, errors.New("PrAImate CLI requires a model: select one in Local LLM settings or pass --model")
-	}
-	if !explicitContext {
-		window, source := c.nativeLimits.lookup(ctx, route)
-		if strings.Contains(source, "server window unknown") && route.ContextTokens > 0 {
-			route.ContextSource = "host hint; server window unknown"
-		} else {
-			route.ContextTokens, route.ContextSource = window, source
-		}
-	}
-	// Host values are planning hints. Only an explicit per-chat/CLI limit
-	// opts out of automatic generation and serving-window discovery.
-	route.OutputAutomatic = !explicitOutput
-	if route.OutputAutomatic && (route.OutputTokens == 0 || route.OutputTokens >= route.ContextTokens/2) {
-		route.OutputTokens = autoOutputTokens(route.ContextTokens, 0)
-	}
-	if route.OutputTokens < 1 || route.ContextTokens < 2048 || route.ContextTokens > 2_000_000 || route.OutputTokens >= route.ContextTokens {
-		return nil, errors.New("invalid native context/output token limits")
-	}
-	if route.ContextTokens-route.OutputTokens-max(256, route.ContextTokens/20) < 256 {
-		return nil, errors.New("output and safety reserves must leave at least 256 tokens for input; reduce the output reserve or increase the supported context window")
 	}
 	return &route, nil
 }
@@ -238,7 +257,7 @@ func selectNativeAssignment(assignments []NativeModelAssignment, endpoint, model
 			}
 			continue
 		}
-		if endpoint != "" && ollama.NormalizeEndpoint(endpoint) != ollama.NormalizeEndpoint(candidate.Endpoint) {
+		if endpoint != "" && ollama.OpenAIEndpoint(endpoint) != ollama.OpenAIEndpoint(candidate.Endpoint) {
 			continue
 		}
 		if model != "" {
@@ -263,13 +282,24 @@ func selectNativeAssignment(assignments []NativeModelAssignment, endpoint, model
 
 // NativeModels uses the same stored endpoint and credentials as native runs.
 func (c *Core) NativeModels(ctx context.Context, endpoint string) ([]string, error) {
+	return c.nativeModels(ctx, endpoint, false)
+}
+
+func (c *Core) nativeModels(ctx context.Context, endpoint string, force bool) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	route, err := c.resolveNativeRoute(ctx, &ChatLocalEndpoint{Endpoint: endpoint}, "catalog")
+	route, err := c.resolveNativeConnection(ctx, &ChatLocalEndpoint{Endpoint: endpoint}, "", false)
 	if err != nil {
 		return nil, err
 	}
-	return (nativeProvider{route: *route}).models(ctx)
+	// Route resolution remains live so changed credentials or certificate
+	// consent cannot reuse a catalogue from a different connection.
+	key := fmt.Sprintf("%x", sha256.Sum256([]byte(route.Endpoint+"\x00"+route.APIKey+"\x00"+route.TLSCertificate)))
+	return c.nativeCatalogue.list(ctx, key, force, func(ctx context.Context) ([]string, error) {
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		return (nativeProvider{route: *route}).models(probeCtx)
+	})
 }
 
 func (c *Core) prepareNativeExecution(ctx context.Context, cfg *EffectiveExecutionConfig) error {

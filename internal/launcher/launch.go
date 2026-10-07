@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sPROFFEs/PrAImate/internal/ollama"
+
 	"github.com/sPROFFEs/PrAImate/pkg/targets"
 	"github.com/sPROFFEs/PrAImate/pkg/workpath"
 )
@@ -315,6 +317,7 @@ func Plan(ws Workspace, agent Agent) (LaunchPlan, error) {
 			// OPENAI_API_KEY too is harmless and covers SDK versions
 			// that prefer the env var.
 			plan.Env = map[string]string{"OPENAI_API_KEY": authToken}
+			plan.Env[ollama.OpenCodeAPIKeyEnv("praimate_local")] = authToken
 		}
 
 	case AgentGemini:

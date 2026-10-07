@@ -358,6 +358,8 @@ func (c *Core) ContinueChatStream(ctx context.Context, chatID, userMessage, cwd,
 						}
 					}
 				}
+			case "retry", "status":
+				activity = append(activity, map[string]any{"type": ev.Type, "detail": compactActivityText(ev.Detail, 500), "ok": true})
 			case "step_start", "context_compacted", "context_recovery":
 				activity = append(activity, map[string]any{"type": "step_start", "detail": compactActivityText(ev.Detail, 300), "ok": true})
 			case "step_finish":

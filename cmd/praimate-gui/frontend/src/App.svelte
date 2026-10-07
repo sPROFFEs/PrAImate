@@ -1,4 +1,5 @@
 <script>
+  import { versionLabel } from './lib/versionLabel.js'
   import { isWorkerRun } from './lib/workerActivity.js'
   import { onMount, onDestroy } from 'svelte'
   import { api, onApproval } from './lib/api.js'
@@ -430,7 +431,7 @@
       <div class="update-banner" role="alert">
         <div class="update-copy">
           <span class="update-tag">UPDATE</span>
-          <span>PrAImate <strong>v{availableUpdate.latest}</strong> available (currently v{availableUpdate.current})</span>
+          <span>PrAImate <strong>{versionLabel(availableUpdate.latest)}</strong> available (currently {versionLabel(availableUpdate.current)})</span>
         </div>
         <div class="update-actions">
           {#if updateError}<span class="update-err">{updateError}</span>{/if}

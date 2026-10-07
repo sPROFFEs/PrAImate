@@ -4,12 +4,49 @@ package main
 // OpenClaude routes per launch; Claude Code remains on Anthropic.
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sPROFFEs/PrAImate/internal/launcher"
 	"github.com/sPROFFEs/PrAImate/internal/ollama"
 )
+
+// Reuse the provider associated with the endpoint, even after default changes.
+func localHostProviderKey(host *LocalHost) (string, error) {
+	routes, _, err := ollama.ConfiguredOpenCodeRoutes("")
+	if err != nil {
+		return "", err
+	}
+	keys := make([]string, 0, len(routes))
+	for key := range routes {
+		if strings.HasPrefix(key, "praimate_") {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if ollama.OpenAIEndpoint(routes[key].Endpoint) == ollama.OpenAIEndpoint(host.Endpoint) {
+			return key, nil
+		}
+	}
+	clean := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return '_'
+	}, host.ID)
+	key := "praimate_" + clean
+	if host.IsDefault {
+		key = "praimate_local"
+	}
+	if existing, ok := routes[key]; ok && ollama.OpenAIEndpoint(existing.Endpoint) != ollama.OpenAIEndpoint(host.Endpoint) {
+		hash := sha256.Sum256([]byte(host.ID + "\x00" + host.Endpoint))
+		key = "praimate_" + clean + fmt.Sprintf("_%x", hash[:4])
+	}
+	return key, nil
+}
 
 // AppliedModelItem represents a model configured in a CLI.
 type AppliedModelItem struct {
@@ -67,14 +104,11 @@ func (a *App) ApplyModelsToCLI(cli, hostID string, models []string) (string, err
 	}
 
 	provKey := "praimate_local"
-	if !targetHost.IsDefault {
-		cleanID := strings.Map(func(r rune) rune {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-				return r
-			}
-			return '_'
-		}, targetHost.ID)
-		provKey = "praimate_" + cleanID
+	if cli == "opencode" || cli == "praimate-code" {
+		provKey, err = localHostProviderKey(targetHost)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	switch cli {
@@ -100,7 +134,9 @@ func (a *App) ApplyModelsToCLI(cli, hostID string, models []string) (string, err
 				targetHost.ActiveModels = append(targetHost.ActiveModels, m)
 			}
 		}
-		_ = a.SaveLocalHost(*targetHost)
+		if err := a.SaveLocalHost(*targetHost); err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("Applied %d model(s) to %s (%s) — wrote %s", len(models), cli, targetHost.Name, path), nil
 
 	case "openclaude":
@@ -116,7 +152,9 @@ func (a *App) ApplyModelsToCLI(cli, hostID string, models []string) (string, err
 			return "", err
 		}
 		targetHost.ActiveModels = models
-		_ = a.SaveLocalHost(*targetHost)
+		if err := a.SaveLocalHost(*targetHost); err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("Applied %s to OpenClaude profile (%s)", s.Model, targetHost.Name), nil
 
 	default:
@@ -126,7 +164,20 @@ func (a *App) ApplyModelsToCLI(cli, hostID string, models []string) (string, err
 
 // RemoveModelFromCLI removes an individual model from a CLI's provider configuration.
 func (a *App) RemoveModelFromCLI(cli, hostID, model string) (string, error) {
-	hosts, _ := a.ListLocalHosts()
+	return a.removeModelFromCLI(cli, hostID, "", model)
+}
+
+// RemoveAppliedModelFromCLI identifies the exact provider shown in the GUI.
+// Several providers can expose the same model or use the same host endpoint.
+func (a *App) RemoveAppliedModelFromCLI(cli, hostID, providerKey, model string) (string, error) {
+	return a.removeModelFromCLI(cli, hostID, providerKey, model)
+}
+
+func (a *App) removeModelFromCLI(cli, hostID, providerKey, model string) (string, error) {
+	hosts, err := a.ListLocalHosts()
+	if err != nil {
+		return "", err
+	}
 	var targetHost *LocalHost
 	for i := range hosts {
 		if hosts[i].ID == hostID || (hostID == "" && hosts[i].IsDefault) {
@@ -134,15 +185,25 @@ func (a *App) RemoveModelFromCLI(cli, hostID, model string) (string, error) {
 			break
 		}
 	}
-	provKey := "praimate_local"
-	if targetHost != nil && !targetHost.IsDefault {
-		cleanID := strings.Map(func(r rune) rune {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-				return r
+	provKey := providerKey
+	if cli == "opencode" || cli == "praimate-code" {
+		if provKey == "" {
+			if targetHost == nil {
+				return "", fmt.Errorf("local host %q not found", hostID)
 			}
-			return '_'
-		}, targetHost.ID)
-		provKey = "praimate_" + cleanID
+			provKey, err = localHostProviderKey(targetHost)
+			if err != nil {
+				return "", err
+			}
+		} else {
+			configured, err := ollama.ListConfiguredOpenCodeModels()
+			if err != nil {
+				return "", err
+			}
+			if _, ok := configured[provKey]; !ok {
+				return "", fmt.Errorf("provider %q is no longer configured; refresh the model list", provKey)
+			}
+		}
 	}
 
 	switch cli {
@@ -163,15 +224,21 @@ func (a *App) RemoveModelFromCLI(cli, hostID, model string) (string, error) {
 		}
 		if targetHost != nil {
 			targetHost.ActiveModels = removeString(targetHost.ActiveModels, model)
-			_ = a.SaveLocalHost(*targetHost)
+			if err := a.SaveLocalHost(*targetHost); err != nil {
+				return "", err
+			}
 		}
 		return fmt.Sprintf("Removed %s from %s — %s", model, cli, path), nil
 
 	case "openclaude":
-		_ = launcher.BackupOpenClaudeLocalProfileIfPresent()
+		if err := launcher.BackupOpenClaudeLocalProfileIfPresent(); err != nil {
+			return "", err
+		}
 		if targetHost != nil {
 			targetHost.ActiveModels = removeString(targetHost.ActiveModels, model)
-			_ = a.SaveLocalHost(*targetHost)
+			if err := a.SaveLocalHost(*targetHost); err != nil {
+				return "", err
+			}
 		}
 		return fmt.Sprintf("Removed %s from OpenClaude local routing", model), nil
 
@@ -182,11 +249,15 @@ func (a *App) RemoveModelFromCLI(cli, hostID, model string) (string, error) {
 
 // ListAppliedCLIModels returns all active models configured in OpenCode / OpenClaude.
 func (a *App) ListAppliedCLIModels() ([]AppliedModelItem, error) {
-	hosts, _ := a.ListLocalHosts()
+	hosts, err := a.ListLocalHosts()
+	if err != nil {
+		return nil, err
+	}
 	var out []AppliedModelItem
 	seen := make(map[string]bool)
 	for _, host := range hosts {
 		for _, model := range host.NativeModels {
+			model = strings.TrimSpace(model)
 			key := "praimate-cli:" + host.ID + ":" + model
 			if model != "" && !seen[key] {
 				seen[key] = true
@@ -203,29 +274,26 @@ func (a *App) ListAppliedCLIModels() ([]AppliedModelItem, error) {
 	if err == nil {
 		for pKey, models := range ocModels {
 			var matchingHost *LocalHost
+			route, routeErr := ollama.ConfiguredOpenCodeRoute(pKey+"/model", "")
 			for i := range hosts {
-				h := &hosts[i]
-				cleanID := strings.Map(func(r rune) rune {
-					if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-						return r
-					}
-					return '_'
-				}, h.ID)
-				if (h.IsDefault && pKey == "praimate_local") || pKey == "praimate_"+cleanID {
-					matchingHost = h
+				if routeErr == nil && route != nil && ollama.OpenAIEndpoint(route.Endpoint) == ollama.OpenAIEndpoint(hosts[i].Endpoint) {
+					matchingHost = &hosts[i]
 					break
 				}
 			}
-			hostName := "Local LLM"
+			hostName := pKey
 			endpoint := ""
-			hostID := "default"
+			hostID := ""
+			if route != nil {
+				endpoint = route.Endpoint
+			}
 			if matchingHost != nil {
 				hostName = matchingHost.Name
 				endpoint = matchingHost.Endpoint
 				hostID = matchingHost.ID
 			}
 			for _, m := range models {
-				key := "opencode:" + hostID + ":" + m
+				key := "opencode:" + pKey + ":" + m
 				if !seen[key] {
 					seen[key] = true
 					out = append(out, AppliedModelItem{
@@ -246,7 +314,7 @@ func (a *App) ListAppliedCLIModels() ([]AppliedModelItem, error) {
 		var matchingHost *LocalHost
 		for i := range hosts {
 			h := &hosts[i]
-			if ollama.NormalizeEndpoint(h.Endpoint) == ollama.NormalizeEndpoint(profile.BaseURL) {
+			if ollama.OpenAIEndpoint(h.Endpoint) == ollama.OpenAIEndpoint(profile.BaseURL) {
 				matchingHost = h
 				break
 			}
@@ -273,6 +341,18 @@ func (a *App) ListAppliedCLIModels() ([]AppliedModelItem, error) {
 		}
 	}
 
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CLI != out[j].CLI {
+			return out[i].CLI < out[j].CLI
+		}
+		if out[i].HostID != out[j].HostID {
+			return out[i].HostID < out[j].HostID
+		}
+		if out[i].ProviderKey != out[j].ProviderKey {
+			return out[i].ProviderKey < out[j].ProviderKey
+		}
+		return out[i].Model < out[j].Model
+	})
 	return out, nil
 }
 
@@ -286,7 +366,7 @@ func containsString(slice []string, s string) bool {
 }
 
 func removeString(slice []string, s string) []string {
-	var next []string
+	next := []string{}
 	for _, v := range slice {
 		if v != s {
 			next = append(next, v)

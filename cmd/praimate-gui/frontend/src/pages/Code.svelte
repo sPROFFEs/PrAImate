@@ -1,4 +1,5 @@
 <script>
+  import ModelRefresh from '../lib/ModelRefresh.svelte'
   import { onMount, onDestroy, tick } from 'svelte'
   import { Terminal } from '@xterm/xterm'
   import { FitAddon } from '@xterm/addon-fit'
@@ -6,7 +7,8 @@
   import { api } from '../lib/api.js'
   import SkillBindingsEditor from '../lib/SkillBindingsEditor.svelte'
   import SkillChoiceDraft from '../lib/SkillChoiceDraft.svelte'
-  import { term, onTermData, onTermExit, decodeBase64Bytes, findTerminalForChat } from '../lib/terminal.js'
+  import { term, findTerminalForChat } from '../lib/terminal.js'
+  import { terminalRenderers } from '../lib/terminalRenderers.js'
   import { codeReopenPayload } from '../lib/codeReopen.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
   import { localChoice, localChoiceKey } from '../lib/localModelChoice.js'
@@ -109,7 +111,8 @@
     cfg.model = ''
     cfg.suggestions = []
     cfg.modelLoading = true
-    api.listCLIModels(cfg.cli).then(r => { if (cfg) { cfg.suggestions = r || []; cfg.modelLoading = false } }).catch(() => { if (cfg) { cfg.modelLoading = false } })
+    const requestedConfig = cfg, requestedCLI = cfg.cli
+    api.listCLIModels(requestedCLI).then(r => { if (cfg === requestedConfig && cfg.cli === requestedCLI) { cfg.suggestions = r || []; cfg.modelLoading = false } }).catch(() => { if (cfg === requestedConfig && cfg.cli === requestedCLI) { cfg.modelLoading = false } })
   }
   function openConfig(chat) {
     error = ''
@@ -123,7 +126,8 @@
       mcps: (chat.Settings?.mcp_servers || []).slice(),
     }
     if (clis.length === 0) api.listCLIs().then(r => clis = r || []).catch(() => {})
-    api.listCLIModels(chat.CLIAgent).then(r => { if (cfg && cfg.chat.ID === chat.ID) { cfg.suggestions = r || []; cfg.modelLoading = false } }).catch(() => {})
+    const requestedConfig = cfg
+    api.listCLIModels(chat.CLIAgent).then(r => { if (cfg === requestedConfig && cfg.cli === chat.CLIAgent) { cfg.suggestions = r || []; cfg.modelLoading = false } }).catch(() => { if (cfg === requestedConfig && cfg.cli === chat.CLIAgent) cfg.modelLoading = false })
     api.mcpServers().then(r => { mcpServers = (r || []).filter(s => s.enabled) }).catch(() => {})
   }
   async function saveConfig() {
@@ -165,7 +169,8 @@
     const seq = ++modelLoadSeq
     if (!cli) { modelSuggestions = []; return }
     modelLoading = true
-    try { modelSuggestions = (await api.listCLIModels(cli)) || [] } catch { modelSuggestions = [] }
+    const requestedCLI = cli
+    try { const models = (await api.listCLIModels(requestedCLI)) || []; if (seq === modelLoadSeq && cli === requestedCLI) modelSuggestions = models } catch { if (seq === modelLoadSeq) modelSuggestions = [] }
     finally { if (seq === modelLoadSeq) modelLoading = false }
   }
   // Refresh model suggestions whenever the chosen CLI changes.
@@ -226,10 +231,7 @@
   let termId = null
   let el            // xterm host div
   let xterm = null
-  let fit = null
-  let unsubData = () => {}
-  let unsubExit = () => {}
-  let ro = null
+  let renderer = null
 
   async function load() {
     try {
@@ -354,99 +356,39 @@
   }
 
   async function mountXterm() {
-    xterm = new Terminal({
-      fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-      fontSize: 13,
-      cursorBlink: true,
-      theme: { background: '#101218', foreground: '#e6e9f0' },
-    })
-    fit = new FitAddon()
-    xterm.loadAddon(fit)
-    xterm.open(el)
-    fit.fit()
-    xterm.focus()
-
-    xterm.attachCustomKeyEventHandler((e) => {
-      if (e.type === 'keydown' && e.ctrlKey && (e.key === 'c' || e.key === 'C') && xterm.hasSelection()) {
-        const text = xterm.getSelection()
-        if (text && window.runtime?.ClipboardSetText) {
-          window.runtime.ClipboardSetText(text)
-          xterm.clearSelection()
-          return false
+    const id = termId
+    const chatID = sessionChatId
+    renderer = terminalRenderers.acquire(id, () => {
+      const terminal = new Terminal({
+        fontFamily: 'JetBrains Mono, ui-monospace, monospace', fontSize: 13,
+        cursorBlink: true, theme: { background: '#101218', foreground: '#e6e9f0' },
+      })
+      const addon = new FitAddon()
+      terminal.loadAddon(addon)
+      terminal.attachCustomKeyEventHandler((event) => {
+        if (event.type === 'keydown' && event.ctrlKey && event.key.toLowerCase() === 'c' && terminal.hasSelection()) {
+          const text = terminal.getSelection()
+          if (text && window.runtime?.ClipboardSetText) { window.runtime.ClipboardSetText(text); terminal.clearSelection(); return false }
         }
+        return true
+      })
+      return { xterm: terminal, fit: addon }
+    }, async () => {
+      if (chatID) {
+        try { return await term.codeSnapshot(chatID, id) } catch { /* legacy unbound terminal */ }
       }
-      return true
+      return term.snapshot(id)
     })
-
-    // keystrokes → PTY
-    xterm.onData((d) => term.write(termId, d))
-    // PTY → screen. Subscribe before requesting the snapshot, queueing live
-    // chunks until replay finishes. Byte offsets remove the overlap between
-    // the snapshot and chunks emitted while the request was in flight.
-    let replaying = true
-    const queued = []
-    unsubData = onTermData(termId, (data, meta) => {
-      if (replaying) queued.push({ data, meta })
-      else xterm?.write(data)
-    })
-    unsubExit = onTermExit(termId, () => {
-      exited = true
-      xterm.write('\r\n\x1b[2m[process exited — press “New session” to start again]\x1b[0m\r\n')
-    })
-
-    // keep PTY size in sync with the pane
-    const sync = () => {
-      try {
-        fit.fit()
-        term.resize(termId, xterm.cols, xterm.rows)
-      } catch { /* pane not visible yet */ }
-    }
-    sync()
-    ro = new ResizeObserver(sync)
-    ro.observe(el)
-
-    let cursor = 0
-    try {
-      // Bound Code chats use the persisted transcript, which includes output
-      // from prior processes and survives an application restart. The backend
-      // returns the current process offset alongside it so queued live events
-      // are still de-duplicated exactly once.
-      let snap
-      if (sessionChatId) {
-        try {
-          snap = await term.codeSnapshot(sessionChatId, termId)
-        } catch {
-          // Session persistence is best-effort. If its history file or PTY
-          // binding failed, replay the live buffer instead of leaving a
-          // healthy terminal blank after its initial output was emitted.
-          snap = await term.snapshot(termId)
-        }
-      } else {
-        snap = await term.snapshot(termId)
-      }
-      cursor = Number(snap?.endOffset || 0)
-      if (snap?.data) xterm?.write(decodeBase64Bytes(snap.data))
-    } catch { /* a very short-lived process may already be gone */ }
-    for (const item of queued) {
-      if (!item.meta) {
-        xterm?.write(item.data)
-        continue
-      }
-      const start = Number(item.meta.startOffset || 0)
-      const end = Number(item.meta.endOffset || start + item.data.length)
-      if (end <= cursor) continue
-      const skip = Math.max(0, cursor - start)
-      xterm?.write(skip ? item.data.slice(skip) : item.data)
-      cursor = end
-    }
-    replaying = false
+    xterm = renderer.xterm
+    exited = renderer.exited
+    await renderer.mount(el, () => { exited = true })
   }
 
   function teardown(closeTerminal = false) {
-    unsubData(); unsubExit()
-    if (ro) { ro.disconnect(); ro = null }
-    if (closeTerminal && termId) term.close(termId)
-    if (xterm) { xterm.dispose(); xterm = null }
+    if (closeTerminal && termId) { term.close(termId); terminalRenderers.dispose(termId) }
+    else renderer?.detach()
+    renderer = null
+    xterm = null
     termId = null
   }
 
@@ -504,7 +446,7 @@
         return
       }
       if (p.note) {
-        xterm.write(`\x1b[2m[${p.note}]\x1b[0m\r\n`)
+        xterm?.write(`\x1b[2m[${p.note}]\x1b[0m\r\n`)
       }
       return
     }
@@ -531,7 +473,7 @@
       return
     }
     if (p.note) {
-      xterm.write(`\x1b[2m[${p.note}]\x1b[0m\r\n`)
+      xterm?.write(`\x1b[2m[${p.note}]\x1b[0m\r\n`)
     }
   }
 
@@ -662,6 +604,7 @@
             disabled={!modelSupported} />
           <datalist id="code-models">{#each modelSuggestions as m}<option value={m}></option>{/each}</datalist>
           {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
+          <ModelRefresh cli={cli} on:models={event => { if (cli === event.detail.cli) modelSuggestions = event.detail.models }} />
         {/if}
         <label class="lbl">Project folder *</label>
         <div class="row">
@@ -731,6 +674,7 @@
       <input class="field" list="code-models" bind:value={model} placeholder="provider/model or model name" style="max-width:420px" />
       <datalist id="code-models">{#each modelSuggestions as m}<option value={m}></option>{/each}</datalist>
       {#if modelLoading}<div class="card-sub">Loading models...</div>{/if}
+          <ModelRefresh cli={cli} on:models={event => { if (cli === event.detail.cli) modelSuggestions = event.detail.models }} />
     {/if}
     <label class="lbl">Project folder</label>
     <div class="row">
@@ -803,6 +747,7 @@
           {#each cfg.suggestions as m}<option value={m}></option>{/each}
         </datalist>
         {#if cfg.modelLoading}<div class="card-sub">Loading models...</div>{/if}
+      <ModelRefresh cli={cfg.cli} on:models={event => { if (cfg && cfg.cli === event.detail.cli) cfg = { ...cfg, suggestions: event.detail.models } }} />
         <label class="lbl">Tools</label>
         <div class="row">
             {#each toolLevelsForCli(cfg.cli) as lvl}

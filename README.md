@@ -60,6 +60,10 @@ praimate -update        # update the installed release
 praimate -version       # print version and platform
 ```
 
+The updater checks the resolved installation directory before downloading an
+update. System-wide installations may require an elevated updater; user-owned
+installations do not require sudo. Release labels display one `v` prefix.
+
 Headless agent runs are a versioned machine interface: JSON is written to
 stdout and diagnostics stay on stderr. Use `--output jsonl` for live events,
 use a protected `--prompt-file` to keep large/sensitive text out of the process
@@ -362,8 +366,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the supported release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.16
-scripts/build.sh --version=1.2.16 --with-code --with-graphify
+scripts/build.sh --version=1.2.17
+scripts/build.sh --version=1.2.17 --with-code --with-graphify
 ```
 
 Build PrAImate Code from the vendored OpenCode source:

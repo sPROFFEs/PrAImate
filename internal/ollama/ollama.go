@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -68,6 +69,16 @@ func NormalizeEndpoint(raw string) string {
 	// Trim any stray slashes left over.
 	s = strings.TrimLeft(s, "/")
 	return scheme + s
+}
+
+// OpenAIEndpoint returns the API root used by OpenAI-compatible providers.
+// A saved server URL and the same URL ending in /v1 identify the same route.
+func OpenAIEndpoint(raw string) string {
+	base := NormalizeEndpoint(raw)
+	if base != "" && !strings.HasSuffix(base, "/v1") {
+		base += "/v1"
+	}
+	return base
 }
 
 // ListModels asks the endpoint what's loaded. Tries /api/tags first
@@ -151,12 +162,12 @@ func tryOllamaTags(ctx context.Context, cli *http.Client, endpoint, apiKey strin
 	}
 	out := make([]string, 0, len(body.Models))
 	for _, m := range body.Models {
-		if m.Name != "" {
-			out = append(out, m.Name)
+		if name := strings.TrimSpace(m.Name); name != "" {
+			out = append(out, name)
 		}
 	}
 	sort.Strings(out)
-	return out, nil
+	return slices.Compact(out), nil
 }
 
 func tryOpenAIModels(ctx context.Context, cli *http.Client, endpoint, apiKey string) ([]string, error) {
@@ -187,12 +198,12 @@ func tryOpenAIModelsPath(ctx context.Context, cli *http.Client, endpoint, apiKey
 	}
 	out := make([]string, 0, len(body.Data))
 	for _, m := range body.Data {
-		if m.ID != "" {
-			out = append(out, m.ID)
+		if id := strings.TrimSpace(m.ID); id != "" {
+			out = append(out, id)
 		}
 	}
 	sort.Strings(out)
-	return out, nil
+	return slices.Compact(out), nil
 }
 
 // OpenClaudeEnv returns the OpenAI-compatible environment expected by
@@ -240,10 +251,7 @@ func OpenAIEnv(s Settings) map[string]string {
 	if token == "" {
 		token = "ollama"
 	}
-	base := NormalizeEndpoint(s.Endpoint)
-	if !strings.HasSuffix(base, "/v1") {
-		base += "/v1"
-	}
+	base := OpenAIEndpoint(s.Endpoint)
 	return map[string]string{
 		"OPENAI_API_KEY":  token,
 		"OPENAI_BASE_URL": base,
@@ -431,13 +439,13 @@ func ApplyOpenCodeModels(providerKey, providerLabel string, s Settings, models [
 	}
 
 	options := map[string]any{
-		"baseURL": NormalizeEndpoint(s.Endpoint) + "/v1",
+		"baseURL": OpenAIEndpoint(s.Endpoint),
 	}
 	if s.APIKey != "" {
 		// OpenCode expands {env:VAR} at runtime. Keep the credential out
-		// of its plaintext config; PrAImate injects OPENAI_API_KEY when it
-		// launches the configured local route.
-		options["apiKey"] = "{env:OPENAI_API_KEY}"
+		// of its plaintext config; PrAImate injects a distinct variable
+		// for each provider when it launches the configured local route.
+		options["apiKey"] = "{env:" + OpenCodeAPIKeyEnv(providerKey) + "}"
 	}
 
 	var existingModels map[string]any

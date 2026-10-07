@@ -51,11 +51,13 @@ func TestResolveExecutionConfigRestoresSavedOpenClaudeTokenLimits(t *testing.T) 
 }
 
 func TestResolveExecutionConfigLocalRouteIsSurfaceIndependent(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	c, err := New(Options{Store: openTempStore(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.SetSetting(context.Background(), ScopeCLI, "local_llm.api_key", []byte(`"encrypted-secret"`)); err != nil {
+	if _, err := c.SaveLocalHost(context.Background(), LocalHost{ID: "local", Endpoint: "https:llm.example", APIKey: "encrypted-secret"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, surface := range []ExecutionSurface{SurfaceChat, SurfaceStudio, SurfaceWorkflow, SurfaceTerminal} {

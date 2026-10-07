@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -19,24 +18,10 @@ import (
 )
 
 const localLLMAPIKeySetting = "local_llm.api_key"
-const localLLMHostsSetting = "local_llm.hosts"
-const localLLMProbeTimeout = 1200 * time.Millisecond
+const localLLMProbeTimeout = 5 * time.Second
 
 // LocalHost describes an OpenAI-compatible host endpoint.
-type LocalHost struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Endpoint      string   `json:"endpoint"`
-	APIKey        string   `json:"apiKey,omitempty"`
-	HasAPIKey     bool     `json:"hasApiKey"`
-	RemoveAPIKey  bool     `json:"removeApiKey,omitempty"`
-	WireAPI       string   `json:"wireApi,omitempty"`
-	ContextTokens int      `json:"contextTokens"`
-	OutputTokens  int      `json:"outputTokens"`
-	IsDefault     bool     `json:"isDefault"`
-	ActiveModels  []string `json:"activeModels,omitempty"`
-	NativeModels  []string `json:"nativeModels,omitempty"`
-}
+type LocalHost = core.LocalHost
 
 // LocalHostOption bundles a host's info with its live probed models.
 type LocalHostOption struct {
@@ -74,10 +59,9 @@ func (a *App) ListLocalHosts() ([]LocalHost, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw, err := c.GetSetting(context.Background(), core.ScopeCLI, localLLMHostsSetting)
-	var hosts []LocalHost
-	if err == nil && raw != nil {
-		_ = json.Unmarshal(raw, &hosts)
+	hosts, err := c.ListLocalHosts(context.Background())
+	if err != nil {
+		return nil, err
 	}
 	if len(hosts) == 0 {
 		d, _ := a.GetLocalLLM()
@@ -107,134 +91,87 @@ func (a *App) ListLocalHosts() ([]LocalHost, error) {
 }
 
 // SaveLocalHost creates or updates a local host configuration.
+// Import the legacy global profile before using the shared Core host manager.
+func (a *App) ensureCoreLocalHosts(c *core.Core) error {
+	ctx := context.Background()
+	hosts, err := c.ListLocalHosts(ctx)
+	if err != nil || len(hosts) > 0 {
+		return err
+	}
+	legacy, err := a.ListLocalHosts()
+	if err != nil {
+		return err
+	}
+	for _, host := range legacy {
+		host.APIKey, err = loadLocalLLMAPIKey(c)
+		if err != nil {
+			return err
+		}
+		if _, err := c.SaveLocalHost(ctx, host); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a *App) SaveLocalHost(h LocalHost) error {
 	c, err := a.requireCore()
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(h.Endpoint) == "" {
-		return errors.New("endpoint URL is required")
+	if err := a.ensureCoreLocalHosts(c); err != nil {
+		return err
 	}
-	if strings.TrimSpace(h.Name) == "" {
-		h.Name = h.Endpoint
-	}
-	hosts, _ := a.ListLocalHosts()
-	if h.ID == "" {
-		h.ID = "host_" + fmt.Sprintf("%d", time.Now().UnixNano())
-	}
-	if len(hosts) == 0 {
-		h.IsDefault = true
-	}
-	found := false
-	for i := range hosts {
-		if hosts[i].ID == h.ID {
-			if h.NativeModels == nil {
-				h.NativeModels = hosts[i].NativeModels
-			}
-			if h.IsDefault {
-				for j := range hosts {
-					hosts[j].IsDefault = false
-				}
-			}
-			hosts[i] = h
-			found = true
-			break
-		}
-	}
-	if !found {
-		if h.IsDefault {
-			for j := range hosts {
-				hosts[j].IsDefault = false
-			}
-		}
-		hosts = append(hosts, h)
-	}
-	if h.IsDefault {
-		_ = a.SetLocalLLM(LocalLLMDefaults{
-			Endpoint:      h.Endpoint,
-			APIKey:        h.APIKey,
-			RemoveAPIKey:  h.RemoveAPIKey,
-			WireAPI:       h.WireAPI,
-			ContextTokens: h.ContextTokens,
-			OutputTokens:  h.OutputTokens,
-		})
-	} else {
-		if h.RemoveAPIKey {
-			_ = saveHostAPIKey(c, h.ID, "")
-		} else if h.APIKey != "" {
-			_ = saveHostAPIKey(c, h.ID, h.APIKey)
-		}
-	}
-	raw, err := json.Marshal(hosts)
+	saved, err := c.SaveLocalHost(context.Background(), h)
 	if err != nil {
 		return err
 	}
-	return c.SetSetting(context.Background(), core.ScopeCLI, localLLMHostsSetting, raw)
+	if saved.IsDefault {
+		return a.syncLocalHostDefault(saved)
+	}
+	return nil
 }
 
-// DeleteLocalHost removes a local host configuration.
+func (a *App) syncLocalHostDefault(host *LocalHost) error {
+	return a.SetLocalLLM(LocalLLMDefaults{Endpoint: host.Endpoint, WireAPI: host.WireAPI, ContextTokens: host.ContextTokens, OutputTokens: host.OutputTokens})
+}
+
+// DeleteLocalHost removes the host and promotes its successor with its own key.
 func (a *App) DeleteLocalHost(id string) error {
 	c, err := a.requireCore()
 	if err != nil {
 		return err
 	}
-	hosts, _ := a.ListLocalHosts()
-	var next []LocalHost
-	for _, h := range hosts {
-		if h.ID != id {
-			next = append(next, h)
-		} else {
-			_ = saveHostAPIKey(c, h.ID, "")
-		}
+	if err := a.ensureCoreLocalHosts(c); err != nil {
+		return err
 	}
-	hasDef := false
-	for _, h := range next {
-		if h.IsDefault {
-			hasDef = true
-			break
-		}
+	if err := c.DeleteLocalHost(context.Background(), id); err != nil {
+		return err
 	}
-	if len(next) > 0 && !hasDef {
-		next[0].IsDefault = true
-		_ = a.SetLocalLLM(LocalLLMDefaults{
-			Endpoint:      next[0].Endpoint,
-			WireAPI:       next[0].WireAPI,
-			ContextTokens: next[0].ContextTokens,
-			OutputTokens:  next[0].OutputTokens,
-		})
-	}
-	raw, err := json.Marshal(next)
+	hosts, err := c.ListLocalHosts(context.Background())
 	if err != nil {
 		return err
 	}
-	return c.SetSetting(context.Background(), core.ScopeCLI, localLLMHostsSetting, raw)
+	for i := range hosts {
+		if hosts[i].IsDefault {
+			return a.syncLocalHostDefault(&hosts[i])
+		}
+	}
+	return a.SetLocalLLM(LocalLLMDefaults{RemoveAPIKey: true})
 }
 
-// SetDefaultLocalHost sets a host as the primary default host.
 func (a *App) SetDefaultLocalHost(id string) error {
 	hosts, err := a.ListLocalHosts()
 	if err != nil {
 		return err
 	}
-	for i := range hosts {
-		if hosts[i].ID == id {
-			hosts[i].IsDefault = true
-			_ = a.SetLocalLLM(LocalLLMDefaults{
-				Endpoint:      hosts[i].Endpoint,
-				WireAPI:       hosts[i].WireAPI,
-				ContextTokens: hosts[i].ContextTokens,
-				OutputTokens:  hosts[i].OutputTokens,
-			})
-		} else {
-			hosts[i].IsDefault = false
+	for _, host := range hosts {
+		if host.ID == id {
+			host.IsDefault = true
+			return a.SaveLocalHost(host)
 		}
 	}
-	c, err := a.requireCore()
-	if err != nil {
-		return err
-	}
-	raw, _ := json.Marshal(hosts)
-	return c.SetSetting(context.Background(), core.ScopeCLI, localLLMHostsSetting, raw)
+	return errors.New("local host not found")
 }
 
 // LocalLLMHostsModels probes models for all configured hosts.
@@ -254,19 +191,8 @@ func (a *App) LocalLLMHostsModels() ([]LocalHostOption, error) {
 	results := make(chan probeResult, len(hosts))
 	for i, h := range hosts {
 		go func(i int, h LocalHost) {
-			var apiKey string
-			if h.IsDefault {
-				apiKey, _ = loadLocalLLMAPIKey(a.core)
-			} else {
-				apiKey, _ = loadHostAPIKey(a.core, h.ID)
-			}
 			ctx, cancel := context.WithTimeout(baseCtx, localLLMProbeTimeout)
-			ctx, trustErr := a.core.LocalHostTLSContext(ctx, h.Endpoint)
-			var models []string
-			probeErr := trustErr
-			if probeErr == nil {
-				models, probeErr = ollama.ListCanonicalModels(ctx, ollama.NormalizeEndpoint(h.Endpoint), apiKey)
-			}
+			models, probeErr := a.core.NativeModels(ctx, h.Endpoint)
 			cancel()
 			if probeErr != nil {
 				// Unreachable hosts are intentionally omitted. The saved host
@@ -304,20 +230,6 @@ func loadHostAPIKey(c *core.Core, hostID string) (string, error) {
 		return "", err
 	}
 	return key, nil
-}
-
-func saveHostAPIKey(c *core.Core, hostID, key string) error {
-	if c == nil {
-		return errors.New("save host API key: core unavailable")
-	}
-	if key == "" {
-		return c.DeleteSetting(context.Background(), core.ScopeCLI, "local_llm.host_key."+hostID)
-	}
-	raw, err := json.Marshal(key)
-	if err != nil {
-		return err
-	}
-	return c.SetSetting(context.Background(), core.ScopeCLI, "local_llm.host_key."+hostID, raw)
 }
 
 // GetLocalLLM returns the saved global default endpoint.
@@ -394,9 +306,8 @@ func saveLocalLLMAPIKey(c *core.Core, key string) error {
 	if c == nil {
 		return errors.New("save local LLM API key: core unavailable")
 	}
-	if key == "" {
-		return c.DeleteSetting(context.Background(), core.ScopeCLI, localLLMAPIKeySetting)
-	}
+	// Keep an explicit empty value so the Core does not fall back to a
+	// per-host backup of a credential the user has removed.
 	raw, err := json.Marshal(key)
 	if err != nil {
 		return err

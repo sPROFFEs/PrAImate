@@ -17,10 +17,14 @@ recording provenance).
 A pristine mirror of OpenCode at the pinned tag (`.git` and
 `node_modules` stripped). The PrAImate **rebrand is applied at build
 time**, not baked into the vendored tree — `build-praimate-code.sh`
-copies this source to a scratch dir, runs `praimate-code-rebrand.sh`
-over it, `bun install`s, and compiles. Keeping the mirror pristine means
-the rebrand diff stays reviewable in one small script and bumping
-upstream is a clean re-vendor.
+copies this source to a scratch dir, runs `praimate-code-rebrand.sh`,
+applies `praimate-code-tls.mjs`, installs dependencies with Bun, and compiles.
+The TLS patch adds request-scoped trust for certificates accepted in PrAImate's
+Local LLM settings; its helper and regression tests live in
+`scripts/praimate-code/`. It retains normal certificate validation and pins the
+accepted leaf instead of disabling TLS verification. The build fails if the
+provider transport anchor changes upstream. Keeping the mirror pristine leaves
+both patches reviewable and makes upstream updates a clean re-vendor.
 
 **Re-vendor / bump upstream** — use the updater script; it re-vendors,
 bumps the pin notes, verifies the rebrand anchors still apply, builds,

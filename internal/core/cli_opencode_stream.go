@@ -50,7 +50,14 @@ func (a *execAdapter) runOpenCodeJSON(ctx context.Context, message, cwd, session
 		args = append(args, "--model", model)
 	}
 
-	cmd := exec.CommandContext(ctx, path, args...)
+	env, cleanup, err := openCodeStatusEnvironment(env, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("%s stream: %w", a.name, err)
+	}
+	defer cleanup()
+	processCtx, stopProcess := context.WithCancel(ctx)
+	defer stopProcess()
+	cmd := exec.CommandContext(processCtx, path, args...)
 	hideConsole(cmd)
 	cmd.Stdin = strings.NewReader(message)
 	if cwd != "" {
@@ -74,6 +81,9 @@ func (a *execAdapter) runOpenCodeJSON(ctx context.Context, message, cwd, session
 	}
 
 	reply, parseErr := parseOpenCodeStream(stdout, emit)
+	if parseErr != nil {
+		stopProcess()
+	}
 
 	waitErr := cmd.Wait()
 	exitCode := 0
@@ -81,7 +91,7 @@ func (a *execAdapter) runOpenCodeJSON(ctx context.Context, message, cwd, session
 		var ee *exec.ExitError
 		if errors.As(waitErr, &ee) {
 			exitCode = ee.ExitCode()
-		} else if ctx.Err() == nil {
+		} else if ctx.Err() == nil && parseErr == nil {
 			return reply, fmt.Errorf("%s stream: %w (stderr=%s)", a.name, waitErr, truncate(stderr.String(), 400))
 		}
 	}
@@ -145,6 +155,26 @@ func parseOpenCodeStream(r io.Reader, emit StreamHandler) (*Reply, error) {
 			var rawMap map[string]any
 			if jerr := json.Unmarshal(trimmed, &rawMap); jerr == nil {
 				line := decodeOpenCodeLine(rawMap)
+				if line.Type == "praimate.session.status" || line.Type == "session.status" {
+					if sessionID != "" && line.SessionID != "" && line.SessionID != sessionID {
+						continue
+					}
+					if sessionID == "" {
+						sessionID = line.SessionID
+					}
+					detail, retryErr := openCodeRetryStatus(rawMap)
+					if detail != "" {
+						typeName := "retry"
+						if retryErr != nil {
+							typeName, detail = "error", retryErr.Error()
+						}
+						emit(StreamEvent{Type: typeName, Detail: detail, Raw: rawMap})
+					}
+					if retryErr != nil {
+						return &Reply{Text: strings.TrimRight(acc.String(), "\n"), SessionID: sessionID}, retryErr
+					}
+					continue
+				}
 				if line.Type == "step_start" || line.Type == "message.part.updated" && stringFromMap(line.Part, "type") == "step-start" {
 					activeStep = true
 				} else if line.Type == "step_finish" || line.Type == "message.part.updated" && stringFromMap(line.Part, "type") == "step-finish" {

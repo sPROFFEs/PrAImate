@@ -151,6 +151,10 @@ bash "$REPO_ROOT/scripts/praimate-code-rebrand.sh" "$SRC" || {
   echo "  (rebrand pass skipped/failed; continuing with upstream branding)" >&2
 }
 
+# TLS support is a required patch, separate from optional cosmetic rebranding.
+# Fail if upstream changed the transport rather than shipping ignored consent.
+bun "$REPO_ROOT/scripts/praimate-code-tls.mjs" "$SRC"
+
 BASELINE="${BASELINE:-0}"
 BUILD_FLAGS="--single --target=$GOOS-$GOARCH"
 OUTNAME="praimate-code$EXT"

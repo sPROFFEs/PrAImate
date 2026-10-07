@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -48,9 +49,13 @@ func (c *Core) NativeModelAssignments(ctx context.Context) ([]NativeModelAssignm
 		return nil, err
 	}
 	var out []NativeModelAssignment
+	seen := map[string]bool{}
 	for _, host := range hosts {
 		for _, model := range host.NativeModels {
-			if model = strings.TrimSpace(model); model != "" {
+			model = strings.TrimSpace(model)
+			key := host.ID + "::" + model
+			if model != "" && !seen[key] {
+				seen[key] = true
 				out = append(out, NativeModelAssignment{
 					HostID: host.ID, HostName: host.Name, Endpoint: host.Endpoint,
 					Model: model, IsDefault: host.IsDefault,
@@ -59,6 +64,18 @@ func (c *Core) NativeModelAssignments(ctx context.Context) ([]NativeModelAssignm
 			}
 		}
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].IsDefault != out[j].IsDefault {
+			return out[i].IsDefault
+		}
+		if out[i].HostName != out[j].HostName {
+			return out[i].HostName < out[j].HostName
+		}
+		if out[i].HostID != out[j].HostID {
+			return out[i].HostID < out[j].HostID
+		}
+		return out[i].Model < out[j].Model
+	})
 	return out, nil
 }
 
@@ -70,6 +87,9 @@ func (c *Core) localHostSecret(ctx context.Context, id string, isDefault bool) (
 		key = "local_llm.api_key"
 	}
 	raw, err := c.GetSetting(ctx, ScopeCLI, key)
+	if err == nil && len(raw) == 0 && isDefault {
+		raw, err = c.GetSetting(ctx, ScopeCLI, localHostKey(id))
+	}
 	if err != nil || len(raw) == 0 {
 		return "", err
 	}
@@ -81,18 +101,20 @@ func (c *Core) localHostSecret(ctx context.Context, id string, isDefault bool) (
 }
 
 func (c *Core) setLocalHostSecret(ctx context.Context, id string, isDefault bool, key string) error {
-	setting := localHostKey(id)
-	if isDefault {
-		setting = "local_llm.api_key"
-	}
-	if key == "" {
-		return c.DeleteSetting(ctx, ScopeCLI, setting)
-	}
 	raw, err := json.Marshal(key)
 	if err != nil {
 		return err
 	}
-	return c.SetSetting(ctx, ScopeCLI, setting, raw)
+	settings := []string{localHostKey(id)}
+	if isDefault {
+		settings = append(settings, "local_llm.api_key")
+	}
+	for _, setting := range settings {
+		if err := c.SetSetting(ctx, ScopeCLI, setting, raw); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *Core) ListLocalHosts(ctx context.Context) ([]LocalHost, error) {
@@ -128,7 +150,7 @@ func (c *Core) SaveLocalHost(ctx context.Context, host LocalHost) (*LocalHost, e
 		host.ID = fmt.Sprintf("host_%d", time.Now().UnixNano())
 	}
 	host.ID = strings.TrimSpace(host.ID)
-	if strings.ContainsAny(host.ID, "/\\\x00") {
+	if strings.ContainsAny(host.ID, "/\\\x00") || strings.Contains(host.ID, "::") {
 		return nil, errors.New("invalid local host ID")
 	}
 	hosts, err := c.ListLocalHosts(ctx)
@@ -138,12 +160,27 @@ func (c *Core) SaveLocalHost(ctx context.Context, host LocalHost) (*LocalHost, e
 	if len(hosts) == 0 {
 		host.IsDefault = true
 	}
+	secrets := map[string]string{}
+	for _, old := range hosts {
+		key, err := c.localHostSecret(ctx, old.ID, old.IsDefault)
+		if err != nil {
+			return nil, err
+		}
+		secrets[old.ID] = key
+		// Back up the legacy global-only key before changing the default.
+		if err := c.setLocalHostSecret(ctx, old.ID, false, key); err != nil {
+			return nil, err
+		}
+	}
 	found := false
 	for i := range hosts {
 		if host.IsDefault {
 			hosts[i].IsDefault = false
 		}
 		if hosts[i].ID == host.ID {
+			if host.ActiveModels == nil {
+				host.ActiveModels = hosts[i].ActiveModels
+			}
 			if host.NativeModels == nil {
 				host.NativeModels = hosts[i].NativeModels
 			}
@@ -154,11 +191,14 @@ func (c *Core) SaveLocalHost(ctx context.Context, host LocalHost) (*LocalHost, e
 	if !found {
 		hosts = append(hosts, host)
 	}
-	if host.RemoveAPIKey {
-		err = c.setLocalHostSecret(ctx, host.ID, host.IsDefault, "")
-	} else if host.APIKey != "" {
-		err = c.setLocalHostSecret(ctx, host.ID, host.IsDefault, host.APIKey)
+	key := secrets[host.ID]
+	if host.APIKey != "" {
+		key = host.APIKey
 	}
+	if host.RemoveAPIKey {
+		key = ""
+	}
+	err = c.setLocalHostSecret(ctx, host.ID, host.IsDefault, key)
 	if err != nil {
 		return nil, err
 	}
@@ -205,6 +245,15 @@ func (c *Core) DeleteLocalHost(ctx context.Context, id string) error {
 	}
 	if err := c.setLocalHostSecret(ctx, id, wasDefault, ""); err != nil {
 		return err
+	}
+	if wasDefault && len(next) > 0 {
+		key, err := c.localHostSecret(ctx, next[0].ID, false)
+		if err != nil {
+			return err
+		}
+		if err := c.setLocalHostSecret(ctx, next[0].ID, true, key); err != nil {
+			return err
+		}
 	}
 	raw, err := json.Marshal(next)
 	if err != nil {

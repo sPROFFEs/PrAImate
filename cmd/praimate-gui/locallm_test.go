@@ -2,13 +2,154 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sPROFFEs/PrAImate/internal/core"
 	"github.com/sPROFFEs/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/ollama"
 	"github.com/sPROFFEs/PrAImate/internal/store"
 )
+
+func TestLocalLLMDiscoveryAllowsSlowHostsAndSharesCatalogue(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var probes atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		probes.Add(1)
+		time.Sleep(1500 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "provider/model"}}})
+	}))
+	defer srv.Close()
+	st, err := store.InitializeWithPassword(filepath.Join(t.TempDir(), "db.sqlite"), "fixture-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	c, err := core.New(core.Options{Store: st})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{ctx: context.Background(), core: c}
+	if err := a.SaveLocalHost(LocalHost{ID: "slow", Endpoint: srv.URL}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		hosts, err := a.LocalLLMHostsModels()
+		if err != nil || len(hosts) != 1 || len(hosts[0].Models) != 1 {
+			t.Fatalf("responsive host disappeared: %v %v", hosts, err)
+		}
+	}
+	if probes.Load() != 1 {
+		t.Fatalf("repeated model probes: %d", probes.Load())
+	}
+}
+
+func TestLocalLLMChangingDefaultKeepsProvidersAndKeys(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	st, err := store.InitializeWithPassword(filepath.Join(t.TempDir(), "db.sqlite"), "fixture-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	c, err := core.New(core.Options{Store: st})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{ctx: context.Background(), core: c}
+	for _, host := range []LocalHost{{ID: "a", Endpoint: "https://a.test", APIKey: "a-key"}, {ID: "b", Endpoint: "https://b.test", APIKey: "b-key"}} {
+		if err := a.SaveLocalHost(host); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.ApplyModelsToCLI("praimate-code", host.ID, []string{"model"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.SetDefaultLocalHost("b"); err != nil {
+		t.Fatal(err)
+	}
+	if key, _ := loadLocalLLMAPIKey(c); key != "b-key" {
+		t.Fatal("default kept another host's key")
+	}
+	if _, err := a.ApplyModelsToCLI("praimate-code", "b", []string{"second"}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := a.ListAppliedCLIModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for _, item := range items {
+		found[item.HostID+"/"+item.Model] = true
+	}
+	if !found["a/model"] || !found["b/model"] || !found["b/second"] {
+		t.Fatalf("provider grouping changed with default: %v", found)
+	}
+	if err := a.DeleteLocalHost("b"); err != nil {
+		t.Fatal(err)
+	}
+	if key, _ := loadLocalLLMAPIKey(c); key != "a-key" {
+		t.Fatal("promoted host lost its own key")
+	}
+	if err := a.SetLocalLLM(LocalLLMDefaults{Endpoint: "https://a.test", RemoveAPIKey: true}); err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := c.ListLocalHosts(context.Background())
+	if err != nil || len(hosts) != 1 || hosts[0].HasAPIKey {
+		t.Fatal("explicitly removed default key was restored from its backup")
+	}
+}
+
+func TestLocalLLMAppliedModelsKeepProviderIdentity(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	st, err := store.InitializeWithPassword(filepath.Join(t.TempDir(), "db.sqlite"), "fixture-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	c, err := core.New(core.Options{Store: st})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{ctx: context.Background(), core: c}
+	for _, provider := range []string{"provider-a", "provider-b"} {
+		if _, err := ollama.ApplyOpenCodeModels(provider, provider, ollama.Settings{Endpoint: "https://same.test/v1"}, []string{"same/model"}, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := a.ListAppliedCLIModels()
+	if err != nil || len(items) != 2 || items[0].ProviderKey != "provider-a" || items[1].ProviderKey != "provider-b" {
+		t.Fatalf("providers collapsed or unordered: %v %v", items, err)
+	}
+	if items[0].HostName != "provider-a" || items[0].Endpoint != "https://same.test/v1" {
+		t.Fatal("unregistered provider was mislabeled as the default host")
+	}
+	if _, err := a.RemoveModelFromCLI("opencode", "missing-host", "same/model"); err == nil {
+		t.Fatal("missing host selected a different provider for removal")
+	}
+	if _, err := a.RemoveAppliedModelFromCLI("opencode", "", "provider-b", "same/model"); err != nil {
+		t.Fatal(err)
+	}
+	items, err = a.ListAppliedCLIModels()
+	if err != nil || len(items) != 1 || items[0].ProviderKey != "provider-a" {
+		t.Fatalf("removed the wrong provider: %v %v", items, err)
+	}
+}
 
 func TestLocalLLMHostsModelsOmitsUnreachableHost(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "praimate")

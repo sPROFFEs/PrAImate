@@ -75,23 +75,28 @@ func (run *nativeExecution) nativeTools(ctx context.Context, root, level string,
 	if err != nil {
 		return nil, nil, err
 	}
+	broker.systemAccess = level == "full"
+	paths := "Paths must be relative to the workspace."
+	if broker.systemAccess {
+		paths = "Full mode accepts absolute paths and paths outside the workspace, subject to OS permissions."
+	}
 	var defs []nativeTool
 	if caps.UseGit {
 		defs = append(defs, nativeToolDef("git_inspect", "Read repository status, diff or recent log without external diff/textconv/fsmonitor commands. Mutations require run_command and its approval policy.", `{"operation":{"type":"string","enum":["status","diff","log"]},"staged":{"type":"boolean"},"limit":{"type":"integer"}}`, "operation"))
 	}
 	if broker.canReadProject() {
 		defs = append(defs,
-			nativeToolDef("read_file", "Read a workspace-relative file. offset and limit are bytes.", `{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}}`, "path"),
-			nativeToolDef("list_files", "List a workspace-relative directory.", `{"path":{"type":"string"}}`, "path"),
-			nativeToolDef("search_files", "Search literal text in the workspace.", `{"query":{"type":"string"},"path":{"type":"string"},"max_results":{"type":"integer"}}`, "query"))
+			nativeToolDef("read_file", "Read a file. offset and limit are bytes. "+paths, `{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}}`, "path"),
+			nativeToolDef("list_files", "List a directory. "+paths, `{"path":{"type":"string"}}`, "path"),
+			nativeToolDef("search_files", "Search literal text in files. "+paths, `{"query":{"type":"string"},"path":{"type":"string"},"max_results":{"type":"integer"}}`, "query"))
 	}
 	if caps.ModifyFiles {
 		defs = append(defs,
-			nativeToolDef("write_file", "Write a complete workspace-relative file under the selected approval policy.", `{"path":{"type":"string"},"content":{"type":"string"}}`, "path", "content"),
-			nativeToolDef("edit_file", "Replace an exact, unique string in a workspace-relative file. Read it first.", `{"path":{"type":"string"},"old_string":{"type":"string"},"new_string":{"type":"string"}}`, "path", "old_string", "new_string"))
+			nativeToolDef("write_file", "Write a complete file under the selected approval policy. "+paths, `{"path":{"type":"string"},"content":{"type":"string"}}`, "path", "content"),
+			nativeToolDef("edit_file", "Replace an exact, unique string in a file. Read it first. "+paths, `{"path":{"type":"string"},"old_string":{"type":"string"},"new_string":{"type":"string"}}`, "path", "old_string", "new_string"))
 	}
 	if caps.ExecuteCommands {
-		defs = append(defs, nativeToolDef("run_command", "Run an executable and arguments in the workspace after permission approval. Shell syntax requires explicitly invoking the platform shell.", `{"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"timeout_seconds":{"type":"integer"}}`, "command", "args"))
+		defs = append(defs, nativeToolDef("run_command", "Run an executable with arguments under the selected approval policy (Full auto-approves). cwd is optional and defaults to the workspace. Shell syntax requires explicitly invoking the platform shell. "+paths, `{"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"cwd":{"type":"string"},"timeout_seconds":{"type":"integer"}}`, "command", "args"))
 	}
 	if caps.Network {
 		defs = append(defs, nativeToolDef("fetch_url", "Fetch a URL through the core network policy.", `{"url":{"type":"string"}}`, "url"))

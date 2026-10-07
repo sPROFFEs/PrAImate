@@ -19,9 +19,14 @@ case "$1" in
     done
     ;;
   run)
+    grep -q 'praimate:host-tls' src/provider/provider.ts
+    test -f src/provider/praimate-host-tls.ts
     mkdir -p dist/test/bin
     : > dist/test/bin/opencode
     chmod +x dist/test/bin/opencode
+    ;;
+  */praimate-code-tls.mjs)
+    exec node "$@"
     ;;
 esac
 EOF

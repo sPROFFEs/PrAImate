@@ -6,6 +6,10 @@
   import { api, onChatStream, onApproval } from '../lib/api.js'
   import { term, onTermData, onTermExit, decodeBase64Bytes } from '../lib/terminal.js'
   import { renderMarkdown } from '../lib/markdown.js'
+  import ChatActivity from '../lib/ChatActivity.svelte'
+  import ChatTools from '../lib/ChatTools.svelte'
+  import { applyChatStreamEvent } from '../lib/chatActivity.js'
+  import { normalizeToolsForCli } from '../lib/chatTools.js'
 
   export let mode
 
@@ -19,6 +23,7 @@
     clearTimeout(disconnectTimer)
     disconnectTimer = null
     if (mode.kind === 'terminal') replayTerminal()
+    else if (mode.kind === 'chat') { loadChatConfig(); loadMessages() }
   }
 
   function markDisconnected(ev) {
@@ -38,6 +43,24 @@
   let approvals = []
   let attachments = []
   let threadEl
+  let chat = null
+  let toolsSaving = false
+
+  async function loadChatConfig() {
+    try { chat = await api.detachedChatConfig() } catch (e) { error = String(e) }
+  }
+
+  async function setTools(value) {
+    if (!chat || toolsSaving || sending) return
+    toolsSaving = true
+    try {
+      const tools = normalizeToolsForCli(chat.CLIAgent, value)
+      await api.setChatTools(mode.sessionId, tools)
+      chat = { ...chat, Settings: { ...chat.Settings, tools } }
+      error = ''
+    } catch (e) { error = String(e) }
+    finally { toolsSaving = false }
+  }
 
   function cleanMsg(value) {
     return String(value || '').replace(/\n*\[The user is looking at:[^\]]*\]\s*$/, '')
@@ -46,7 +69,7 @@
   async function loadMessages() {
     try {
       messages = (await api.chatMessages(mode.sessionId)) || []
-      error = ''
+      if (!error) error = messages.at(-1)?.Meta?.error || ''
       await scrollToBottom()
     } catch (e) {
       error = String(e)
@@ -56,16 +79,7 @@
   function handleStream(ev) {
     if (ev?.chatId !== mode.sessionId) return
     sending = true
-    if (!stream) stream = { text: '', tools: [] }
-    if (ev.type === 'text') stream.text += ev.text || ''
-    else if (ev.type === 'tool_start') stream.tools = [...stream.tools, { id: ev.id || '', name: ev.tool, detail: ev.detail, done: false, ok: true }]
-    else if (ev.type === 'tool_end') {
-      const tools = [...stream.tools]
-      let i = ev.id ? tools.findIndex((tool) => tool.id === ev.id && !tool.done) : tools.findIndex((tool) => !tool.done)
-      if (i >= 0) tools[i] = { ...tools[i], done: true, ok: ev.ok }
-      stream.tools = tools
-    }
-    stream = stream
+    stream = applyChatStreamEvent(stream, ev)
     scrollToBottom()
   }
 
@@ -241,13 +255,13 @@
     if (window.runtime?.EventsOn) {
       window.runtime.EventsOn('praimate:detached-connected', markConnected)
       window.runtime.EventsOn('praimate:detached-disconnected', markDisconnected)
-      window.runtime.EventsOn('praimate:detached-resync', () => { if (mode.kind === 'terminal') replayTerminal() })
+      window.runtime.EventsOn('praimate:detached-resync', () => { if (mode.kind === 'terminal') replayTerminal(); else { loadChatConfig(); loadMessages() } })
       window.runtime.EventsOn('praimate:chat-finished', async (event) => {
         if (event?.chatId !== mode.sessionId) return
         sending = false
         stream = null
         approvals = []
-        if (event.error) error = event.error
+        error = event.error || ''
         await loadMessages()
       })
       unsubs.push(() => window.runtime.EventsOff('praimate:detached-connected'))
@@ -258,6 +272,7 @@
     if (mode.kind === 'chat') {
       unsubs.push(onChatStream(handleStream), onApproval(handleApproval))
       try { sending = await api.detachedSessionActive() } catch { sending = false }
+      await loadChatConfig()
       await loadMessages()
     } else {
       await mountTerminal()
@@ -283,6 +298,7 @@
       <span class="pill">{mode.kind}</span>
       <span class="connection" class:offline={!connected}>{connected ? 'Connected to PrAImate' : 'Disconnected'}</span>
     </div>
+    {#if mode.kind === 'chat' && chat}<ChatTools cli={chat.CLIAgent} value={normalizeToolsForCli(chat.CLIAgent, chat.Settings?.tools)} disabled={!connected || sending || toolsSaving} on:change={event => setTools(event.detail)} />{/if}
     {#if mode.kind === 'chat' && sending}<button class="btn danger" on:click={stopChat}>■ Stop</button>{/if}
     {#if mode.kind === 'terminal' && !exited}<button class="btn danger" on:click={stopTerminal}>■ Stop</button>{/if}
   </header>
@@ -298,6 +314,7 @@
         <div class="msg {message.Role === 'user' ? 'user' : message.Role === 'command' ? 'command' : 'assistant'}" class:pending={message._pending}>
           <div class="who">{message.Role}{message.Meta?.interrupted ? ' · interrupted' : ''}</div>
           {#if message.Role === 'assistant'}
+            <ChatActivity events={message.Meta?.activity || []} />
             <div class="markdown">{@html renderMarkdown(cleanMsg(message.Content))}</div>
           {:else if message.Role === 'command'}
             <pre class="command-output">{message.Content}</pre>
@@ -309,9 +326,7 @@
       {#if sending}
         <div class="msg assistant">
           <div class="who">assistant</div>
-          {#if stream?.tools?.length}
-            <div class="tool-feed">{#each stream.tools as tool}<div>{tool.done ? (tool.ok ? '✓' : '✗') : '◌'} {tool.name} <span class="mono">{tool.detail || ''}</span></div>{/each}</div>
-          {/if}
+          <ChatActivity events={stream?.activity || []} collapsible={false} />
           {#if stream?.text}<div class="markdown">{@html renderMarkdown(stream.text)}</div>{:else}<span class="typing">…thinking</span>{/if}
         </div>
       {/if}
@@ -341,7 +356,7 @@
 
 <style>
   .detached-shell { height: 100vh; display: flex; flex-direction: column; padding: 14px; gap: 10px; overflow: hidden; }
-  .detached-head { display: flex; align-items: center; gap: 8px; min-height: 34px; }
+  .detached-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 34px; }
   .connection { margin-left: 8px; color: var(--ok); font-size: 12px; }
   .connection.offline { color: var(--err); }
   .terminal-host { flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius); background: #101218; padding: 8px; overflow: hidden; }

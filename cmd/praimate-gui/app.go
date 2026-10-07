@@ -754,6 +754,14 @@ func (a *App) ListCLIs() []CLIInfo {
 }
 
 func (a *App) ListCLIModels(cli string) []string {
+	return a.cliModels(cli, false)
+}
+
+func (a *App) RefreshCLIModels(cli string) []string {
+	return a.cliModels(cli, true)
+}
+
+func (a *App) cliModels(cli string, force bool) []string {
 	if cli == "praimate-cli" {
 		if c, err := a.requireCore(); err == nil {
 			if assigned, err := c.NativeModelAssignments(a.ctx); err == nil && len(assigned) > 0 {
@@ -763,10 +771,20 @@ func (a *App) ListCLIModels(cli string) []string {
 				}
 				return models
 			}
-			if models, err := c.NativeModels(a.ctx, ""); err == nil {
+			var models []string
+			var err error
+			if force {
+				models, err = c.RefreshNativeModels(a.ctx, "")
+			} else {
+				models, err = c.NativeModels(a.ctx, "")
+			}
+			if err == nil {
 				return models
 			}
 		}
+	}
+	if force {
+		return core.RefreshCLIModels(a.ctx, cli)
 	}
 	return core.ListCLIModels(a.ctx, cli)
 }

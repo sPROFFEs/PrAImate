@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -161,12 +162,12 @@ func (p nativeProvider) modelsAt(ctx context.Context, path string) ([]string, er
 	}
 	var models []string
 	for _, m := range body.Data {
-		if m.ID != "" {
-			models = append(models, m.ID)
+		if id := strings.TrimSpace(m.ID); id != "" {
+			models = append(models, id)
 		}
 	}
 	sort.Strings(models)
-	return models, nil
+	return slices.Compact(models), nil
 }
 
 func (p *nativeProvider) turn(ctx context.Context, messages []nativeMessage, tools []nativeTool, emit StreamHandler) (nativeMessage, error) {

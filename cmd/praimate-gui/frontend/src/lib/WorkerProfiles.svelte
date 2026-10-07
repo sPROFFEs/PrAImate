@@ -1,4 +1,5 @@
 <script>
+  import ModelRefresh from './ModelRefresh.svelte'
   import { createEventDispatcher } from 'svelte'
   import { workerTiers } from './workerActivity.js'
   export let config
@@ -34,6 +35,7 @@
       {/if}
       <label>Model<input list={'profile-models-' + p.tier} bind:value={config.profiles[index].model} placeholder="Model ID or alias" /></label>
       <datalist id={'profile-models-' + p.tier}>{#each models[p.cli] || [] as model}<option value={model}></option>{/each}</datalist>
+      {#if p.runtime === 'cli'}<ModelRefresh cli={p.cli} studio on:models={event => { models = { ...models, [event.detail.cli]: event.detail.models } }} />{/if}
       {#if p.runtime === 'cli' && p.cli === 'codex'}
         <label>Reasoning effort<select value={p.reasoningEffort || ''} on:change={event => config.profiles[index].reasoningEffort = event.target.value}><option value="">CLI default</option>{#each ['low','medium','high','xhigh','max','ultra'] as effort}<option value={effort}>{effort}</option>{/each}</select><small>Use a level supported by the selected model. Higher effort can take longer before reporting output.</small></label>
       {/if}

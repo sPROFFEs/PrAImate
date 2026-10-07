@@ -64,7 +64,7 @@ header{padding:14px 16px;gap:10px}header strong{font-size:15px;letter-spacing:.0
   <h1>Session settings</h1><p class="hint">Same Core and catalogues as Desktop. Changes apply to the next message. Changing persona or skill selection starts a new conversation.</p>
   <form id="session-form"><div class="form-grid">
     <label class="field">CLI engine<select id="cli-select"></select></label><label class="field">Agent persona<select id="agent-select"></select></label>
-    <label class="field">Model<input id="model-input" list="model-list" placeholder="CLI default / custom model"><datalist id="model-list"></datalist></label>
+    <label class="field">Model<input id="model-input" list="model-list" placeholder="CLI default / custom model"><datalist id="model-list"></datalist><button id="refresh-models-btn" type="button">Refresh models</button></label>
     <label class="field">Tool permissions<select id="tools-select"></select></label>
   </div><p class="hint">Ask requests approval for managed tools. Native CLIs without an approval bridge fall back to safe mode. Full permits autonomous tool use.</p>
   <div class="section"><h2>Local model routing</h2><p id="local-hint" class="hint">Leave endpoint empty to use the CLI provider.</p><div class="form-grid">
@@ -447,6 +447,7 @@ for(const [id,type] of Object.entries({'new-btn':'newChat','stop-btn':'stop','ex
 $('settings-btn').addEventListener('click',() => navigate('settings')); $('settings-skills').addEventListener('click',() => navigate('skills')); $('settings-mcp').addEventListener('click',() => navigate('mcp'));
 $('workspace-btn').addEventListener('click',() => post('chooseWorkspace')); $('privacy-btn').addEventListener('click',() => post('managePrivacy'));
 $('local-hosts-btn').addEventListener('click',() => post('manageLocalHosts'));
+$('refresh-models-btn').addEventListener('click',() => {const button=$('refresh-models-btn');button.disabled=true;button.textContent='Refreshing models…';post('refreshModels',{},() => {button.disabled=false;button.textContent='Refresh models';});});
 $('reload-btn').addEventListener('click',loadCollection); $('search').addEventListener('input',renderCollection);
 for(const [action,label] of Object.entries({explain:'Explain',fix:'Fix',refactor:'Refactor',test:'Tests',reviewFile:'Review file',reviewDiff:'Review changes'})) $('quick-actions').appendChild(button(label,() => post('quickAction',{action})));
 window.addEventListener('message',({data:m}) => {

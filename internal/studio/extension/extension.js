@@ -28,9 +28,9 @@ function updateStatus() {
 function refresh() {
   provider?.post({type:'refresh'});
 }
-async function refreshModels() {
+async function refreshModels(force = false) {
   const cli = currentStatus.activeCLI;
-  const models = await call('models.list', { cli });
+  const models = await call(force ? 'models.refresh' : 'models.list', { cli });
   if (cli === currentStatus.activeCLI) { currentStatus.models = models || []; provider.notifyStatus(); }
 }
 function sessionStatus(st) {
@@ -253,6 +253,7 @@ class ChatView {
         toggleDesktopWindow:() => toggleDesktopWindow(),
         reconnect:connect,
         rescan:async () => { currentStatus.availableCLIs = await call('clis.list'); currentStatus.agents = await call('agents.list'); this.notifyStatus(); await refreshModels(); },
+        refreshModels:() => refreshModels(true),
         installCLI:() => installCLI(data.cli),
         resetSession:async () => { this.newChat(); await context.workspaceState.update('session', {}); await context.workspaceState.update('launchId', launchInfo.launchId || 'environment'); connect(); },
         output:() => output.show(),

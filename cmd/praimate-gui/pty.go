@@ -40,6 +40,7 @@ type termSession struct {
 	history      []byte
 	historyStart int64
 	outputEnd    int64
+	cols, rows   int
 }
 
 const terminalHistoryLimit = 4 << 20
@@ -51,6 +52,8 @@ type TerminalData struct {
 	Data        string `json:"data"`
 	StartOffset int64  `json:"startOffset"`
 	EndOffset   int64  `json:"endOffset"`
+	Cols        int    `json:"cols,omitempty"`
+	Rows        int    `json:"rows,omitempty"`
 }
 
 // TerminalSnapshot is the retained tail of a live terminal's byte stream.
@@ -58,6 +61,8 @@ type TerminalSnapshot struct {
 	Data        string `json:"data"`
 	StartOffset int64  `json:"startOffset"`
 	EndOffset   int64  `json:"endOffset"`
+	Cols        int    `json:"cols,omitempty"`
+	Rows        int    `json:"rows,omitempty"`
 }
 
 // TermInfo is a snapshot of one live PTY session for the Sessions panel.
@@ -146,6 +151,8 @@ func (tm *termManager) recordOutput(id string, data []byte) (TerminalData, bool)
 		Data:        base64.StdEncoding.EncodeToString(data),
 		StartOffset: start,
 		EndOffset:   s.outputEnd,
+		Cols:        s.cols,
+		Rows:        s.rows,
 	}, true
 }
 
@@ -174,6 +181,8 @@ func (tm *termManager) codeSnapshot(chatID, termID string) (TerminalSnapshot, er
 		Data:        base64.StdEncoding.EncodeToString(s.history),
 		StartOffset: s.historyStart,
 		EndOffset:   s.outputEnd,
+		Cols:        s.cols,
+		Rows:        s.rows,
 	}, nil
 }
 
@@ -188,6 +197,8 @@ func (tm *termManager) snapshot(id string) (TerminalSnapshot, error) {
 		Data:        base64.StdEncoding.EncodeToString(s.history),
 		StartOffset: s.historyStart,
 		EndOffset:   s.outputEnd,
+		Cols:        s.cols,
+		Rows:        s.rows,
 	}, nil
 }
 
@@ -378,13 +389,20 @@ func (tm *termManager) write(id string, data []byte) error {
 }
 
 func (tm *termManager) resize(id string, cols, rows int) error {
+	if cols <= 0 || rows <= 0 {
+		return fmt.Errorf("invalid terminal size %dx%d", cols, rows)
+	}
 	tm.mu.Lock()
+	defer tm.mu.Unlock()
 	s := tm.sessions[id]
-	tm.mu.Unlock()
 	if s == nil {
 		return fmt.Errorf("no terminal %q", id)
 	}
-	return s.pty.Resize(cols, rows)
+	if err := s.pty.Resize(cols, rows); err != nil {
+		return err
+	}
+	s.cols, s.rows = cols, rows
+	return nil
 }
 
 func (tm *termManager) close(id string) {
