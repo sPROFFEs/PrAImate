@@ -240,6 +240,14 @@ compatible external adapters receive the embedded skills MCP integration.
 
 ## Local LLM routing
 
+When an HTTPS host uses a private/self-signed certificate, **Test connection**
+offers an explicit confirmation showing its SHA-256 fingerprint and expiry.
+Accepted certificates are stored in the encrypted database and trusted only for
+that HTTPS host and port; hostname and expiry verification remain enabled.
+Discovery and PrAImate's native model requests use this exception. A changed
+certificate needs another confirmation. **Remove certificate exception** restores
+system trust. Third-party CLIs retain their own TLS configuration.
+
 The Local LLM page accepts Ollama, vLLM, GPUStack, LiteLLM, llama.cpp,
 LocalAI, and similar OpenAI-compatible endpoints.
 

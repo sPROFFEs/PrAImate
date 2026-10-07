@@ -5,6 +5,7 @@
   import { api } from '../lib/api.js'
   import { showConfirm } from '../lib/stores.js'
   import { endpointTransport } from '../lib/endpointSecurity.js'
+  import { probeWithCertificateException } from '../lib/localHostCertificate.js'
 
   let hosts = []
   let selectedHostId = ''
@@ -20,6 +21,7 @@
   let appliedModels = []
   let cliStatus = { opencode: false, openclaude: false }
   let showChangeKey = false
+  let trustedEndpoint = ''
 
   $: transport = endpointTransport(activeHost.endpoint)
 
@@ -50,11 +52,14 @@
 
   function selectHost(id) {
     selectedHostId = id
+    error = ''; notice = ''
     const found = hosts.find(h => h.id === id)
     if (found) {
       activeHost = { ...found, apiKey: '', removeApiKey: false }
     }
     showChangeKey = false
+    trustedEndpoint = ''
+    if (found) api.localHostCertificateTrusted(found.endpoint).then(trusted => { if (activeHost.endpoint === found.endpoint && trusted) trustedEndpoint = found.endpoint }).catch(() => {})
     models = null
     selectedModels = new Set()
   }
@@ -79,15 +84,35 @@
   async function test() {
     testing = true
     error = ''
+    const { id, endpoint, apiKey } = activeHost
     try {
-      const res = (await api.testLocalHost(activeHost.id, activeHost.endpoint, activeHost.apiKey)) || []
+      const result = await probeWithCertificateException({
+        endpoint,
+        probe: () => api.testLocalHost(id, endpoint, apiKey),
+        inspect: api.inspectLocalHostCertificate,
+        trust: async (hostEndpoint, certificate) => {
+          await api.trustLocalHostCertificate(hostEndpoint, certificate)
+          if (activeHost.id === id && activeHost.endpoint === endpoint) { trustedEndpoint = endpoint; notice = 'Certificate exception accepted for this HTTPS host.' }
+        },
+        confirm: showConfirm,
+        current: () => activeHost.id === id && activeHost.endpoint === endpoint
+      })
+      if (activeHost.id !== id || activeHost.endpoint !== endpoint) return
+      const res = result.models || []
       models = res
       selectedModels = new Set(res) // select all by default on probe
     } catch (e) {
-      error = String(e)
+      if (activeHost.id === id && activeHost.endpoint === endpoint) error = String(e)
     } finally {
       testing = false
     }
+  }
+
+  async function removeCertificateException() {
+    const endpoint = activeHost.endpoint
+    if (!await showConfirm({ title: 'Remove certificate exception?', message: `Restore system certificate trust for ${endpoint}?`, confirmLabel: 'Remove exception' })) return
+    try { await api.removeLocalHostCertificate(endpoint); trustedEndpoint = ''; notice = 'Certificate exception removed.' }
+    catch (e) { error = String(e) }
   }
 
   function toggleModel(model) {
@@ -255,6 +280,7 @@
 
   <label class="lbl" for="local-llm-endpoint" style="margin-top:10px">Endpoint URL</label>
   <input id="local-llm-endpoint" class="field mono" bind:value={activeHost.endpoint} placeholder="http://127.0.0.1:11434" />
+  {#if trustedEndpoint && trustedEndpoint === activeHost.endpoint}<p class="hint">A specific certificate is trusted for this HTTPS host. <button class="btn sm" on:click={removeCertificateException}>Remove certificate exception</button></p>{/if}
   {#if transport.insecure}
     <div class="transport-warning" role="alert">
       <span class="transport-label">HTTP</span>

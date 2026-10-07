@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/sPROFFEs/PrAImate/internal/hosttls"
 )
 
 // Settings is what callers hand to local-route configuration. Stored as a JSON
@@ -81,7 +83,13 @@ func ListModels(ctx context.Context, endpoint, apiKey string) ([]string, error) 
 	// Saved OpenAI-compatible endpoints may already include /v1. Discovery
 	// builds both the Ollama-native and OpenAI paths from the server root.
 	endpoint = strings.TrimSuffix(endpoint, "/v1")
-	cli := &http.Client{Timeout: 8 * time.Second}
+	cli, err := hosttls.ContextClient(ctx, endpoint, 8*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if cli.Transport != nil {
+		defer cli.CloseIdleConnections()
+	}
 
 	if models, err := tryOllamaTags(ctx, cli, endpoint, apiKey); err == nil && len(models) > 0 {
 		return models, nil
@@ -97,7 +105,14 @@ func ListCanonicalModels(ctx context.Context, endpoint, apiKey string) ([]string
 	if base == "" {
 		return nil, errors.New("empty endpoint")
 	}
-	models, err := tryOpenAIModelsPath(ctx, &http.Client{Timeout: 8 * time.Second}, base, apiKey, "/v1/models?prefix=canonical")
+	cli, err := hosttls.ContextClient(ctx, base, 8*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if cli.Transport != nil {
+		defer cli.CloseIdleConnections()
+	}
+	models, err := tryOpenAIModelsPath(ctx, cli, base, apiKey, "/v1/models?prefix=canonical")
 	if err == nil && len(models) > 0 {
 		return models, nil
 	}

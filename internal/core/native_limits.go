@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sPROFFEs/PrAImate/internal/hosttls"
 )
 
 type nativeLimitEntry struct {
@@ -26,7 +28,7 @@ type nativeLimitCache struct {
 }
 
 func (c *nativeLimitCache) remember(route ChatLocalEndpoint, window int, source string) {
-	key := sha256.Sum256([]byte(route.Endpoint + "\x00" + route.Model + "\x00" + route.APIKey))
+	key := sha256.Sum256([]byte(route.Endpoint + "\x00" + route.Model + "\x00" + route.APIKey + "\x00" + route.TLSCertificate))
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entries == nil || len(c.entries) >= 128 {
@@ -36,7 +38,7 @@ func (c *nativeLimitCache) remember(route ChatLocalEndpoint, window int, source 
 }
 
 func (c *nativeLimitCache) lookup(ctx context.Context, route ChatLocalEndpoint) (int, string) {
-	key := sha256.Sum256([]byte(route.Endpoint + "\x00" + route.Model + "\x00" + route.APIKey))
+	key := sha256.Sum256([]byte(route.Endpoint + "\x00" + route.Model + "\x00" + route.APIKey + "\x00" + route.TLSCertificate))
 	c.mu.Lock()
 	entry, ok := c.entries[key]
 	c.mu.Unlock()
@@ -85,6 +87,13 @@ func (p nativeProvider) discoverContext(ctx context.Context) (int, string) {
 		client := http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		if p.http != nil {
 			client.Transport = p.http.Transport
+		} else if p.route.TLSCertificate != "" {
+			trusted, err := hosttls.Client(p.route.Endpoint, p.route.TLSCertificate, 0)
+			if err != nil {
+				return false
+			}
+			client.Transport = trusted.Transport
+			defer trusted.CloseIdleConnections()
 		}
 		res, err := client.Do(req)
 		if err != nil {

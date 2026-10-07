@@ -133,6 +133,10 @@ func (c *Core) resolveNativeRoute(ctx context.Context, requested *ChatLocalEndpo
 			}
 		}
 	}
+	route.TLSCertificate, err = c.LocalHostTLSCertificate(ctx, route.Endpoint)
+	if err != nil {
+		return nil, err
+	}
 	if route.Model == "" {
 		return nil, errors.New("PrAImate CLI requires a model: select one in Local LLM settings or pass --model")
 	}

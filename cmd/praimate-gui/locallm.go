@@ -14,6 +14,8 @@ import (
 	"github.com/sPROFFEs/PrAImate/internal/core"
 	"github.com/sPROFFEs/PrAImate/internal/launcher"
 	"github.com/sPROFFEs/PrAImate/internal/ollama"
+
+	"github.com/sPROFFEs/PrAImate/internal/hosttls"
 )
 
 const localLLMAPIKeySetting = "local_llm.api_key"
@@ -259,7 +261,12 @@ func (a *App) LocalLLMHostsModels() ([]LocalHostOption, error) {
 				apiKey, _ = loadHostAPIKey(a.core, h.ID)
 			}
 			ctx, cancel := context.WithTimeout(baseCtx, localLLMProbeTimeout)
-			models, probeErr := ollama.ListCanonicalModels(ctx, ollama.NormalizeEndpoint(h.Endpoint), apiKey)
+			ctx, trustErr := a.core.LocalHostTLSContext(ctx, h.Endpoint)
+			var models []string
+			probeErr := trustErr
+			if probeErr == nil {
+				models, probeErr = ollama.ListCanonicalModels(ctx, ollama.NormalizeEndpoint(h.Endpoint), apiKey)
+			}
 			cancel()
 			if probeErr != nil {
 				// Unreachable hosts are intentionally omitted. The saved host
@@ -431,6 +438,10 @@ func migrateLegacyLocalLLMAPIKey(c *core.Core, cfg *launcher.Config) error {
 }
 
 func (a *App) TestLocalLLM(endpoint, apiKey string) ([]string, error) {
+	c, err := a.requireCore()
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(apiKey) == "" {
 		hosts, _ := a.ListLocalHosts()
 		normalized := ollama.NormalizeEndpoint(endpoint)
@@ -450,11 +461,19 @@ func (a *App) TestLocalLLM(endpoint, apiKey string) ([]string, error) {
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
+	ctx, err = c.LocalHostTLSContext(ctx, endpoint)
+	if err != nil {
+		return nil, err
+	}
 	return ollama.ListCanonicalModels(ctx, ollama.NormalizeEndpoint(endpoint), apiKey)
 }
 
 // TestLocalHost probes a specific host using its stored or supplied credentials.
 func (a *App) TestLocalHost(hostID, endpoint, apiKey string) ([]string, error) {
+	c, err := a.requireCore()
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(apiKey) == "" && hostID != "" {
 		hosts, _ := a.ListLocalHosts()
 		for _, h := range hosts {
@@ -470,7 +489,42 @@ func (a *App) TestLocalHost(hostID, endpoint, apiKey string) ([]string, error) {
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
+	ctx, err = c.LocalHostTLSContext(ctx, endpoint)
+	if err != nil {
+		return nil, err
+	}
 	return ollama.ListCanonicalModels(ctx, ollama.NormalizeEndpoint(endpoint), apiKey)
+}
+
+func (a *App) InspectLocalHostCertificate(endpoint string) (*hosttls.Certificate, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return hosttls.Inspect(ctx, endpoint)
+}
+
+func (a *App) LocalHostCertificateTrusted(endpoint string) (bool, error) {
+	c, err := a.requireCore()
+	if err != nil {
+		return false, err
+	}
+	certificate, err := c.LocalHostTLSCertificate(context.Background(), endpoint)
+	return certificate != "", err
+}
+
+func (a *App) TrustLocalHostCertificate(endpoint, certificate string) error {
+	c, err := a.requireCore()
+	if err != nil {
+		return err
+	}
+	return c.TrustLocalHostCertificate(context.Background(), endpoint, certificate)
+}
+
+func (a *App) RemoveLocalHostCertificate(endpoint string) error {
+	c, err := a.requireCore()
+	if err != nil {
+		return err
+	}
+	return c.RemoveLocalHostCertificate(context.Background(), endpoint)
 }
 
 // LocalLLMOption bundles the saved default endpoint with its live model list

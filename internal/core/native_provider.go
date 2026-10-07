@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sPROFFEs/PrAImate/internal/hosttls"
 )
 
 type nativeMessage struct {
@@ -82,7 +84,13 @@ func (p nativeProvider) request(ctx context.Context, method, path string, body [
 	}
 	client := p.http
 	if client == nil {
-		client = &http.Client{Timeout: 3 * time.Minute}
+		client, err = hosttls.Client(p.route.Endpoint, p.route.TLSCertificate, 3*time.Minute)
+		if err != nil {
+			return nil, err
+		}
+		if client.Transport != nil {
+			defer client.CloseIdleConnections()
+		}
 	}
 	// Do not forward prompts or credentials to a redirect target.
 	copyClient := *client

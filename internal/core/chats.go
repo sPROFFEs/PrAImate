@@ -124,8 +124,9 @@ type SkillRuntimeState struct {
 
 // ChatLocalEndpoint is a per-chat local-LLM route.
 type ChatLocalEndpoint struct {
-	Endpoint string `json:"endpoint,omitempty"`
-	APIKey   string `json:"api_key,omitempty"`
+	TLSCertificate string `json:"-"` // resolved host trust, never a chat override
+	Endpoint       string `json:"endpoint,omitempty"`
+	APIKey         string `json:"api_key,omitempty"`
 	// Model is the backend model name at the endpoint (e.g.
 	// "qwen3-coder"). Used as the chat's model when no explicit model
 	// pin is set.

@@ -8,10 +8,36 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestAntigravityUsesSupportedModes(t *testing.T) {
+	for _, tc := range []struct{ tools, flag string }{{"safe", "--mode=plan"}, {"plan", "--mode=plan"}, {"edits", "--mode=accept-edits"}, {"full", "--dangerously-skip-permissions"}} {
+		args, err := additionalCLIArgs("antigravity", "chosen-model", tc.tools, "session-id")
+		joined := strings.Join(args, " ")
+		if err != nil || !strings.Contains(joined, tc.flag) || strings.Contains(joined, "--mode=default") || !strings.Contains(joined, "--model chosen-model") || !strings.Contains(joined, "--conversation session-id") {
+			t.Fatalf("%s arguments: %v (%v)", tc.tools, args, err)
+		}
+	}
+}
+
+func TestAntigravityCapacityFailureIsActionableAndPreservesSession(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture")
+	}
+	fakeBinOnPath(t, "agy", `printf '%s\n' '{"event":"init","conversation_id":"retained"}'
+printf '%s\n' 'API error: UNAVAILABLE (code 503): No capacity available for model fixture-model' >&2
+exit 3`)
+	a := NewAntigravityAdapter()
+	a.extraDirs = nil
+	reply, err := a.SingleShot(context.Background(), SingleShotOpts{Cwd: t.TempDir(), Message: "hello", Tools: "safe"})
+	if err == nil || !strings.Contains(err.Error(), "select another model") || !strings.Contains(err.Error(), "HTTP 503") || reply.SessionID != "retained" {
+		t.Fatalf("capacity diagnostic/session: %+v %v", reply, err)
+	}
+}
 
 func TestAdditionalCLIStreams(t *testing.T) {
 	for _, tc := range []struct {

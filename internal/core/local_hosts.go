@@ -225,5 +225,9 @@ func (c *Core) TestLocalHost(ctx context.Context, id, endpoint, apiKey string) (
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	ctx, err := c.LocalHostTLSContext(ctx, endpoint)
+	if err != nil {
+		return nil, err
+	}
 	return ollama.ListCanonicalModels(ctx, ollama.NormalizeEndpoint(endpoint), apiKey)
 }

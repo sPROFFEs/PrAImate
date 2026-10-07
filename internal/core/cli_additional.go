@@ -84,7 +84,7 @@ func additionalCLIArgs(cli, model, level, session string) ([]string, error) {
 		case "plan":
 			args = append(args, "--mode=plan")
 		default:
-			args = append(args, "--mode=default")
+			args = append(args, "--mode=plan")
 		}
 		if session != "" {
 			args = append(args, "--conversation", session)
@@ -189,6 +189,9 @@ func (a *additionalCLIAdapter) run(ctx context.Context, session string, o Single
 		return reply, ctx.Err()
 	}
 	if waitErr != nil {
+		if a.name == "antigravity" && strings.Contains(stderr.String(), "No capacity available for model") {
+			return reply, fmt.Errorf("antigravity: backend has no capacity for the selected model (HTTP 503); select another model in Chat settings or retry later: %w", waitErr)
+		}
 		return reply, fmt.Errorf("%s: %w (%s)", a.name, waitErr, truncate(stderr.String(), 400))
 	}
 	return reply, parseErr

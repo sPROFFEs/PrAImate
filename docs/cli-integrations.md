@@ -122,7 +122,10 @@ and `copilot help monitoring` for the installed version's telemetry options.
 - **CLIs** offers Google's installer for Linux/macOS/WSL or Windows PowerShell.
 - Use `agy models` for supported model identifiers. PrAImate supports streaming
   input/output and saved conversation IDs for headless chat resumption.
-- Native, Plan, Edits and Full map to Antigravity's own permission modes.
+- Safe and Plan use `--mode=plan`, Edits uses `--mode=accept-edits`, and
+  Full uses `--dangerously-skip-permissions`. Native terminals use CLI defaults.
+  `--mode=default` is unsupported. Backend capacity errors (HTTP 503) require
+  selecting another model or retrying later; PrAImate does not silently switch models.
   Plan is an instruction-based mode and does not enforce PrAImate's read-only
   restrictions. Consequently Antigravity is unavailable for managed Workers.
 - Automatic injection of PrAImate MCP servers is not supported for this backend.
