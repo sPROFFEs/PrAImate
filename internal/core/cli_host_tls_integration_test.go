@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"math/big"
 	"net"
@@ -56,7 +57,7 @@ func testInstalledHostTLS(t *testing.T, bin, mode string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		root := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+		root := &x509.Certificate{Subject: pkix.Name{CommonName: "PrAImate fixture CA"}, SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
 		rootDER, err := x509.CreateCertificate(rand.Reader, root, root, &key.PublicKey, key)
 		if err != nil {
 			t.Fatal(err)
@@ -69,7 +70,7 @@ func testInstalledHostTLS(t *testing.T, bin, mode string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		leaf := &x509.Certificate{SerialNumber: big.NewInt(2), NotBefore: root.NotBefore, NotAfter: root.NotAfter, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+		leaf := &x509.Certificate{Subject: pkix.Name{CommonName: "PrAImate fixture endpoint"}, SerialNumber: big.NewInt(2), NotBefore: root.NotBefore, NotAfter: root.NotAfter, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
 		leafDER, err := x509.CreateCertificate(rand.Reader, leaf, root, &leafKey.PublicKey, key)
 		if err != nil {
 			t.Fatal(err)
