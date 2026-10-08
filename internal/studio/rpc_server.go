@@ -525,6 +525,12 @@ func (s *Server) execute(ctx context.Context, method string, body []byte) (any, 
 			return nil, err
 		}
 		return true, s.workers.RetryDAGTask(p.ID, p.TaskID)
+	case "workers.graph.resolve":
+		var p struct{ ID, TaskID string }
+		if err := json.Unmarshal(body, &p); err != nil {
+			return nil, err
+		}
+		return true, s.workers.ResolveDAGTaskConflicts(p.ID, p.TaskID)
 	case "workers.task.preview":
 		var p struct{ ID, TaskID string }
 		if err := json.Unmarshal(body, &p); err != nil {

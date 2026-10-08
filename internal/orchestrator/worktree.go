@@ -21,6 +21,8 @@ type Worktree struct {
 	Branch            string   `json:"branch"`
 	BaseRef           string   `json:"baseRef"`
 	IntegratedCommits []string `json:"integratedCommits,omitempty"`
+	PendingCommit     string   `json:"pendingCommit,omitempty"`
+	PendingBase       string   `json:"pendingBase,omitempty"`
 }
 
 type WorktreeManager struct {
@@ -48,11 +50,11 @@ func (b *gitBuffer) Write(p []byte) (int, error) {
 func gitCommand(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
-	argv := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false", "-c", "core.quotePath=false"}
+	argv := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false", "-c", "core.quotePath=false", "-c", "rerere.enabled=true", "-c", "rerere.autoupdate=true"}
 	cmd := exec.CommandContext(ctx, "git", append(argv, args...)...)
 	cmd.Dir = dir
 	// Host-created commits do not invoke hooks or require the user's Git identity.
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=PrAImate Workers", "GIT_AUTHOR_EMAIL=workers@praimate.local", "GIT_COMMITTER_NAME=PrAImate Workers", "GIT_COMMITTER_EMAIL=workers@praimate.local", "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=PrAImate Workers", "GIT_AUTHOR_EMAIL=workers@praimate.local", "GIT_COMMITTER_NAME=PrAImate Workers", "GIT_COMMITTER_EMAIL=workers@praimate.local", "GIT_TERMINAL_PROMPT=0", "GIT_EDITOR=true")
 	out := &gitBuffer{limit: 4 << 20}
 	stderr := &gitBuffer{limit: 4096}
 	cmd.Stdout = out
@@ -175,6 +177,9 @@ func (w WorktreeManager) IntegrateDependencies(ctx context.Context, tree *Worktr
 	if err := w.verify(ctx, tree); err != nil {
 		return err
 	}
+	if err := w.continueDependency(ctx, tree, commits); err != nil {
+		return err
+	}
 	for _, commit := range commits {
 		already := false
 		for _, saved := range tree.IntegratedCommits {
@@ -186,9 +191,27 @@ func (w WorktreeManager) IntegrateDependencies(ctx context.Context, tree *Worktr
 		if already {
 			continue
 		}
-		if _, err := gitCommand(ctx, tree.Path, "cherry-pick", commit); err != nil {
-			return fmt.Errorf("dependency conflict in %s (resolve or discard this worktree): %w", tree.Path, err)
+		head, err := gitCommand(ctx, tree.Path, "rev-parse", "HEAD")
+		if err != nil {
+			return err
 		}
+		tree.PendingCommit = commit
+		tree.PendingBase = head
+		if _, err := gitCommand(ctx, tree.Path, "cherry-pick", "-x", commit); err != nil {
+			// rerere may already have staged a previously reviewed resolution.
+			if _, stateErr := gitCommand(ctx, tree.Path, "rev-parse", "--verify", "-q", "CHERRY_PICK_HEAD"); stateErr != nil {
+				return fmt.Errorf("dependency integration in %s: %w", tree.Path, err)
+			}
+			if resumeErr := w.continueDependency(ctx, tree, commits); resumeErr != nil {
+				return resumeErr
+			}
+			if tree.PendingCommit != "" {
+				return fmt.Errorf("dependency integration in %s: %w", tree.Path, err)
+			}
+			continue
+		}
+		tree.PendingCommit = ""
+		tree.PendingBase = ""
 		tree.IntegratedCommits = append(tree.IntegratedCommits, commit)
 		if head, err := gitCommand(ctx, tree.Path, "rev-parse", "HEAD"); err == nil {
 			tree.BaseRef = head

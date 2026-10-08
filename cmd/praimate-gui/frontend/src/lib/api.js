@@ -45,6 +45,7 @@ export const api = {
   workerRunSnapshot: (id) => call('WorkerRunSnapshot', id),
 	workerRunActivity: (id, workerID = '', before = 0, limit = 100) => call('WorkerRunActivity', id, workerID, before, limit),
 	retryWorkerDAGTask: (id, taskID) => call('RetryWorkerDAGTask', id, taskID),
+	resolveWorkerDAGTaskConflicts: (id, taskID) => call('ResolveWorkerDAGTaskConflicts', id, taskID),
 	workerTaskPreview: (id, taskID) => call('WorkerTaskPreview', id, taskID),
   renameWorkerRun: (id, title) => call('RenameWorkerRun', id, title),
   deleteWorkerRun: (id) => call('DeleteWorkerRun', id),

@@ -315,6 +315,10 @@ class ChatView {
           await call('workers.graph.retry',{id:data.id,taskID:data.taskID});
           await call('workers.graph.execute',{id:data.id});
         },
+        workerGraphResolve:async () => {
+          await call('workers.graph.resolve',{id:data.id,taskID:data.taskID});
+          await call('workers.graph.execute',{id:data.id});
+        },
         workerTaskPreview:async () => {
           const preview = await call('workers.task.preview',{id:data.id,taskID:data.taskID});
           view.webview.postMessage({type:'workerTaskPreview',runId:data.id,taskID:data.taskID,preview});

@@ -85,6 +85,16 @@ func (a *App) RetryWorkerDAGTask(id, taskID string) error {
 	return a.workers.RetryDAGTask(id, taskID)
 }
 
+func (a *App) ResolveWorkerDAGTaskConflicts(id, taskID string) error {
+	if a.detachedClient != nil {
+		return a.detachedClient.rpc("worker.graph.resolve", workerWindowRequest{ID: id, TaskID: taskID}, nil)
+	}
+	if a.workers == nil {
+		return errors.New("worker runtime is unavailable")
+	}
+	return a.workers.ResolveDAGTaskConflicts(id, taskID)
+}
+
 func (a *App) WorkerTaskPreview(id, taskID string) (orchestrator.TaskPreview, error) {
 	if a.detachedClient != nil {
 		var preview orchestrator.TaskPreview

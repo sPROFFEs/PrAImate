@@ -59,6 +59,12 @@ EXT=""
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun not found on PATH (install from https://bun.sh)"; exit 1; }
 
+# Exercise the actual Bun transport on the Linux release host, where OpenSSL
+# is available for ephemeral CA fixtures. Other targets use the same helper.
+if [ "$NATIVE_GOOS" = "linux" ]; then
+  bun test scripts/praimate-code/host-tls.test.mjs
+fi
+
 resolve_work_parent() {
   if [ -n "${PRAIMATE_BUILD_DIR:-}" ]; then
     printf '%s\n' "$PRAIMATE_BUILD_DIR"

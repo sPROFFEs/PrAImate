@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, mkdirSync, copyFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync, spawn } from 'node:child_process'
 import { X509Certificate } from 'node:crypto'
 import { createServer, request } from 'node:https'
 import { hostCertificates, hostTLS } from './host-tls.ts'
@@ -74,4 +74,31 @@ test('build patch applies to the pinned provider, is idempotent and fails on dri
       assert.notEqual(spawnSync(process.execPath, [patch, invalid]).status, 0)
     } finally { rmSync(invalid, { recursive: true, force: true }) }
   } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('private CA chains work with pinned PrAImate Code and standard extra-CA CLI startup', async () => {
+  const ca = fixture(), leafDir = mkdtempSync(resolve(tmpdir(), 'praimate-leaf-test-'))
+  const run = args => execFileSync('openssl', args, {stdio:'ignore'})
+  run(['req','-newkey','rsa:2048','-nodes','-keyout',resolve(leafDir,'key.pem'),'-out',resolve(leafDir,'leaf.csr'),'-subj','/CN=localhost'])
+  writeFileSync(resolve(leafDir,'ext.cnf'),'subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\n')
+  run(['x509','-req','-in',resolve(leafDir,'leaf.csr'),'-CA',resolve(ca.dir,'cert.pem'),'-CAkey',resolve(ca.dir,'key.pem'),'-CAcreateserial','-out',resolve(leafDir,'leaf.pem'),'-days','1','-extfile',resolve(leafDir,'ext.cnf')])
+  const cert=readFileSync(resolve(leafDir,'leaf.pem'),'utf8')
+  const server=createServer({key:readFileSync(resolve(leafDir,'key.pem')),cert:cert+ca.cert},(req,res)=>{res.setHeader('Connection','close');res.end('ca-ready')})
+  await new Promise(resolve => server.listen(0,'127.0.0.1',resolve))
+  const origin=`https://localhost:${server.address().port}`, endpoint=origin+'/v1'
+  const get = tls => new Promise((resolve,reject)=>request(endpoint,{...tls,agent:false},res=>{let body='';res.on('data',part=>body+=part);res.on('end',()=>resolve(body))}).on('error',reject).end())
+  const child = extra => new Promise((resolve,reject)=>{
+    const proc=spawn(process.execPath,['-e',`require('node:https').get(${JSON.stringify(endpoint)},r=>{r.pipe(process.stdout)}).on('error',()=>process.exitCode=2)`],{env:{...process.env,NODE_EXTRA_CA_CERTS:extra}})
+    let out='';proc.stdout.on('data',p=>out+=p);proc.on('error',reject);proc.on('exit',code=>resolve({code,out}))
+  })
+  try {
+    await assert.rejects(get())
+    for(const trust of [{certificate:cert,authorities:ca.cert},{authorities:ca.cert}]) {
+      const tls=hostTLS(endpoint,{[origin]:JSON.stringify(trust)})
+      assert.equal(await get(tls),'ca-ready')
+      if(typeof Bun!=='undefined') assert.equal(await (await fetch(endpoint,{tls})).text(),'ca-ready')
+    }
+    assert.equal((await child('')).code,2)
+    assert.deepEqual(await child(resolve(ca.dir,'cert.pem')),{code:0,out:'ca-ready'})
+  } finally {await new Promise(resolve=>server.close(resolve));ca.close();rmSync(leafDir,{recursive:true,force:true})}
 })

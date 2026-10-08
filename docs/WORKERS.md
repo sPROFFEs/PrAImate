@@ -60,6 +60,18 @@ conflict resolution runs. Return to the recorded target branch with a clean
 workspace before merging. Inspect a failed merge and use **Clean reviewed
 worktrees** before retrying it.
 
+When a task fails while integrating dependencies, **Resolve conflicts with
+worker** asks its currently configured worker to reconcile the conflicted files
+in the retained worktree. File edits must be enabled (or select full access).
+The host stages the resolved files, continues the pending cherry-pick, and then
+executes the original assignment. Unresolved conflict markers stop execution.
+For a manual resolution, edit and stage the reported files, then choose
+**Continue after manual resolution**. Neither action repeats completed tasks or
+discards their results; dependent tasks become ready once the recovered task
+completes. **Start over…** explicitly confirms discarding only that task's tree.
+Git records successful conflict resolutions with command-scoped `rerere`, so
+review integration can reuse them. New conflicts still stop for inspection.
+
 Merged worktrees are removed after integration. Rejected worktrees can be cleaned
 explicitly; saved diffs and private Git result refs preserve review history.
 Deleting a worker chat removes its temporary worktrees and result refs, including
@@ -90,6 +102,7 @@ praimate workers activity --id RUN_ID --worker-id ATTEMPT_ID --limit 100
 praimate workers changes --id RUN_ID --task-id task-a
 # Queue a continuation while preserving its worktree; then execute ready tasks.
 praimate workers retry --id RUN_ID --task-id task-a
+praimate workers resolve --id RUN_ID --task-id task-a
 # Optionally edit a tasks JSON array and pass --plan tasks.json.
 praimate workers execute --id RUN_ID
 praimate workers review --id RUN_ID --task-id task-a --decision accepted

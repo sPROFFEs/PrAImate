@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"net"
@@ -22,6 +23,8 @@ type Certificate struct {
 	PEM         string    `json:"pem"`
 	Fingerprint string    `json:"fingerprint"`
 	Expires     time.Time `json:"expires"`
+	Trust       string    `json:"trust"`
+	Authorities []string  `json:"authorities,omitempty"`
 }
 
 func Origin(endpoint string) (string, error) {
@@ -82,7 +85,24 @@ func Inspect(ctx context.Context, endpoint string) (*Certificate, error) {
 		return nil, err
 	}
 	hash := sha256.Sum256(cert.Raw)
-	return &Certificate{Origin: origin, PEM: encoded, Fingerprint: hex.EncodeToString(hash[:]), Expires: cert.NotAfter}, nil
+	result := &Certificate{Origin: origin, PEM: encoded, Trust: encoded, Fingerprint: hex.EncodeToString(hash[:]), Expires: cert.NotAfter}
+	trust := Trust{Certificate: encoded}
+	for i := 1; i < len(peer); i++ {
+		if err := peer[i-1].CheckSignatureFrom(peer[i]); err != nil {
+			return nil, errors.New("host presented an invalid issuing CA chain")
+		}
+		trust.Authorities += string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: peer[i].Raw}))
+		hash := sha256.Sum256(peer[i].Raw)
+		result.Authorities = append(result.Authorities, hex.EncodeToString(hash[:]))
+	}
+	if trust.Authorities != "" {
+		raw, _ := json.Marshal(trust)
+		result.Trust = string(raw)
+		if _, _, err := ParseTrust(endpoint, result.Trust); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
 type originTransport struct {
@@ -108,7 +128,7 @@ func Client(endpoint, certificate string, timeout time.Duration) (*http.Client, 
 	if certificate == "" {
 		return client, nil
 	}
-	cert, err := Validate(endpoint, certificate)
+	trust, certs, err := ParseTrust(endpoint, certificate)
 	if err != nil {
 		return nil, err
 	}
@@ -117,11 +137,13 @@ func Client(endpoint, certificate string, timeout time.Duration) (*http.Client, 
 	if err != nil || roots == nil {
 		roots = x509.NewCertPool()
 	}
-	roots.AddCert(cert)
+	for _, cert := range certs {
+		roots.AddCert(cert)
+	}
 	normal := http.DefaultTransport.(*http.Transport).Clone()
 	trusted := normal.Clone()
 	trusted.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, VerifyConnection: func(state tls.ConnectionState) error {
-		if len(state.PeerCertificates) == 0 || !bytes.Equal(state.PeerCertificates[0].Raw, cert.Raw) {
+		if trust.Certificate != "" && (len(state.PeerCertificates) == 0 || !bytes.Equal(state.PeerCertificates[0].Raw, certs[0].Raw)) {
 			return errors.New("trusted host certificate changed; review the new certificate")
 		}
 		return nil

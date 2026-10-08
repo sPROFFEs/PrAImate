@@ -22,6 +22,7 @@
   let cliStatus = { opencode: false, openclaude: false }
   let showChangeKey = false
   let trustedEndpoint = ''
+  let caPEM = ''
 
   $: transport = endpointTransport(activeHost.endpoint)
 
@@ -59,6 +60,7 @@
     }
     showChangeKey = false
     trustedEndpoint = ''
+    caPEM = ''
     if (found) api.localHostCertificateTrusted(found.endpoint).then(trusted => { if (activeHost.endpoint === found.endpoint && trusted) trustedEndpoint = found.endpoint }).catch(() => {})
     models = null
     selectedModels = new Set()
@@ -113,6 +115,16 @@
     if (!await showConfirm({ title: 'Remove certificate exception?', message: `Restore system certificate trust for ${endpoint}?`, confirmLabel: 'Remove exception' })) return
     try { await api.removeLocalHostCertificate(endpoint); trustedEndpoint = ''; notice = 'Certificate exception removed.' }
     catch (e) { error = String(e) }
+  }
+
+  async function importCA() {
+    const {id,endpoint}=activeHost
+    if (!await showConfirm({title:'Trust this certificate authority?',message:`Trust certificates issued by this CA for ${endpoint}? This replaces the saved leaf exception. PrAImate keeps the trust scoped to this host; OpenCode receives this CA for CLI processes started by PrAImate. Only paste public PEM certificates, never private keys. Hostname and expiry checks remain enabled.`,confirmLabel:'Trust CA'})) return
+    if (activeHost.id!==id || activeHost.endpoint!==endpoint) return
+    try {
+      await api.trustLocalHostCertificate(endpoint,JSON.stringify({authorities:caPEM}))
+      if (activeHost.id===id && activeHost.endpoint===endpoint) {trustedEndpoint=endpoint;caPEM='';notice='Certificate authority trusted. Restart existing CLI terminals to apply it.'}
+    } catch(e) {error=String(e)}
   }
 
   function toggleModel(model) {
@@ -281,7 +293,10 @@
 
   <label class="lbl" for="local-llm-endpoint" style="margin-top:10px">Endpoint URL</label>
   <input id="local-llm-endpoint" class="field mono" bind:value={activeHost.endpoint} placeholder="http://127.0.0.1:11434" />
-  {#if trustedEndpoint && trustedEndpoint === activeHost.endpoint}<p class="hint">A specific certificate is trusted for this HTTPS host. <button class="btn sm" on:click={removeCertificateException}>Remove certificate exception</button></p>{/if}
+  {#if trustedEndpoint && trustedEndpoint === activeHost.endpoint}<p class="hint">Custom certificate trust is enabled for this HTTPS host. Restart existing CLI terminals after changing trust. <button class="btn sm" on:click={removeCertificateException}>Remove certificate exception</button></p>{/if}
+  {#if activeHost.endpoint.trim().startsWith('https://')}
+    <details><summary>Private certificate authority</summary><p class="hint">If your server uses an internal CA, paste its public root CA certificate (and intermediates if needed). Changes apply to new CLI processes.</p><label class="lbl" for="local-ca">Public CA certificate bundle (PEM)</label><textarea id="local-ca" class="field mono" rows="5" bind:value={caPEM} placeholder="-----BEGIN CERTIFICATE-----"></textarea><button class="btn sm" disabled={!caPEM.trim()} on:click={importCA}>Review & trust CA</button></details>
+  {/if}
   {#if transport.insecure}
     <div class="transport-warning" role="alert">
       <span class="transport-label">HTTP</span>

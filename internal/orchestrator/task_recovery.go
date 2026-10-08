@@ -7,6 +7,15 @@ import (
 // RetryDAGTask queues a new attempt without discarding the previous worktree.
 // ResetDAGTask remains the explicit destructive alternative.
 func (m *Manager) RetryDAGTask(id, taskID string) error {
+	return m.retryDAGTask(id, taskID, false)
+}
+
+// ResolveDAGTaskConflicts queues an explicit, non-destructive worker resolution.
+func (m *Manager) ResolveDAGTaskConflicts(id, taskID string) error {
+	return m.retryDAGTask(id, taskID, true)
+}
+
+func (m *Manager) retryDAGTask(id, taskID string, resolve bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	run := m.runs[id]
@@ -37,6 +46,20 @@ func (m *Manager) RetryDAGTask(id, taskID string) error {
 		}
 		previous := cloneDAG(run.DAG)
 		previousError := run.Error
+		if resolve {
+			if task.Worktree == nil || task.FailurePhase != "dependencies" {
+				return errors.New("this task has no failed dependency integration")
+			}
+			config := Config{Workspace: run.Workspace, Profiles: run.Profiles, AccessMode: run.AccessMode, MaxRetries: run.MaxRetries, RetryDelaySeconds: run.RetryDelaySeconds}
+			profile, _, err := resolveTaskProfile(config, task.requestedWorker())
+			if err != nil {
+				return err
+			}
+			if !profile.AllowEdits {
+				return errors.New("enable file edits or full access in run settings before resolving conflicts")
+			}
+		}
+		task.ResolveConflicts = resolve
 		task.ResumeContext = truncateWorkerText(task.Error+"\n"+task.Output, 4096)
 		task.Status = "pending"
 		task.Error = ""
@@ -82,10 +105,11 @@ func (m *Manager) taskSession(id, taskID string, p Profile) string {
 }
 
 type TaskPreview struct {
-	Path      string `json:"path"`
-	Diff      string `json:"diff"`
-	Status    string `json:"status"`
-	Truncated bool   `json:"truncated"`
+	Path      string   `json:"path"`
+	Diff      string   `json:"diff"`
+	Status    string   `json:"status"`
+	Truncated bool     `json:"truncated"`
+	Conflicts []string `json:"conflicts,omitempty"`
 }
 
 func (m *Manager) TaskPreview(id, taskID string) (TaskPreview, error) {
@@ -117,5 +141,8 @@ func (m *Manager) TaskPreview(id, taskID string) (TaskPreview, error) {
 	preview.Truncated = len(diff) > 256<<10
 	preview.Diff = truncateWorkerText(diff, 256<<10)
 	preview.Status, err = gitCommand(m.ctx, tree.Path, "status", "--short")
+	if err == nil {
+		preview.Conflicts, err = conflictFiles(m.ctx, tree.Path)
+	}
 	return preview, err
 }

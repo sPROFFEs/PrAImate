@@ -16,7 +16,7 @@ import (
 
 func runWorkers(args []string) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprintln(os.Stderr, "usage: praimate workers plan|list|show|activity|changes|retry|execute|review|merge|reset|cleanup [--id RUN] [options]")
+		fmt.Fprintln(os.Stderr, "usage: praimate workers plan|list|show|activity|changes|retry|resolve|execute|review|merge|reset|cleanup [--id RUN] [options]")
 		if len(args) > 0 {
 			return 0
 		}
@@ -118,6 +118,8 @@ func runWorkers(args []string) int {
 		output, err = manager.TaskPreview(*id, *taskID)
 	case "retry":
 		err = manager.RetryDAGTask(*id, *taskID)
+	case "resolve":
+		err = manager.ResolveDAGTaskConflicts(*id, *taskID)
 	case "execute":
 		if *planPath != "" {
 			var tasks []orchestrator.DAGTask

@@ -2,7 +2,14 @@ package core
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,11 +32,17 @@ func TestPraimateCodeInstalledHostTLS(t *testing.T) {
 	if !filepath.IsAbs(bin) {
 		t.Fatal("PRAIMATE_TEST_CODE_BINARY must be absolute")
 	}
+	for _, mode := range []string{"self-signed", "chain", "ca"} {
+		t.Run(mode, func(t *testing.T) { testInstalledHostTLS(t, bin, mode) })
+	}
+}
+
+func testInstalledHostTLS(t *testing.T, bin, mode string) {
 	root := t.TempDir()
 	isolateOpenCodeFixture(t, root)
 	c := nativeTestCore(t)
 	var calls atomic.Int32
-	s := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
 			http.NotFound(w, r)
 			return
@@ -38,6 +51,32 @@ func TestPraimateCodeInstalledHostTLS(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Write([]byte(nativeSSE("trusted-model-ok", "stop")))
 	}))
+	if mode != "self-signed" {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		root := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+		rootDER, err := x509.CreateCertificate(rand.Reader, root, root, &key.PublicKey, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		root, err = x509.ParseCertificate(rootDER)
+		if err != nil {
+			t.Fatal(err)
+		}
+		leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		leaf := &x509.Certificate{SerialNumber: big.NewInt(2), NotBefore: root.NotBefore, NotAfter: root.NotAfter, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+		leafDER, err := x509.CreateCertificate(rand.Reader, leaf, root, &leafKey.PublicKey, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{leafDER, rootDER}, PrivateKey: leafKey}}}
+	}
+	s.StartTLS()
 	defer s.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -45,7 +84,19 @@ func TestPraimateCodeInstalledHostTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.TrustLocalHostCertificate(ctx, s.URL, cert.PEM); err != nil {
+	material := cert.Trust
+	if mode == "ca" {
+		trust, _, err := hosttls.ParseTrust(s.URL, material)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(hosttls.Trust{Authorities: trust.Authorities})
+		if err != nil {
+			t.Fatal(err)
+		}
+		material = string(raw)
+	}
+	if err := c.TrustLocalHostCertificate(ctx, s.URL, material); err != nil {
 		t.Fatal(err)
 	}
 	project := filepath.Join(root, "project")

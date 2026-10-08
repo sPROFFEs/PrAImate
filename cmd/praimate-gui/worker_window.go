@@ -35,6 +35,8 @@ func (d *detachedCoordinator) callWorker(w *detachedWindow, req detachedRPCReque
 		return a.WorkerRunActivity(body.ID, body.WorkerID, body.Before, body.Limit)
 	case "worker.graph.retry":
 		return nil, a.RetryWorkerDAGTask(body.ID, body.TaskID)
+	case "worker.graph.resolve":
+		return nil, a.ResolveWorkerDAGTaskConflicts(body.ID, body.TaskID)
 	case "worker.task.preview":
 		return a.WorkerTaskPreview(body.ID, body.TaskID)
 	case "worker.cancel":

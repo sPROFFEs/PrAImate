@@ -36,3 +36,10 @@ test('a changed pinned certificate requires a new confirmation', async () => {
   await assert.rejects(probeWithCertificateException({endpoint:'https://local.example',probe:async()=>{throw Error('trusted host certificate changed; review the new certificate')},inspect:async()=>certificate,confirm:async()=>{confirmed=true;return false},trust:()=>assert.fail('changed certificate automatically trusted')}),/certificate changed/)
   assert.equal(confirmed,true)
 })
+
+test('confirmation includes the CA fingerprints and persists the entire inspected chain',async()=>{
+  let attempts=0, saved=''
+  const chain={...certificate,trust:'public chain trust record',authorities:['issuing-ca-sha256']}
+  await probeWithCertificateException({endpoint:'https://local.example',probe:async()=>{if(++attempts===1)throw tlsError;return []},inspect:async()=>chain,confirm:async options=>{assert.match(options.message,/issuing-ca-sha256/);return true},trust:async(_,material)=>{saved=material}})
+  assert.equal(saved,chain.trust)
+})

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -398,17 +399,10 @@ func (m *Manager) executeDAGTask(ctx context.Context, id string, config Config, 
 		evidence.WriteString(dep.ID + ": " + truncateWorkerText(dep.Output, 512) + "\n")
 	}
 	// Old snapshots updated BaseRef only after integrating every dependency.
-	if task.ResumeContext != "" && task.Worktree.BaseRef != base && len(task.Worktree.IntegratedCommits) == 0 {
+	_, pendingErr := gitCommand(ctx, task.Worktree.Path, "rev-parse", "--verify", "-q", "CHERRY_PICK_HEAD")
+	if task.ResumeContext != "" && task.Worktree.BaseRef != base && len(task.Worktree.IntegratedCommits) == 0 && pendingErr != nil && task.Worktree.PendingCommit == "" {
 		task.DependenciesReady = true
 	}
-	phase = "dependencies"
-	if !task.DependenciesReady {
-		if err = worktrees.IntegrateDependencies(ctx, task.Worktree, commits); err != nil {
-			return fail(err)
-		}
-		task.DependenciesReady = true
-	}
-	m.publishTask(id, task)
 	local := config
 	local.Workspace = task.Worktree.Path
 	local.Profiles = append([]Profile(nil), config.Profiles...)
@@ -418,6 +412,36 @@ func (m *Manager) executeDAGTask(ctx context.Context, id string, config Config, 
 		}
 	}
 	runner := Runner{Resolve: ResolveRuntimeWithCore(m.core), Approval: approval, NoDelegation: true, Emit: func(event Event) { event.TaskID = task.ID; m.recordDAGEvent(id, event) }}
+	phase = "dependencies"
+	if !task.DependenciesReady {
+		for attempt := 0; attempt <= len(commits); attempt++ {
+			err = worktrees.IntegrateDependencies(ctx, task.Worktree, commits)
+			if err == nil {
+				break
+			}
+			var conflict *DependencyConflict
+			if !task.ResolveConflicts || !errors.As(err, &conflict) || attempt == len(commits) {
+				return fail(err)
+			}
+			if !p.AllowEdits {
+				return fail(errors.New("enable file edits or full access before resolving dependency conflicts"))
+			}
+			m.publishTask(id, task)
+			m.recordDAGEvent(id, Event{TaskID: task.ID, Kind: "status", Text: "Resolving dependency conflicts with the assigned worker: " + strings.Join(conflict.Files, ", ")})
+			input := workerInputWithEvidence("Resolve Git dependency conflicts only. Inspect the conflicted files and dependency patches. Preserve the intended behavior from BOTH sides and remove all conflict markers. Do not run git add, commit, cherry-pick, reset or abort; PrAImate will stage the resolved files and continue the pending integration. Do not execute the original assignment yet. Return a concise explanation of the resolution.", []string{"Conflicted files:\n" + strings.Join(conflict.Files, "\n"), "Original task:\n" + task.Description, "Dependency results:\n" + evidence.String()}, p.MaxInputBytes-len(workerInstructions(local, p.Tier, p))-512)
+			runner.DependencyResolution = true
+			if _, err = runner.RunFromTier(ctx, local, p.Tier, input); err != nil {
+				return fail(fmt.Errorf("dependency conflict resolution: %w", err))
+			}
+			runner.DependencyResolution = false
+			if err = worktrees.StageResolvedDependency(ctx, task.Worktree, conflict.Files); err != nil {
+				return fail(err)
+			}
+		}
+		task.DependenciesReady = true
+		task.ResolveConflicts = false
+	}
+	m.publishTask(id, task)
 	if task.ResumeContext != "" {
 		runner.SessionID = m.taskSession(id, task.ID, p)
 	}

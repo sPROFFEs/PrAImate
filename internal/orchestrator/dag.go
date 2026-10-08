@@ -43,6 +43,7 @@ type DAGTask struct {
 	Result            *TaskResult   `json:"result,omitempty"`
 	ResumeContext     string        `json:"resumeContext,omitempty"`
 	DependenciesReady bool          `json:"dependenciesReady,omitempty"`
+	ResolveConflicts  bool          `json:"resolveConflicts,omitempty"`
 }
 
 type TaskResult struct {

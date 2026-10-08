@@ -2,6 +2,7 @@
   import { createEventDispatcher, tick } from 'svelte'
   import { api } from './api.js'
   import { focusDialog } from './focusDialog.js'
+  import { showConfirm } from './stores.js'
   import WorkerGraph from './WorkerGraph.svelte'
   import WorkerBoard from './WorkerBoard.svelte'
   import WorkerProfiles from './WorkerProfiles.svelte'
@@ -100,6 +101,8 @@
   }
   async function continueRun() { if (draft.trim()) await action(async () => { await api.continueWorkerRun(snapshot.id, draft); draft = '' }) }
   async function continueTask() { if (currentTask) await action(async () => { await api.retryWorkerDAGTask(snapshot.id,currentTask.id); await api.executeWorkerDAG(snapshot.id) }) }
+  async function resolveConflicts(task = currentTask) { if (task) await action(async () => { await api.resolveWorkerDAGTaskConflicts(snapshot.id,task.id); await api.executeWorkerDAG(snapshot.id) }) }
+  async function startOver() { if (currentTask && await showConfirm({title:'Discard this task’s changes?',message:`Delete the worktree for ${currentTask.id} and start this task again? Completed tasks and their results are retained. Inspect Changes first.`,confirmLabel:'Discard & reset'})) await action(() => api.resetWorkerDAGTask(snapshot.id,currentTask.id)) }
 </script>
 
 <section class="monitor" aria-label="Worker execution monitor" use:clock>
@@ -112,7 +115,7 @@
   {#if snapshot.nextRetryAt}<div class="retry-banner" role="status"><strong>Automatic retry {snapshot.autoRetriesUsed}/{snapshot.maxRetries}</strong><span>Next attempt at {new Date(snapshot.nextRetryAt).toLocaleTimeString()}. Stop cancels the retry.</span></div>{/if}
   {#if snapshot.error}<section class="failure" role="alert">
     <header><strong>{summary.failed.length ? summary.failed.length + ' task(s) need attention' : 'Execution needs attention'}</strong><button disabled={busy || active} on:click={openSettings}>Adjust run settings</button></header>
-    {#if summary.failed.length}{#each summary.failed as task}<div class="failed-task"><div><strong>{task.id}</strong><p>{task.error}</p><small>{task.autoRetriesUsed ? task.autoRetriesUsed + '/' + (snapshot.maxRetries || 0) + ' automatic retries used. ' : ''}Existing changes are retained.</small></div><button on:click={() => { chooseCard(board.find(item => item.taskID === task.id)); filter = 'errors' }}>Inspect task</button></div>{/each}
+    {#if summary.failed.length}{#each summary.failed as task}<div class="failed-task"><div><strong>{task.id}</strong><p>{task.error}</p><small>{task.autoRetriesUsed ? task.autoRetriesUsed + '/' + (snapshot.maxRetries || 0) + ' automatic retries used. ' : ''}Existing changes are retained.</small></div><div class="buttons">{#if task.failurePhase === 'dependencies'}<button class="primary" disabled={busy || active} on:click={() => resolveConflicts(task)}>Resolve conflicts with worker</button>{/if}<button on:click={() => { chooseCard(board.find(item => item.taskID === task.id)); tab = task.failurePhase === 'dependencies' ? 'changes' : 'activity'; filter = 'errors' }}>Inspect task</button></div></div>{/each}
       {#if summary.blocked.length}<p class="muted">{summary.blocked.length} dependent task(s) will become available after their failed dependency completes.</p>{/if}
       {#if summary.completed.length}<small>{summary.completed.length} completed result(s) are available in Changes for review.</small>{/if}
     {:else}<p>{snapshot.error}</p><small>Previous attempts are saved. Review them before continuing.</small>{/if}
@@ -131,7 +134,7 @@
     </header>
     <nav class="console-tabs" aria-label="Assignment details">{#each [['activity','Activity'],['output','Result'],['changes','Changes'],['assignment','Assignment']] as [value,label]}<button class:selected={tab === value} on:click={() => tab = value}>{label}</button>{/each}</nav>
     {#if currentTask?.status === 'retrying'}<div class="retry-banner" role="status"><strong>Retry {currentTask.autoRetriesUsed}/{snapshot.maxRetries} scheduled</strong><span>Next attempt at {new Date(currentTask.nextRetryAt).toLocaleTimeString()}. Existing changes will be reused.</span></div>{/if}
-    {#if currentTask && !active && ['failed','blocked','cancelled'].includes(currentTask.status)}<div class="recovery"><strong>Continue this task without losing changes</strong><button class="primary" disabled={busy} on:click={continueTask}>Continue task</button><button on:click={() => { showGraph = true }}>Route & restart options</button></div>{/if}
+    {#if currentTask && !active && ['failed','blocked','cancelled'].includes(currentTask.status)}<div class="recovery"><strong>{currentTask.failurePhase === 'dependencies' ? 'Recover dependency integration' : 'Continue this task without losing changes'}</strong>{#if currentTask.failurePhase === 'dependencies'}<button class="primary" disabled={busy} on:click={() => resolveConflicts()}>Resolve conflicts with worker</button>{/if}<button disabled={busy} on:click={continueTask}>{currentTask.failurePhase === 'dependencies' ? 'Continue after manual resolution' : 'Continue task'}</button><button disabled={busy} on:click={startOver}>Start over…</button><button on:click={() => { showGraph = true }}>Route options</button></div>{/if}
     {#if tab === 'activity'}
       <div class="filters" role="group" aria-label="Activity filter">{#each [['all','All'],['io','Input / output'],['reasoning','Reported reasoning'],['delegation','Handoffs'],['errors','Errors']] as [value,label]}<button class:selected={filter === value} on:click={() => filter = value}>{label}</button>{/each}<label><input type="checkbox" bind:checked={follow} on:change={() => { if (follow) scrollLatest() }} /> Follow live</label></div>
       {#if current && ['running','waiting'].includes(current.status)}<div class="waiting"><span class="dot live"></span>{current.status === 'waiting' ? 'Waiting for a delegated assignment.' : current.phase === 'tool' ? 'Tool is running or awaiting approval.' : 'Model call active for ' + elapsed(current.callStartedAt || current.startedAt) + '. Last reported activity: ' + (current.lastProgressAt && new Date(current.lastProgressAt).getTime() > 0 ? elapsed(current.lastProgressAt) + ' ago.' : 'not yet available.')}{#if current.timeoutSeconds} Call timeout: {current.timeoutSeconds}s.{/if}</div>{/if}
@@ -145,7 +148,7 @@
     {:else if tab === 'output'}
       <div class="detail-pane">{#if current?.error}<p class="failure">{current.error}</p>{/if}<pre>{allEvents.filter(e => e.kind === 'result').at(-1)?.text || (currentTask && (!current || current.id === executions.filter(e => e.taskID === currentTask.id).at(-1)?.id) ? currentTask.output : '') || current?.output || 'No result has been reported yet.'}</pre>{#if current?.usage?.calls}<p class="muted">{current.usage.input.toLocaleString()} input · {current.usage.output.toLocaleString()} output tokens · {current.usage.calls} calls</p>{/if}</div>
     {:else if tab === 'changes'}
-      <div class="detail-pane"><div class="buttons"><strong>Workspace changes</strong><button disabled={previewBusy || !currentTask?.worktree} on:click={loadPreview}>Refresh</button></div>{#if preview}<pre class="file-status">{preview.status || 'No tracked file changes'}</pre><pre>{preview.diff || 'No tracked diff. New files are listed above.'}</pre>{#if preview.truncated}<p class="muted">Preview truncated. Inspect the worktree for the complete diff.</p>{/if}{:else}<p class="muted">{previewBusy ? 'Reading changes…' : 'This assignment has no isolated worktree yet.'}</p>{/if}
+      <div class="detail-pane"><div class="buttons"><strong>Workspace changes</strong><button disabled={previewBusy || !currentTask?.worktree} on:click={loadPreview}>Refresh</button></div>{#if preview}{#if preview.conflicts?.length}<p role="alert">Conflicted files: {preview.conflicts.join(', ')}. Resolve with the worker, or edit and stage these files before continuing.</p>{/if}<code>{preview.path || currentTask?.worktree?.path || ''}</code><pre class="file-status">{preview.status || 'No tracked file changes'}</pre><pre>{preview.diff || 'No tracked diff. New files are listed above.'}</pre>{#if preview.truncated}<p class="muted">Preview truncated. Inspect the worktree for the complete diff.</p>{/if}{:else}<p class="muted">{previewBusy ? 'Reading changes…' : 'This assignment has no isolated worktree yet.'}</p>{/if}
         {#if currentTask?.result && currentTask.review !== 'merged'}<div class="buttons"><button class="primary" disabled={active || busy} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id,currentTask.id,'accepted'))}>Accept changes</button><button disabled={active || busy} on:click={() => action(() => api.reviewWorkerDAGTask(snapshot.id,currentTask.id,'rejected'))}>Reject</button></div>{/if}
       </div>
     {:else}

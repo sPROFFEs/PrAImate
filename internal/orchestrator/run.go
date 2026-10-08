@@ -45,12 +45,13 @@ type Event struct {
 }
 
 type Runner struct {
-	SessionID    string
-	NoDelegation bool
-	Resolve      func(Profile) (workerruntime.Runtime, error)
-	Emit         func(Event)
-	Approval     *core.ApprovalConfig
-	trace        Event
+	SessionID            string
+	NoDelegation         bool
+	DependencyResolution bool
+	Resolve              func(Profile) (workerruntime.Runtime, error)
+	Emit                 func(Event)
+	Approval             *core.ApprovalConfig
+	trace                Event
 }
 
 // ResolveRuntime maps a saved profile to the current host's configured
@@ -452,7 +453,12 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 	}
 	instructions := workerInstructions(config, tier, profile)
 	if r.NoDelegation {
-		instructions += "\nThis is one isolated parallel task. Delegation is disabled. Complete only this assignment in its worktree, and return a final action. Do not change Git branches or commit; the host creates the task commit and review diff. Dependencies are already integrated into this worktree."
+		instructions += "\nThis is one isolated parallel task. Delegation is disabled. Complete only this assignment in its worktree, and return a final action. Do not change Git branches or commit; the host creates the task commit and review diff."
+		if r.DependencyResolution {
+			instructions += " Dependencies are NOT fully integrated yet. Resolve only the reported file conflicts; the host continues the pending cherry-pick before assigning the original task."
+		} else {
+			instructions += " Dependencies are already integrated into this worktree."
+		}
 	}
 	approval := r.Approval
 	if profile.FullAccess {

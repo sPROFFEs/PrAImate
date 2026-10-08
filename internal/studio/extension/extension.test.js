@@ -606,6 +606,10 @@ test('worker recovery bridge preserves task identity and only executes after ret
     await new Promise(resolve=>setImmediate(resolve));
     assert.deepEqual(h.requests.filter(r=>r.method.startsWith('workers.graph')).map(r=>r.method),['workers.graph.retry','workers.graph.execute']);
     assert.equal(h.requests.find(r=>r.method==='workers.graph.retry').params.taskID,'failed');
+    receive({type:'workerGraphResolve',id:'run',taskID:'conflict',requestId:4});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(h.requests.find(r=>r.method==='workers.graph.resolve').params.taskID,'conflict');
+    assert.deepEqual(h.requests.filter(r=>r.method.startsWith('workers.graph')).slice(-2).map(r=>r.method),['workers.graph.resolve','workers.graph.execute']);
     receive({type:'workerActivity',id:'run',workerID:'attempt',before:20,requestId:2});
     receive({type:'workerTaskPreview',id:'run',taskID:'failed',requestId:3});
     await new Promise(resolve=>setImmediate(resolve));

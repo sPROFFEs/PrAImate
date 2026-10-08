@@ -33,7 +33,7 @@ func (c *Core) LocalHostTLSCertificate(ctx context.Context, endpoint string) (st
 }
 
 func (c *Core) TrustLocalHostCertificate(ctx context.Context, endpoint, certificate string) error {
-	if _, err := hosttls.Validate(endpoint, certificate); err != nil {
+	if _, _, err := hosttls.ParseTrust(endpoint, certificate); err != nil {
 		return err
 	}
 	key, err := localTLSKey(endpoint)
