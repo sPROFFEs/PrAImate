@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sPROFFEs/PrAImate/internal/core"
 	workerruntime "github.com/sPROFFEs/PrAImate/internal/runtime"
@@ -161,6 +163,36 @@ func TestReplacementBoundsAndWorkspaceContainment(t *testing.T) {
 	}
 }
 
+func TestReplacementRejectsFIFOWithoutBlocking(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX named pipe check")
+	}
+	mkfifo, err := exec.LookPath("mkfifo")
+	if err != nil {
+		t.Skip("mkfifo is not available")
+	}
+	root := t.TempDir()
+	path := filepath.Join(root, "pipe.txt")
+	if err := exec.Command(mkfifo, path).Run(); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() { result <- replaceSource(root, "pipe.txt", "before", "after") }()
+	select {
+	case err := <-result:
+		if !errors.Is(err, errWorkerEditInput) {
+			t.Fatalf("nonregular file accepted: %v", err)
+		}
+	case <-time.After(time.Second):
+		// Release a blocked reader before reporting the regression.
+		writer, _ := os.OpenFile(path, os.O_RDWR, 0600)
+		if writer != nil {
+			_ = writer.Close()
+		}
+		t.Fatal("opening a FIFO blocked replacement validation")
+	}
+}
+
 type retainedReplacementAdapter struct{ dagAdapter }
 
 func (a *retainedReplacementAdapter) SingleShot(_ context.Context, opts core.SingleShotOpts) (*core.Reply, error) {
@@ -225,6 +257,15 @@ func TestReplacementContinuesRetainedDAGAfterExhaustedRetries(t *testing.T) {
 	if err := m.RetryDAGTask(id, "task-n"); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	m = NewManager(m.core, ctx)
+	t.Cleanup(func() {
+		if err := m.Stop(ctx); err != nil {
+			t.Error(err)
+		}
+	})
 	if err := m.ExecuteDAG(id, nil); err != nil {
 		t.Fatal(err)
 	}

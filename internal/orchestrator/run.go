@@ -258,12 +258,20 @@ func readWorkerText(workspace, path string, limit int64) (workerTextFile, error)
 	if !allowedSourcePath(rel) {
 		return workerTextFile{}, errors.New("worker file access is not allowed for this target")
 	}
+	// Check before opening too: opening a FIFO can wait indefinitely for a writer.
+	info, err := os.Stat(full)
+	if err != nil {
+		return workerTextFile{}, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > limit {
+		return workerTextFile{}, fmt.Errorf("%w: requires a regular text file no larger than %d bytes", errWorkerEditInput, limit)
+	}
 	file, err := os.Open(full)
 	if err != nil {
 		return workerTextFile{}, err
 	}
 	defer file.Close()
-	info, err := file.Stat()
+	info, err = file.Stat()
 	if err != nil {
 		return workerTextFile{}, err
 	}
