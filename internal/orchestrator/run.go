@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sPROFFEs/PrAImate/internal/core"
 	workerruntime "github.com/sPROFFEs/PrAImate/internal/runtime"
@@ -19,7 +20,16 @@ const (
 	maxWorkerOutputBytes = 64 << 10
 	maxWorkerSteps       = 16
 	maxRunWorkerRequests = 64
+	maxWorkerEditBytes   = 2 << 20
 )
+
+var errWorkerEditInput = errors.New("invalid worker edit input")
+
+type workerTextFile struct {
+	path    string
+	content string
+	info    os.FileInfo
+}
 
 type Event struct {
 	Sequence        uint64              `json:"sequence,omitempty"`
@@ -215,55 +225,73 @@ func parseDecision(raw string) (decision, error) {
 }
 
 // inspectSource supplies a bounded source excerpt to a tool-free local model.
-// Hidden files, credential-like names and links escaping the workspace are
-// rejected before any content is read.
+// Hidden paths (except public project metadata), credential-like names and
+// links escaping the workspace are rejected before any content is read.
 func inspectSource(workspace, path string) (string, error) {
+	file, err := readWorkerText(workspace, path, 16<<10)
+	return file.content, err
+}
+
+func readWorkerText(workspace, path string, limit int64) (workerTextFile, error) {
 	if filepath.IsAbs(path) || path == "." || path == ".." {
-		return "", errors.New("inspection path must be relative to the workspace")
+		return workerTextFile{}, errors.New("worker file access is not allowed outside a relative workspace path")
 	}
 	clean := filepath.Clean(path)
 	if !allowedSourcePath(clean) {
-		return "", errors.New("inspection path is not an allowed source file")
+		return workerTextFile{}, errors.New("worker file access is not allowed for this path")
 	}
 	root, err := filepath.EvalSymlinks(workspace)
 	if err != nil {
-		return "", err
+		return workerTextFile{}, err
 	}
 	full, err := filepath.EvalSymlinks(filepath.Join(root, clean))
 	if err != nil {
-		return "", err
+		if os.IsNotExist(err) {
+			return workerTextFile{}, fmt.Errorf("%w: file %q does not exist", errWorkerEditInput, path)
+		}
+		return workerTextFile{}, err
 	}
 	rel, err := filepath.Rel(root, full)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", errors.New("inspection path escapes the workspace")
+		return workerTextFile{}, errors.New("worker file access is not allowed outside the workspace")
 	}
 	if !allowedSourcePath(rel) {
-		return "", errors.New("inspection target is not an allowed source file")
+		return workerTextFile{}, errors.New("worker file access is not allowed for this target")
 	}
-	info, err := os.Stat(full)
+	file, err := os.Open(full)
 	if err != nil {
-		return "", err
+		return workerTextFile{}, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > 16<<10 {
-		return "", errors.New("inspection requires a regular source file no larger than 16 KiB")
-	}
-	data, err := os.ReadFile(full)
+	defer file.Close()
+	info, err := file.Stat()
 	if err != nil {
-		return "", err
+		return workerTextFile{}, err
 	}
-	if strings.ContainsRune(string(data), '\x00') {
-		return "", errors.New("inspection requires a text file")
+	if !info.Mode().IsRegular() || info.Size() > limit {
+		return workerTextFile{}, fmt.Errorf("%w: requires a regular text file no larger than %d bytes", errWorkerEditInput, limit)
 	}
-	return string(data), nil
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return workerTextFile{}, err
+	}
+	if int64(len(data)) > limit {
+		return workerTextFile{}, fmt.Errorf("%w: file grew beyond the %d-byte limit", errWorkerEditInput, limit)
+	}
+	if !utf8.Valid(data) || strings.ContainsRune(string(data), '\x00') {
+		return workerTextFile{}, fmt.Errorf("%w: requires UTF-8 text without NUL bytes", errWorkerEditInput)
+	}
+	return workerTextFile{path: full, content: string(data), info: info}, nil
 }
 
 func allowedSourcePath(path string) bool {
 	if path == "." {
 		return true
 	}
-	for _, segment := range strings.Split(filepath.ToSlash(path), "/") {
+	segments := strings.Split(filepath.ToSlash(path), "/")
+	for index, segment := range segments {
 		lower := strings.ToLower(segment)
-		if segment == ".." || strings.HasPrefix(segment, ".") || strings.Contains(lower, "secret") || strings.Contains(lower, "credential") || strings.Contains(lower, "private") || strings.Contains(lower, "token") || strings.Contains(lower, "password") || strings.HasSuffix(lower, ".key") || strings.HasSuffix(lower, ".pem") {
+		publicMetadata := index == len(segments)-1 && (lower == ".gitignore" || lower == ".gitattributes" || lower == ".dockerignore" || lower == ".editorconfig")
+		if segment == ".." || (strings.HasPrefix(segment, ".") && !publicMetadata) || strings.Contains(lower, "secret") || strings.Contains(lower, "credential") || strings.Contains(lower, "private") || strings.Contains(lower, "token") || strings.Contains(lower, "password") || strings.HasSuffix(lower, ".key") || strings.HasSuffix(lower, ".pem") {
 			return false
 		}
 	}
@@ -311,27 +339,20 @@ func listSource(workspace, path string) (string, error) {
 }
 
 func replaceSource(workspace, path, oldText, newText string) error {
-	if !editableSourcePath(path) {
-		return errors.New("replacement requires a source code file")
+	if oldText == "" || len(oldText) > 4096 || len(newText) > 4096 || !utf8.ValidString(newText) || strings.ContainsRune(newText, '\x00') {
+		return fmt.Errorf("%w: use nonempty exact oldText and UTF-8 replacement text bounded to 4096 bytes", errWorkerEditInput)
 	}
-	content, err := inspectSource(workspace, path)
+	file, err := readWorkerText(workspace, path, maxWorkerEditBytes)
 	if err != nil {
 		return err
 	}
-	if strings.Count(content, oldText) != 1 {
-		return errors.New("replacement oldText must occur exactly once")
-	}
-	full, err := filepath.EvalSymlinks(filepath.Join(workspace, path))
-	if err != nil {
-		return err
-	}
-	info, err := os.Stat(full)
-	if err != nil {
-		return err
+	content, full, info := file.content, file.path, file.info
+	if count := strings.Count(content, oldText); count != 1 {
+		return fmt.Errorf("%w: oldText matched %d times; it must occur exactly once", errWorkerEditInput, count)
 	}
 	updated := strings.Replace(content, oldText, newText, 1)
-	if len(updated) > 16<<10 {
-		return errors.New("replacement exceeds the source file size limit")
+	if len(updated) > maxWorkerEditBytes {
+		return fmt.Errorf("%w: replacement exceeds the %d-byte text file limit", errWorkerEditInput, maxWorkerEditBytes)
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(full), ".praimate-worker-*")
 	if err != nil {
@@ -349,22 +370,14 @@ func replaceSource(workspace, path, oldText, newText string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	current, err := os.ReadFile(full)
+	current, err := readWorkerText(workspace, path, maxWorkerEditBytes)
 	if err != nil {
 		return err
 	}
-	if string(current) != content {
+	if current.path != full || current.content != content || !os.SameFile(current.info, info) {
 		return errors.New("source changed while preparing replacement")
 	}
 	return os.Rename(tmp.Name(), full)
-}
-
-func editableSourcePath(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".go", ".js", ".jsx", ".ts", ".tsx", ".svelte", ".py", ".rs", ".java", ".c", ".h", ".cpp", ".css", ".html", ".sql", ".sh":
-		return true
-	}
-	return false
 }
 
 func workerInstructions(config Config, tier Tier, profile Profile) string {
@@ -374,7 +387,7 @@ Use {"action":"final","content":"concise answer with changed paths, checks and r
 For a workspace operation return {"action":"tool","tool":"project.search|project.read|project.list","arguments":{...}}. Examples: project.search {"query":"literal","path":"optional/relative/path","max_results":20}; project.read {"path":"relative/file","offset":0,"limit":4096}; project.list {"path":"relative/directory"}. Read only the relevant range. You can also use {"action":"inspect","path":"relative/source"} or {"action":"list","path":"relative/directory"} for bounded source access.
 `)
 	if profile.AllowEdits {
-		b.WriteString("For workspace edits use {\"action\":\"tool\",\"tool\":\"project.write\",\"arguments\":{\"path\":\"relative/file\",\"content\":\"complete content\"}} (requires user approval), or {\"action\":\"replace\",\"path\":\"relative/source.go\",\"oldText\":\"unique exact text\",\"newText\":\"replacement\"} for a bounded exact edit.\n")
+		b.WriteString("For workspace edits use {\"action\":\"tool\",\"tool\":\"project.write\",\"arguments\":{\"path\":\"relative/file\",\"content\":\"complete content\"}} (requires user approval), or {\"action\":\"replace\",\"path\":\"relative/file\",\"oldText\":\"unique exact text\",\"newText\":\"replacement\"} for a bounded exact edit. Replacement supports existing UTF-8 project text up to 2 MiB, including code, Markdown, JSON, YAML, build files and public metadata (.gitignore, .gitattributes, .dockerignore, .editorconfig); sensitive paths remain excluded. oldText must match exactly once, and oldText/newText each have a 4096-byte limit. On a validation error, no edit is applied: read the relevant range with project.read and correct the path or exact text. Do not repeat the unchanged operation.\n")
 	}
 	if profile.AllowCommands {
 		b.WriteString("For a command use {\"action\":\"tool\",\"tool\":\"command.run\",\"arguments\":{\"command\":\"executable\",\"args\":[\"arg\"],\"timeout_seconds\":60}}. Use separate argv, not a shell string; every command requires user approval. git.run uses {\"args\":[\"status\",\"--short\"]}.\n")
@@ -584,9 +597,17 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 			if !profile.AllowEdits {
 				return "", fmt.Errorf("%s worker is not allowed to edit files", tier)
 			}
+			r.trace.Phase = "tool"
+			r.emit(tier, "tool_start", "Exact replacement in "+d.Path, workerruntime.Usage{})
 			if err := replaceSource(config.Workspace, d.Path, d.OldText, d.NewText); err != nil {
-				r.emit(tier, "error", err.Error(), workerruntime.Usage{})
-				return "", err
+				failure := fmt.Errorf("replacement %q: %w", d.Path, err)
+				r.emit(tier, "error", failure.Error(), workerruntime.Usage{})
+				consecutiveFailures++
+				if ctx.Err() == nil && consecutiveFailures < 2 && errors.Is(err, errWorkerEditInput) {
+					appendObservation(failure.Error() + ". No edit was applied. Read the current file with project.read, correct the path or use unique exact oldText, and try a corrected operation. Do not repeat the same failed request.")
+					continue
+				}
+				return "", failure
 			}
 			r.emit(tier, "edited", d.Path, workerruntime.Usage{})
 			consecutiveFailures = 0

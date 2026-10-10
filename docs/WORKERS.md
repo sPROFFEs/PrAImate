@@ -209,6 +209,15 @@ the coordinator executes the returned host action. Edit and command permissions
 are selected independently; commands and brokered writes use the host approval
 flow. Bounded exact replacements require the profile's edit permission.
 
+Exact replacements support existing UTF-8 project files up to 2 MiB, including
+code, documentation, configuration and public metadata such as `.gitignore`.
+The old text must occur exactly once; both old and new text are limited to
+4096 bytes. Sensitive paths, binary files and paths outside the workspace remain
+excluded. Activity identifies the file before the operation and includes it in
+errors. A missing file or invalid text match gets one corrective turn within the same
+assignment, with instructions to inspect the file and correct the operation.
+No edit is applied when validation fails.
+
 ## Autonomous execution and retries
 
 **Execution controls** appear when creating a run and in **Run settings** in
@@ -231,6 +240,11 @@ commands are not transactionally rolled back or guaranteed to be idempotent.
 Only execution failures are automatically retried for graph tasks. Dependency
 integration, worktree setup and Git checkpoint failures require inspection.
 Denied approvals, cancelled runs and persistence failures are not retried.
+Persistent replacement validation errors also stop automatic task retries;
+repeating the same invalid edit does not repair it. After updating the app or
+correcting the task, **Continue with existing changes** queues a manual attempt
+even if its automatic retry allowance was exhausted. Completed results and
+partial work are retained, and blocked dependents can run after it succeeds.
 
 The automatic retry count is persisted per graph task and survives continuation
 and app restarts. A manual continuation preserves that count; increase the run's

@@ -29,7 +29,7 @@ func canAutomaticallyRetry(ctx context.Context, message string) bool {
 	}
 	// A declined permission is an instruction to stop, not a transient failure.
 	lower := strings.ToLower(message)
-	for _, marker := range []string{"denied by the user", "requires an interactive user approval", "not allowed", "cannot enforce the selected permission", "could not save worker execution"} {
+	for _, marker := range []string{"denied by the user", "requires an interactive user approval", "not allowed", "cannot enforce the selected permission", "could not save worker execution", "invalid worker edit input"} {
 		if strings.Contains(lower, marker) {
 			return false
 		}
