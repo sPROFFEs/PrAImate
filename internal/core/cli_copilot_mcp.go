@@ -36,6 +36,9 @@ func copilotMCPConfig(servers []MCPServer) (map[string]string, error) {
 // headless adapter without changing native terminal permissions.
 func PrepareInteractiveCLIConfig(cli string, env map[string]string) ([]string, func(), error) {
 	noop := func() {}
+	if cli == "antigravity" && env[antigravityMCPConfigEnv] != "" {
+		return prepareAntigravityMCPConfig(env[antigravityMCPConfigEnv])
+	}
 	if cli != "copilot" || env["PRAIMATE_COPILOT_MCP_CONFIG"] == "" {
 		return nil, noop, nil
 	}

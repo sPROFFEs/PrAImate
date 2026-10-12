@@ -8,7 +8,7 @@
   import WorkerProfiles from './WorkerProfiles.svelte'
   import VoiceButton from './VoiceButton.svelte'
   import { workerBoardItems, mergeWorkerEvents, workerRunSummary } from './workerBoard.js'
-  import { activeWorkerRun, workerExecutions, workerEventLabel, workerLabel, workerUsage } from './workerActivity.js'
+  import { activeWorkerRun, workerExecutions, workerEventLabel, workerLabel, workerUsage, shouldRevealWorkerPlan } from './workerActivity.js'
   export let snapshot
   export let clis = []
   export let models = {}
@@ -26,6 +26,7 @@
   let error = ''
   let settings = null
   let showGraph = false
+  let revealedPlan = ''
   let draft = ''
   let lastRun = ''
   let lastActivity = ''
@@ -44,6 +45,7 @@
   $: board = workerBoardItems(snapshot)
   $: summary = workerRunSummary(snapshot)
   $: if (snapshot.id !== lastRun) { selected = ''; selectedTask = ''; lastRun = snapshot.id; viewedWorker = ''; history = []; error = ''; draft = ''; settings = null; showGraph = snapshot.status === 'draft' }
+  $: if (shouldRevealWorkerPlan(snapshot, revealedPlan)) { revealedPlan = snapshot.id; showGraph = true }
   $: if (!selectedTask && !executions.some(e => e.id === selected)) {
     const live = executions.find(e => ['running', 'waiting'].includes(e.status))
     const attention = board.find(item => item.status === 'retrying' && item.attemptID) || board.find(item => item.column === 'attention' && item.attemptID)
@@ -122,7 +124,7 @@
     {#if snapshot.dag && !tasks.length && !active}<div class="buttons"><button disabled={busy} on:click={() => action(() => api.retryWorkerPlanning(snapshot.id))}>Retry planning</button>{#if snapshot.profiles?.some(p => p.tier === 'primary' && p.timeoutSeconds > 0) && /deadline|timeout/i.test(snapshot.error)}<button disabled={busy} on:click={retryWithoutTimeout}>Retry without call timeout</button>{/if}</div>{/if}
   </section>{/if}
   {#if error}<p class="failure" role="alert">{error}</p>{/if}
-  {#if snapshot.status === 'draft'}<div class="plan-ready"><div><strong>Plan ready</strong><span>Review assignments and routes before starting.</span></div><button class="primary" on:click={() => showGraph = true}>Review plan</button></div>{/if}
+  {#if snapshot.status === 'draft'}<div class="plan-ready" role="status"><div><strong>Plan ready · {tasks.length} assignment{tasks.length === 1 ? '' : 's'}</strong><span>Tasks have not started. Review the plan below, then select Run task graph to start the workers.</span></div><button class="primary" on:click={() => showGraph = true}>Review and run plan</button></div>{/if}
   <WorkerBoard items={board} selected={selectedTask || (current ? 'tier:' + current.tier : selected)} on:select={event => chooseCard(event.detail)} />
   <div class="console">
     <header class="console-head">

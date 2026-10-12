@@ -138,6 +138,8 @@ func writeMCPConfigForRun(cli, cwd string, servers []MCPServer) (map[string]stri
 	switch cli {
 	case "copilot":
 		return copilotMCPConfig(servers)
+	case "antigravity":
+		return antigravityMCPConfig(servers)
 	case "claude", "openclaude":
 		err = writeClaudeMCPConfig(cwd, servers, env)
 	case "codex":
@@ -164,6 +166,8 @@ func writeSelectedMCPConfigForRun(cli, cwd string, servers []MCPServer) (map[str
 	switch cli {
 	case "copilot":
 		return copilotMCPConfig(servers)
+	case "antigravity":
+		return antigravityMCPConfig(servers)
 	case "claude", "openclaude":
 		err = writeClaudeMCPConfig(cwd, servers, env)
 	case "codex":

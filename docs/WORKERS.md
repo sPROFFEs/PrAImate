@@ -197,11 +197,22 @@ require an additional MCP server. Primary may delegate to Middle or
 Fast, and Middle may delegate to Fast. A child receives its scoped task and
 instructions; its result goes back to its caller as bounded evidence.
 
+No ORCA installation or external `orchestration` skill is required. The host
+provides the coordinator instructions for each run. In **Parallel task graph**,
+the reasoner's JSON becomes a saved draft: **Plan ready** means it is awaiting
+review, not that the work has executed. Review the visible assignments and select
+**Run task graph** to dispatch the workers. In **Hierarchical worker chat**, the
+reasoner dispatches scoped assignments through the built-in delegation protocol
+and receives their results before finalizing; a task list alone does not run them.
+
 Supported external adapters include Codex, Claude Code, OpenClaude, GitHub Copilot,
 OpenCode and PrAImate Code. Antigravity is available for native chats and terminals,
 but not managed Workers: its plan mode does not enforce a read-only tool policy.
 Selecting `praimate-cli` resolves the saved core host/model route. Third-party CLI adapters use their safe permissions in supervised mode,
-and their autonomous full access mode when Full access is selected. Workspace reads, edits and commands requested through the
+and their autonomous full access mode when Full access is selected. OpenCode and
+PrAImate Code use **Build** when workspace edits are enabled, with read/edit
+permissions and no native command access; supervised commands use the host
+approval path. Planning always uses **Plan**. Workspace reads, edits and commands requested through the
 JSON protocol execute through the PrAImate host and its configured approvals.
 Native workers use the core model transport and validate their input/output
 budget before sending the request. Their model transport has no direct tools;

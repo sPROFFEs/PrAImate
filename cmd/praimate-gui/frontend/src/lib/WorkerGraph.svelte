@@ -59,6 +59,7 @@
   <div class="graph-head"><h3>Parallel task graph</h3><span>{snapshot.dag.targetBranch} · base {snapshot.dag.baseCommit?.slice(0, 10)}</span></div>
   {#if editable}
     <p class="hint">Review the plan and each worker route before starting. Independent tasks run in separate worktrees; dependencies start from their combined changes.</p>
+    <div class="actions"><button disabled={busy} on:click={() => action(() => api.saveWorkerDAG(snapshot.id, tasks, parallel))}>Save plan</button><button class="primary" disabled={busy || !tasks.length} on:click={execute}>Run task graph</button></div>
     <label>Concurrent tasks <input type="number" min="1" max="4" bind:value={parallel} /></label>
     {#each tasks as task, index (task.id)}
       <fieldset disabled={busy}>
@@ -82,7 +83,6 @@
         <p class="hint">Provider routing follows the selected CLI's existing configuration or local endpoint. Permissions and limits come from this worker profile.</p>
       </fieldset>
     {/each}
-    <div class="actions"><button disabled={busy} on:click={() => action(() => api.saveWorkerDAG(snapshot.id, tasks, parallel))}>Save plan</button><button class="primary" disabled={busy || !tasks.length} on:click={execute}>Run task graph</button></div>
   {:else}
     <div class="task-cards">
       {#each snapshot.dag.tasks || [] as task (task.id)}

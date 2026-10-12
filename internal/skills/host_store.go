@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
+	"time"
 )
 
 var ErrSkillHostBusy = errors.New("skill store is busy; retry the operation")
@@ -86,9 +88,39 @@ func (s *HostSkillStore) lock(ctx context.Context) (func(), error) {
 		f.Close()
 		return nil, err
 	}
-	if err := lockSkillHost(f); err != nil {
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	retry := time.NewTicker(20 * time.Millisecond)
+	defer retry.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			f.Close()
+			return nil, err
+		}
+		err := lockSkillHost(f)
+		if err == nil {
+			break
+		}
+		if !skillHostLockContended(err) {
+			f.Close()
+			return nil, fmt.Errorf("lock skill store: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			f.Close()
+			return nil, ctx.Err()
+		case <-deadline.C:
+			f.Close()
+			return nil, ErrSkillHostBusy
+		case <-retry.C:
+		}
+	}
+	// Revalidate the named lock after waiting, before accessing host state.
+	named, err = s.root.Lstat("host.lock")
+	if err != nil || !os.SameFile(info, named) || named.Mode()&os.ModeSymlink != 0 {
+		unlockSkillHost(f)
 		f.Close()
-		return nil, ErrSkillHostBusy
+		return nil, errors.New("skill store lock changed while waiting")
 	}
 	return func() { unlockSkillHost(f); f.Close() }, nil
 }

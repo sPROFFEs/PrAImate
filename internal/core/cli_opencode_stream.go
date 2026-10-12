@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -50,6 +51,10 @@ func (a *execAdapter) runOpenCodeJSON(ctx context.Context, message, cwd, session
 		args = append(args, "--model", model)
 	}
 
+	env, err = openCodePermissionEnvironment(env, tools)
+	if err != nil {
+		return nil, err
+	}
 	env, cleanup, err := openCodeStatusEnvironment(env, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("%s stream: %w", a.name, err)
@@ -119,10 +124,36 @@ func openCodeModeArgs(tools string) []string {
 	switch tools {
 	case "plan":
 		return []string{"--agent", "plan"}
+	case "edits":
+		return []string{"--agent", "build"}
 	case "full":
-		return []string{"--dangerously-skip-permissions"}
+		return []string{"--agent", "build", "--dangerously-skip-permissions"}
 	}
 	return nil
+}
+
+// Headless OpenCode rejects interactive permission requests. Grant only the
+// workspace edit/read tools selected by Edits; commands remain host-approved.
+func openCodePermissionEnvironment(base map[string]string, tools string) (map[string]string, error) {
+	if tools != "edits" {
+		return base, nil
+	}
+	config := map[string]any{}
+	raw, provided := base["OPENCODE_CONFIG_CONTENT"]
+	if !provided {
+		raw = os.Getenv("OPENCODE_CONFIG_CONTENT")
+	}
+	if raw != "" && (json.Unmarshal([]byte(raw), &config) != nil || config == nil) {
+		return nil, errors.New("invalid OpenCode launch configuration for edit permissions")
+	}
+	config["permission"] = map[string]string{"*": "deny", "read": "allow", "glob": "allow", "grep": "allow", "list": "allow", "edit": "allow", "skill": "allow", "todoread": "allow", "todowrite": "allow", "bash": "deny", "external_directory": "deny"}
+	encoded, _ := json.Marshal(config)
+	env := make(map[string]string, len(base)+1)
+	for key, value := range base {
+		env[key] = value
+	}
+	env["OPENCODE_CONFIG_CONTENT"] = string(encoded)
+	return env, nil
 }
 
 type openCodeStreamLine struct {

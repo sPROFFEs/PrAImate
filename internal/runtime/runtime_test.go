@@ -205,7 +205,11 @@ func TestCLIWorkerEditModeUsesManagedAdapterOnly(t *testing.T) {
 	if _, err := (CLI{Adapter: adapter, AllowEdits: true}).Execute(context.Background(), Request{Task: "edit", WorkspaceRoot: t.TempDir()}); err != nil || adapter.seen.Tools != "edits" {
 		t.Fatalf("Copilot edit mode: %v", err)
 	}
-	adapter.name = "praimate-code"
+	adapter.name = "opencode"
+	if _, err := (CLI{Adapter: adapter, AllowEdits: true}).Execute(context.Background(), Request{Task: "edit", WorkspaceRoot: t.TempDir()}); err != nil || adapter.seen.Tools != "edits" {
+		t.Fatalf("OpenCode edit mode: %v", err)
+	}
+	adapter.name = "gemini"
 	if _, err := (CLI{Adapter: adapter, AllowEdits: true}).Execute(context.Background(), Request{Task: "edit", WorkspaceRoot: t.TempDir()}); err == nil {
 		t.Fatal("accepted unsupported CLI edit mode")
 	}

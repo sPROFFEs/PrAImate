@@ -239,8 +239,8 @@ func TestBuiltInWorkerAdaptersAreResolvable(t *testing.T) {
 		}
 	}
 	workerWithHostEdits, err := ResolveRuntime(Profile{Runtime: "cli", CLI: "codex", AllowEdits: true, AllowCommands: true})
-	if err != nil || !workerWithHostEdits.Capabilities().ReadOnly {
-		t.Fatalf("CLI process did not remain read-only with host-managed tools: worker=%v error=%v", workerWithHostEdits, err)
+	if err != nil || !workerWithHostEdits.Capabilities().CanEdit || workerWithHostEdits.Capabilities().ReadOnly {
+		t.Fatalf("CLI process did not receive the selected edit permission: worker=%v error=%v", workerWithHostEdits, err)
 	}
 	worker, err := ResolveRuntimeWithCore(nil)(Profile{Runtime: "cli", CLI: "praimate-cli"})
 	if err != nil || worker.ID() != "cli:praimate-cli" {

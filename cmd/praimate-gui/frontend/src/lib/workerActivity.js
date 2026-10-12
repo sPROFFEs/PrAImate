@@ -2,6 +2,7 @@ export const workerTiers = [{ id: 'primary', label: 'Reasoner' }, { id: 'middle'
 export const activeWorkerRun = run => ['running', 'planning', 'merging'].includes(run?.status)
 export const isWorkerRun = id => /^workers?-/.test(id || '')
 export const workerLabel = tier => workerTiers.find(t => t.id === tier)?.label || tier || 'Worker'
+export const shouldRevealWorkerPlan = (run, revealedID) => run?.status === 'draft' && !!run?.dag?.tasks?.length && run.id !== revealedID
 const terminalKinds = new Set(['completed', 'failed', 'cancelled'])
 
 export const workerTaskHasOverrides = task => {

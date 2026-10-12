@@ -82,7 +82,7 @@ func TestResolveExecutionConfigLocalRouteIsSurfaceIndependent(t *testing.T) {
 func TestResolveExecutionConfigDegradesUnsupportedPermissionToSafe(t *testing.T) {
 	c, _ := New(Options{Store: openTempStore(t)})
 	cfg, err := c.ResolveExecutionConfig(context.Background(), ExecutionRequest{
-		Surface: SurfaceStudio, CLI: "praimate-code", Cwd: t.TempDir(), Tools: "edits",
+		Surface: SurfaceStudio, CLI: "gemini", Cwd: t.TempDir(), Tools: "edits",
 	})
 	if err != nil {
 		t.Fatal(err)

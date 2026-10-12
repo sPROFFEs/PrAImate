@@ -732,8 +732,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.17
-scripts/build.sh --version=1.2.17 --with-code --with-graphify
+scripts/build.sh --version=1.2.18
+scripts/build.sh --version=1.2.18 --with-code --with-graphify
 ```
 
 Build only the GUI:

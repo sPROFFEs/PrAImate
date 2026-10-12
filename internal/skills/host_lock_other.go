@@ -1,4 +1,4 @@
-//go:build !linux && !windows
+//go:build !linux && !darwin && !windows
 
 package skills
 
@@ -10,4 +10,5 @@ import (
 func lockSkillHost(*os.File) error {
 	return errors.New("skill host lifecycle unsupported on this platform")
 }
-func unlockSkillHost(*os.File) {}
+func unlockSkillHost(*os.File)          {}
+func skillHostLockContended(error) bool { return false }

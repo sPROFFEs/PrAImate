@@ -216,9 +216,9 @@ func TestReplacementContinuesRetainedDAGAfterExhaustedRetries(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Workspace = gitFixture(t)
 	cfg.MaxRetries = 2
-	cfg.Profiles[1].Runtime, cfg.Profiles[1].CLI, cfg.Profiles[1].Endpoint, cfg.Profiles[1].MaxOutputTokens = "cli", "retained-replacement", "", 0
+	cfg.Profiles[1].Runtime, cfg.Profiles[1].CLI, cfg.Profiles[1].Endpoint, cfg.Profiles[1].MaxOutputTokens = "cli", "opencode", "", 0
 	cfg.Profiles[1].AllowEdits = true
-	m := retryManagerFixture(t, &retainedReplacementAdapter{dagAdapter{name: "retained-replacement"}})
+	m := retryManagerFixture(t, &retainedReplacementAdapter{dagAdapter{name: "opencode"}})
 	ctx := context.Background()
 	id := "retained-replacement"
 	if _, err := m.core.CreateChat(ctx, core.CreateChatRequest{ID: id, Title: "Retained replacement", WorkspacePath: cfg.Workspace, CLIAgent: "workers", Settings: core.ChatSettings{Surface: "workers"}}); err != nil {

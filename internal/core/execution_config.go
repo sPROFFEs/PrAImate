@@ -141,16 +141,16 @@ func CapabilitiesForCLI(cli string) CLICapabilities {
 		cap.Streaming, cap.Resume, cap.MCP = true, true, true
 		cap.ToolLevels = []string{"", "edits", "full"}
 	case "antigravity":
-		cap.Streaming, cap.Resume = true, true
+		cap.Streaming, cap.Resume, cap.MCP = true, true, true
 		cap.ToolLevels = []string{"", "plan", "edits", "full"}
 	case "opencode", "praimate-code":
 		cap.Streaming = true
 		cap.Resume = true
 		cap.MCP = true
 		cap.LocalRouting = true
-		// Headless OpenCode auto-rejects requested permissions unless its
-		// all-permissions flag is used. It has no edits-only mode.
-		cap.ToolLevels = []string{"", "plan", "full"}
+		// Edits uses a launch-scoped Build agent with workspace edit/read
+		// permissions; commands require the host approval path.
+		cap.ToolLevels = []string{"", "plan", "edits", "full"}
 	case "praimate-cli":
 		cap.Streaming = true
 		cap.Resume = true

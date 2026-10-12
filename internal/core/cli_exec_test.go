@@ -258,10 +258,13 @@ func TestOpenCodeModeArgs(t *testing.T) {
 	if got := strings.Join(openCodeModeArgs("plan"), " "); got != "--agent plan" {
 		t.Fatalf("plan tools args = %q", got)
 	}
-	if got := strings.Join(openCodeModeArgs("full"), " "); got != "--dangerously-skip-permissions" {
+	if got := strings.Join(openCodeModeArgs("full"), " "); got != "--agent build --dangerously-skip-permissions" {
 		t.Fatalf("full tools args = %q", got)
 	}
-	for _, tools := range []string{"", "safe", "ask", "edits"} {
+	if got := strings.Join(openCodeModeArgs("edits"), " "); got != "--agent build" {
+		t.Fatalf("edit tools args = %q", got)
+	}
+	for _, tools := range []string{"", "safe", "ask"} {
 		if got := openCodeModeArgs(tools); got != nil {
 			t.Fatalf("%q tools should not add opencode permission flags, got %v", tools, got)
 		}

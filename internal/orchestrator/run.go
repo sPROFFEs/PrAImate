@@ -80,7 +80,7 @@ func ResolveRuntime(profile Profile) (workerruntime.Runtime, error) {
 		}
 		// Supervised workers use safe mode and host tools. Explicit full access
 		// also enables the adapter’s autonomous CLI mode.
-		return workerruntime.CLI{Adapter: adapter, FullAccess: profile.FullAccess}, nil
+		return workerruntime.CLI{Adapter: adapter, FullAccess: profile.FullAccess, AllowEdits: profile.AllowEdits}, nil
 	}
 	return nil, fmt.Errorf("unsupported worker runtime %q", profile.Runtime)
 }
@@ -412,6 +412,7 @@ For a workspace operation return {"action":"tool","tool":"project.search|project
 	}
 	switch tier {
 	case Primary:
+		b.WriteString("No external orchestration skill, ORCA installation or additional MCP server is required: PrAImate supplies this protocol. A list of tasks or JSON task graph does not dispatch workers. When delegation is permitted, return action=delegate to execute a child assignment and wait for its result before claiming it completed.\n")
 		b.WriteString("You own reasoning, planning, integration and the final answer. Delegate bounded searches, repetitive reading, straightforward edits or focused tests when that reduces expensive context. Keep subtle debugging, architecture and security decisions here. Delegate with {\"action\":\"delegate\",\"tier\":\"middle|fast\",\"task\":\"specific objective, relevant paths, permitted work and concise output contract\"}. Do not send the whole chat or broad instructions to a child. Verify consequential results.\nAvailable workers:\n")
 		for _, child := range []Tier{Middle, Fast} {
 			p, _ := config.Profile(child)
@@ -555,7 +556,11 @@ func (r Runner) runTier(ctx context.Context, config Config, tier Tier, task stri
 				return output, fmt.Errorf("%s worker could not follow the action protocol: %w", tier, err)
 			}
 			r.emit(tier, "error", err.Error(), workerruntime.Usage{})
-			appendObservation("Invalid response; no host action was executed. " + err.Error() + ". Return exactly one JSON action object. Do not repeat any CLI tool side effects.")
+			guidance := "Invalid response; no host action was executed. " + err.Error() + ". Return exactly one JSON action object. Do not repeat any CLI tool side effects."
+			if tier == Primary && !r.NoDelegation {
+				guidance += " A JSON task list is a proposal, not an executed assignment. Use action=delegate with tier=middle or tier=fast and a scoped task to dispatch work through PrAImate; wait for the result before finalizing. No external skill is required."
+			}
+			appendObservation(guidance)
 			continue
 		}
 		if d.Action == "final" {

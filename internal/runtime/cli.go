@@ -30,7 +30,7 @@ func (c CLI) Capabilities() Capabilities {
 	if c.Adapter == nil {
 		return Capabilities{}
 	}
-	editSupported := c.Adapter.Name() == "codex" || c.Adapter.Name() == "claude" || c.Adapter.Name() == "openclaude" || c.Adapter.Name() == "copilot"
+	editSupported := c.Adapter.Name() == "codex" || c.Adapter.Name() == "claude" || c.Adapter.Name() == "openclaude" || c.Adapter.Name() == "copilot" || c.Adapter.Name() == "opencode" || c.Adapter.Name() == "praimate-code"
 	return Capabilities{ReadOnly: managed && !c.AllowEdits && !c.FullAccess, CanEdit: c.FullAccess || managed && c.AllowEdits && editSupported, PersistentSession: c.Adapter.SupportsResume()}
 }
 

@@ -31,6 +31,14 @@ does not add arbitrary local endpoint routing to them.
 
 ### OpenCode compatibility
 
+Worker profiles now pass their selected workspace edit permission to the native
+CLI. **Edits** explicitly selects the Build agent and grants workspace read/edit
+tools through a launch-scoped configuration; native commands remain denied and
+supervised commands use PrAImate's approval path. **Full** explicitly selects
+Build with native automatic approval. Planning still selects Plan. The native
+edit regression starts with Plan as the backend default and verifies a real
+read/edit cycle against an isolated completion fixture.
+
 OpenCode **1.18.34** (the stable release checked on October 1, 2026) is compatible
 with the updated adapter. The official Linux binary was tested against an
 isolated OpenAI-compatible HTTP fixture: a new conversation, native session
@@ -206,9 +214,12 @@ and `copilot help monitoring` for the installed version's telemetry options.
   selecting another model or retrying later; PrAImate does not silently switch models.
   Plan is an instruction-based mode and does not enforce PrAImate's read-only
   restrictions. Consequently Antigravity is unavailable for managed Workers.
-- Automatic injection of PrAImate MCP servers is not supported for this backend.
-  Antigravity's own MCP configuration still applies. Agent instructions supplied
-  in the prompt do not imply access to the internal Skills MCP.
+- Selected MCP servers, including the internal Skills MCP, are attached through
+  a private agent/plugin generated for each launch. This integration is validated
+  with Antigravity CLI 1.3.3. It is shared by Desktop and Studio chats and native
+  terminals, and is regenerated when resuming a conversation. The files are
+  removed after the process exits; project files and the user's global MCP
+  configuration are preserved. Native CLI permissions still apply to MCP calls.
 - Headless token metrics count completed step reports. The cumulative session
   total is ignored so resuming does not count earlier turns again. Interactive
   terminal usage has no verified exporter and is shown as unavailable.

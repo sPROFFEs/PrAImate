@@ -345,6 +345,8 @@ function renderWorkerGraph(root) {
   if(editable) {
     if(graphDraftID!==workerSelected || !graphDraft.length) {graphDraftID=workerSelected;graphDraft=JSON.parse(JSON.stringify(graph.tasks || []));graphParallel=graph.maxParallel || 2;}
     section.appendChild(element('p','Review assignments and routes before running. Independent tasks use separate Git worktrees; dependencies start from combined changes.','hint'));
+    section.appendChild(button('Save plan',()=>graphAction('workerGraphSave',{tasks:graphDraft,maxParallel:graphParallel})));
+    section.appendChild(button('Run task graph',()=>post('workerGraphSave',{id:workerSelected,tasks:graphDraft,maxParallel:graphParallel},ok=>{if(ok)graphAction('workerGraphExecute');}),!graphDraft.length));
     section.appendChild(workerInput('Concurrent tasks',graphParallel,v=>graphParallel=v,'number').wrap);
     for(const task of graphDraft) {
       const card=element('fieldset'),legend=element('legend',task.id);card.appendChild(legend);
@@ -364,8 +366,6 @@ function renderWorkerGraph(root) {
       }
       card.appendChild(element('p','Provider routing, permissions and limits use the existing backend/profile configuration.','hint'));section.appendChild(card);
     }
-    section.appendChild(button('Save plan',()=>graphAction('workerGraphSave',{tasks:graphDraft,maxParallel:graphParallel})));
-    section.appendChild(button('Run task graph',()=>post('workerGraphSave',{id:workerSelected,tasks:graphDraft,maxParallel:graphParallel},ok=>{if(ok)graphAction('workerGraphExecute');}),!graphDraft.length));
   } else {
     for(const task of graph.tasks || []) {
       const card=element('article','','card');card.appendChild(element('strong',task.id+' · '+task.status+(task.review ? ' · '+task.review : '')));card.appendChild(element('p',task.description));
@@ -426,6 +426,7 @@ function renderWorkerRuns() {
   const bar=element('div',label+' · '+(workerSnapshot.accessMode==='full'?'Full access':'Supervised')+' · '+(workerSnapshot.maxRetries || 0)+' automatic retries per task','toolbar');
   if(['running','planning','merging'].includes(workerSnapshot.status)) bar.appendChild(button('Stop',() => post('workerCancel',{id:workerSelected})));result.appendChild(bar);
   if(workerSnapshot.dag && workerSnapshot.dag.tasks?.length) {
+    if(workerSnapshot.status==='draft')result.appendChild(element('p','Tasks have not started. Review the assignments below, then select Run task graph to start the workers.','hint'));
     const plan=element('details','','worker-plan');plan.open=workerSnapshot.status==='draft' || graphDetailsOpen.has(workerSelected+':plan');plan.appendChild(element('summary',workerSnapshot.status==='draft'?'Review and run plan':'Plan, routes and integration'));plan.addEventListener('toggle',()=>{if(plan.open)graphDetailsOpen.add(workerSelected+':plan');else graphDetailsOpen.delete(workerSelected+':plan');});renderWorkerGraph(plan);result.appendChild(plan);
   }
   if(workerSnapshot.activityVersion)result.appendChild(element('p',workerSnapshot.usage?.calls?((workerSnapshot.usage.input || 0)+(workerSnapshot.usage.output || 0)).toLocaleString()+' reported tokens · '+workerSnapshot.usage.calls+' model call(s)':'Token usage not reported yet','hint'));
