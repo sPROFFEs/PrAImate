@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"path/filepath"
 
 	"github.com/sPROFFEs/PrAImate/internal/studio"
@@ -48,15 +49,19 @@ func (a *App) StudioOpenProject(workspacePath, cli, model, agentID, tools string
 		return fmt.Errorf("resolve workspace path: %w", err)
 	}
 
-	_ = mgr.SaveRecentProject(abs)
-
-	return mgr.Launch(a.ctx, studio.LaunchOptions{
+	if err := mgr.Launch(a.ctx, studio.LaunchOptions{
 		WorkspacePath: abs,
 		CLI:           cli,
 		Model:         model,
 		AgentID:       agentID,
 		Tools:         tools,
-	})
+	}); err != nil {
+		return err
+	}
+	if err := mgr.SaveRecentProject(abs); err != nil {
+		log.Printf("Studio opened, but recent project history could not be saved: %v", err)
+	}
+	return nil
 }
 
 // StudioListRecentProjects returns recent workspace folders opened in Studio.

@@ -9,6 +9,7 @@ export function toolLevelsForCli(cli) {
   if (cli === 'opencode' || cli === 'praimate-code') return [
     { id: 'plan', label: 'Plan', hint: 'Plan without editing files' },
     { id: '', label: 'Build', hint: 'Use the CLI build agent and permission policy' },
+    levels[2],
     levels[3],
   ]
   if (cli === 'antigravity') return [

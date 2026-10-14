@@ -208,6 +208,12 @@ PrAImate cannot add HTTPS to a model server that only exposes HTTP.
 ## Studio and Documents
 
 **Studio** opens project sessions in the integrated Code-OSS / VSCodium editor.
+Recent projects appear first. Use **Open project** to choose a folder, CLI,
+model, agent and tool permissions. CLI detection and model loading happen when
+opening that dialog, so they do not delay the project list. **Editor environment**
+below the projects contains setup, integration updates and repair actions.
+If setup is required, Studio asks before installing and only opens the editor
+after setup succeeds. Environment and history errors remain on the Studio page.
 The PrAImate sidebar provides its own saved assistant chat, model and permissions
 settings, skills, and Workers view. Native CLI terminals opened in the editor
 are separate from that sidebar chat.

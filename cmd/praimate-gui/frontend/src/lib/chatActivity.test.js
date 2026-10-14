@@ -43,7 +43,8 @@ test('saved and live activity renders thoughts, tool failures and escaped detail
 })
 
 test('detached and embedded tool choices use the same CLI contract', () => {
-  assert.deepEqual(toolLevelsForCli('opencode').map(level => level.id), ['plan', '', 'full'])
+  assert.deepEqual(toolLevelsForCli('opencode').map(level => level.id), ['plan', '', 'edits', 'full'])
+  assert.equal(normalizeToolsForCli('praimate-code', 'edits'), 'edits')
   assert.equal(normalizeToolsForCli('opencode', 'ask'), '')
   assert.equal(normalizeToolsForCli('claude', 'ask'), 'ask')
   assert.equal(normalizeToolsForCli('copilot', 'ask'), '')

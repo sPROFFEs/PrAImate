@@ -72,7 +72,6 @@ func runStudio(args []string) int {
 	}
 
 	fmt.Printf("Opening PrAImate Studio in %s...\n", absPath)
-	_ = mgr.SaveRecentProject(absPath)
 
 	// The extension owns its stdio backend; it survives this launcher exiting.
 	err = studio.NewManager(nil).Launch(ctx, studio.LaunchOptions{
@@ -85,6 +84,9 @@ func runStudio(args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: launch studio: %v\n", err)
 		return 1
+	}
+	if err := mgr.SaveRecentProject(absPath); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: Studio opened, but recent project history could not be saved: %v\n", err)
 	}
 
 	return 0

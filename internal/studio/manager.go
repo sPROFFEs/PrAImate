@@ -426,6 +426,25 @@ func (m *Manager) Launch(ctx context.Context, opts LaunchOptions) error {
 	return nil
 }
 
+// GUI bindings create a new Manager per request, so its mutex cannot protect
+// the shared history file from concurrent launches.
+var recentProjectsMu sync.Mutex
+
+func readRecentProjects(file string) ([]string, error) {
+	data, err := os.ReadFile(file)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read Studio history: %w", err)
+	}
+	var projects []string
+	if err := json.Unmarshal(data, &projects); err != nil {
+		return nil, fmt.Errorf("decode Studio history: %w", err)
+	}
+	return projects, nil
+}
+
 // SaveRecentProject records a project workspace as recently opened in Studio.
 func (m *Manager) SaveRecentProject(workspacePath string) error {
 	if workspacePath == "" {
@@ -439,9 +458,11 @@ func (m *Manager) SaveRecentProject(workspacePath string) error {
 	if err := os.MkdirAll(sDir, 0700); err != nil {
 		return err
 	}
-	var recents []string
-	if data, err := os.ReadFile(recentsFile); err == nil {
-		_ = json.Unmarshal(data, &recents)
+	recentProjectsMu.Lock()
+	defer recentProjectsMu.Unlock()
+	recents, err := readRecentProjects(recentsFile)
+	if err != nil {
+		return err
 	}
 	var updated []string
 	clean := filepath.Clean(workspacePath)
@@ -452,7 +473,23 @@ func (m *Manager) SaveRecentProject(workspacePath string) error {
 		}
 	}
 	data, _ := json.MarshalIndent(updated, "", "  ")
-	return os.WriteFile(recentsFile, data, 0644)
+	f, err := os.CreateTemp(sDir, ".recent-projects-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), recentsFile)
 }
 
 // ListRecentProjects returns the list of recently opened Studio projects.
@@ -462,14 +499,19 @@ func (m *Manager) ListRecentProjects() ([]string, error) {
 		return nil, err
 	}
 	recentsFile := filepath.Join(sDir, "recent_projects.json")
-	var recents []string
-	if data, err := os.ReadFile(recentsFile); err == nil {
-		_ = json.Unmarshal(data, &recents)
+	recents, err := readRecentProjects(recentsFile)
+	if err != nil {
+		return nil, err
 	}
 	var existing []string
+	seen := make(map[string]bool)
 	for _, r := range recents {
-		if _, err := os.Stat(r); err == nil {
+		if info, err := os.Stat(r); err == nil && info.IsDir() && !seen[r] {
+			seen[r] = true
 			existing = append(existing, r)
+		}
+		if len(existing) == 20 {
+			break
 		}
 	}
 	return existing, nil

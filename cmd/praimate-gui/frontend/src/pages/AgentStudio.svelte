@@ -23,6 +23,7 @@
   const RUNTIME = '__runtime__'
 
   let error = ''
+  let disposed = false
   let notice = ''
   let skillsPreview = ''
   let skillsPreviewBusy = false
@@ -160,16 +161,25 @@
   let ragKey = ''
   let ragModel = ''
   let ragLocalModels = []
+  let ragModelLoadSeq = 0
+  let ragModelsLoading = false
+  let ragModelsError = ''
   async function refreshLocalModels() {
-    if (ragBackend !== 'local') return
+    if (ragBackend !== 'local' || disposed) return
+    const seq = ++ragModelLoadSeq
+    ragModelsLoading = true
+    ragModelsError = ''
     try {
       const cfg = await api.getLocalLLM()
       if (cfg?.endpoint) {
-        ragLocalModels = (await api.testLocalLLM(cfg.endpoint, cfg.apiKey || '')) || []
+        const models = (await api.testLocalLLM(cfg.endpoint, cfg.apiKey || '')) || []
+        if (!disposed && ragBackend === 'local' && seq === ragModelLoadSeq) ragLocalModels = models
       }
-    } catch { ragLocalModels = [] }
+    } catch (e) {
+      if (!disposed && ragBackend === 'local' && seq === ragModelLoadSeq) { ragLocalModels = []; ragModelsError = String(e) }
+    } finally { if (!disposed && seq === ragModelLoadSeq) ragModelsLoading = false }
   }
-  $: if (ragBackend === 'local' && ragLocalModels.length === 0) refreshLocalModels()
+  $: if (ragBackend === 'local') refreshLocalModels()
   let ragRunning = false
   let ragLog = []
   let ragElapsed = 0
@@ -490,14 +500,16 @@
   // helper is already running on a STALE agentId it's torn down first
   // so we don't leak chats or write into the wrong cwd.
   async function bootHelperChat() {
-    if (!agentId) return
+    if (!agentId || disposed) return
     if (helperChatId) {
       try { await api.deleteChat(helperChatId) } catch {}
       helperChatId = ''
       messages = []
     }
+    if (disposed) return
     try {
       const c = await api.startAgentHelperChat(helperCli, helperModel, helperCwd, agentId)
+      if (disposed) { await api.deleteChat(c.ID); return }
       helperChatId = c.ID
       helperCwd = c.WorkspacePath || helperCwd
       dismissError()
@@ -893,7 +905,15 @@
 
   onMount(async () => {
     window.addEventListener('pointerdown', onWindowPointerDown, true)
+    unsubStream = onChatStream(handleStreamEvent)
+    unsubApproval = onApproval(handleApproval)
+    if (typeof window !== 'undefined' && window.runtime?.EventsOn) {
+      unsubInstall = window.runtime.EventsOn('praimate:install', (ev) => {
+        if (ev && ev.cli === 'graphify:' + agentId) ragLog = [...ragLog, ev.line]
+      })
+    }
     try { clis = (await api.listCLIs()) || [] } catch {}
+    if (disposed) return
     const firstAvail = clis.find((c) => c.available)
     helperCli = firstAvail ? firstAvail.id : (clis[0]?.id ?? 'claude')
     const seq = ++modelLoadSeq
@@ -902,19 +922,20 @@
     modelSuggestions = []
     api.listCLIModels(requestedCli)
       .then((r) => {
-        if (seq === modelLoadSeq && helperCli === requestedCli) {
+        if (!disposed && seq === modelLoadSeq && helperCli === requestedCli) {
           modelSuggestions = r || []
           modelLoading = false
         }
       })
       .catch(() => {
-        if (seq === modelLoadSeq && helperCli === requestedCli) {
+        if (!disposed && seq === modelLoadSeq && helperCli === requestedCli) {
           modelSuggestions = []
           modelLoading = false
         }
       })
     if (initCfg.id) {
       await loadAll(initCfg.id)
+      if (disposed) return
       // Existing-agent flow: the agent already has a row + disk folder,
       // so we can boot the helper now with cwd = AgentDir.
       await bootHelperChat()
@@ -922,16 +943,11 @@
     // New-agent flow: bootHelperChat() runs from createNamed() AFTER
     // the user names the agent and the DB row exists. Booting earlier
     // would launch the CLI in /home/<user> with no agent.yaml on disk.
-    unsubStream = onChatStream(handleStreamEvent)
-    unsubApproval = onApproval(handleApproval)
-    if (typeof window !== 'undefined' && window.runtime?.EventsOn) {
-      window.runtime.EventsOn('praimate:install', (ev) => {
-        if (ev && ev.cli === 'graphify:' + agentId) ragLog = [...ragLog, ev.line]
-      })
-      unsubInstall = () => window.runtime.EventsOff('praimate:install')
-    }
   })
   onDestroy(() => {
+    disposed = true
+    ++ragModelLoadSeq
+    ++modelLoadSeq
     window.removeEventListener('pointerdown', onWindowPointerDown, true)
     unsubStream()
     unsubApproval()
@@ -1218,6 +1234,8 @@
             <datalist id="rag-local-models">
               {#each ragLocalModels as m}<option value={m}></option>{/each}
             </datalist>
+            <button class="btn sm" disabled={ragModelsLoading} on:click={refreshLocalModels}>{ragModelsLoading ? 'Loading models…' : 'Refresh models'}</button>
+            {#if ragModelsError}<p class="hint" role="alert">{ragModelsError}</p>{/if}
             <div class="hint" style="font-size:11px; color:var(--text-dim)">
               The local endpoint must serve this model under its OpenAI-compatible API. Without an explicit name, graphify defaults to an OpenAI model and your local server returns 404.
             </div>

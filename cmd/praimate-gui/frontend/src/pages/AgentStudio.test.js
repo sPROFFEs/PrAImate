@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { compile } from 'svelte/compiler'
+import { tick } from 'svelte'
 
 const source = await readFile(new URL('./AgentStudio.svelte', import.meta.url), 'utf8')
 
@@ -45,4 +47,34 @@ test('a successful requirements action clears a previous Agent Studio error', ()
     source,
     /notice = `Requirements script \$\{requirementsScript\} attached\.`\s*\n\s*dismissError\(\)/,
   )
+})
+
+test('an empty local model catalogue does not trigger an automatic request loop', async () => {
+  // Execute the actual RAG controls with Svelte reactivity, without mounting
+  // the editor or starting a CLI. An empty fragment needs no browser DOM.
+  const snippet = source.slice(source.indexOf('  let ragBackend'), source.indexOf('  // --- optional environment'))
+    .replace('let ragBackend', 'export let ragBackend')
+  const { js } = compile(`<script>export let api; let disposed = false; ${snippet}</script>`, { generate: 'dom' })
+  const code = js.code.replace(/(["'])(svelte(?:\/[^"']+)?)\1/g, (_, quote, specifier) => JSON.stringify(import.meta.resolve(specifier)))
+  const { default: Controls } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
+  const requests = []
+  const controls = new Controls({ target: {}, props: { ragBackend: 'local', api: {
+    getLocalLLM: async () => ({ endpoint: 'http://fixture.invalid' }),
+    testLocalLLM: () => new Promise(resolve => requests.push(resolve)),
+  } } })
+  try {
+    await tick()
+    assert.equal(requests.length, 1)
+    requests[0]([])
+    await Promise.resolve()
+    await tick()
+    await tick()
+    assert.equal(requests.length, 1, 'empty response must not request the catalogue again')
+    controls.$set({ ragBackend: 'native' })
+    await tick()
+    controls.$set({ ragBackend: 'local' })
+    await tick()
+    await tick()
+    assert.equal(requests.length, 2, 'choosing the local backend again should refresh it')
+  } finally { controls.$destroy() }
 })

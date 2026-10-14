@@ -330,8 +330,7 @@ export const api = {
 // function. No-op outside Wails.
 export function onTurn(handler) {
   if (typeof window !== 'undefined' && window.runtime?.EventsOn) {
-    window.runtime.EventsOn('praimate:turn', handler)
-    return () => window.runtime.EventsOff('praimate:turn')
+    return window.runtime.EventsOn('praimate:turn', handler)
   }
   return () => {}
 }
@@ -340,8 +339,7 @@ export function onTurn(handler) {
 // and tool activity). Returns an unsubscribe function. No-op outside Wails.
 export function onWorkflowStream(handler) {
   if (typeof window !== 'undefined' && window.runtime?.EventsOn) {
-    window.runtime.EventsOn('praimate:workflow-stream', handler)
-    return () => window.runtime.EventsOff('praimate:workflow-stream')
+    return window.runtime.EventsOn('praimate:workflow-stream', handler)
   }
   return () => {}
 }
@@ -351,8 +349,7 @@ export function onWorkflowStream(handler) {
 // function. No-op outside Wails.
 export function onChatStream(handler) {
   if (typeof window !== 'undefined' && window.runtime?.EventsOn) {
-    window.runtime.EventsOn('praimate:chat-stream', handler)
-    return () => window.runtime.EventsOff('praimate:chat-stream')
+    return window.runtime.EventsOn('praimate:chat-stream', handler)
   }
   return () => {}
 }
@@ -362,8 +359,7 @@ export function onChatStream(handler) {
 // an unsubscribe function. No-op outside Wails.
 export function onApproval(handler) {
   if (typeof window !== 'undefined' && window.runtime?.EventsOn) {
-    window.runtime.EventsOn('praimate:approval', handler)
-    return () => window.runtime.EventsOff('praimate:approval')
+    return window.runtime.EventsOn('praimate:approval', handler)
   }
   return () => {}
 }
@@ -372,8 +368,7 @@ export function onApproval(handler) {
 // an explicitly started agent requirements script.
 export function onRequirementsProgress(handler) {
   if (typeof window !== 'undefined' && window.runtime?.EventsOn) {
-    window.runtime.EventsOn('praimate:requirements', handler)
-    return () => window.runtime.EventsOff('praimate:requirements')
+    return window.runtime.EventsOn('praimate:requirements', handler)
   }
   return () => {}
 }
