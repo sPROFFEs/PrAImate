@@ -12,9 +12,9 @@ import (
 
 const antigravityMCPConfigEnv = "PRAIMATE_ANTIGRAVITY_MCP_CONFIG"
 
-// Antigravity 1.3.x loads MCP configurations from globals or agent plugins.
-// Carry the selected servers into a private launch plugin, rather than changing
-// the user's global configuration or leaving credentials in the project.
+// Antigravity loads MCP configurations from globals or agent plugins.
+// Carry the selected servers into a private launch plugin and a uniquely named
+// agent, preserving existing configuration and keeping credentials out of projects.
 func antigravityMCPConfig(servers []MCPServer) (map[string]string, error) {
 	entries := make(map[string]any, len(servers))
 	for _, server := range servers {
@@ -28,11 +28,8 @@ func antigravityMCPConfig(servers []MCPServer) (map[string]string, error) {
 			}
 		case MCPTransportHTTP, MCPTransportSSE:
 			entry["serverUrl"] = server.URL
-			if header, token, ok := headerAndToken(server); ok {
-				if strings.EqualFold(header, "Authorization") && !strings.HasPrefix(strings.ToLower(token), "bearer ") {
-					token = "Bearer " + token
-				}
-				entry["headers"] = map[string]string{header: token}
+			if headers := MCPHTTPHeaders(server); len(headers) > 0 {
+				entry["headers"] = headers
 			}
 			if server.Auth["type"] == string(MCPAuthOAuth) {
 				entry["oauth"] = map[string]string{"clientId": server.Auth["client_id"], "clientSecret": server.Auth["client_secret"]}
@@ -58,7 +55,13 @@ func prepareAntigravityMCPConfig(raw string) ([]string, func(), error) {
 	if err != nil {
 		return nil, noop, err
 	}
-	cleanup := func() { _ = os.RemoveAll(dir) }
+	var agentDir string
+	cleanup := func() {
+		_ = os.RemoveAll(dir)
+		if agentDir != "" {
+			_ = os.RemoveAll(agentDir)
+		}
+	}
 	plugin := filepath.Join(dir, "plugin")
 	manifest := map[string]string{"name": "praimate-session", "version": "1.0.0", "description": "PrAImate session MCP tools"}
 	if err := writeJSONFile(filepath.Join(plugin, ".antigravity-plugin", "plugin.json"), manifest); err != nil {
@@ -69,16 +72,40 @@ func prepareAntigravityMCPConfig(raw string) ([]string, func(), error) {
 		cleanup()
 		return nil, noop, err
 	}
-	metadata, err := yaml.Marshal(map[string]any{"name": "praimate-session", "description": "PrAImate session with its selected MCP tools", "plugins": []string{plugin}, "enable_mcp_tools": true})
+	// 1.4 selects discovered agents by name and no longer accepts an arbitrary
+	// Markdown path. Register a uniquely named, private launch agent without
+	// editing project instructions or any existing user configuration. This
+	// discovery form is also understood by 1.3. Remove only our own directory.
+	geminiDir := strings.TrimSpace(os.Getenv("ANTIGRAVITY_GEMINI_DIR"))
+	if geminiDir == "" {
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			cleanup()
+			return nil, noop, homeErr
+		}
+		geminiDir = filepath.Join(home, ".gemini")
+	}
+	agents := filepath.Join(geminiDir, "config", "agents")
+	if err := os.MkdirAll(agents, 0700); err != nil {
+		cleanup()
+		return nil, noop, err
+	}
+	agentDir, err = os.MkdirTemp(agents, "praimate-session-")
+	if err != nil {
+		cleanup()
+		return nil, noop, err
+	}
+	name := filepath.Base(agentDir)
+	metadata, err := yaml.Marshal(map[string]any{"name": name, "description": "PrAImate session with its selected MCP tools", "plugins": []string{plugin}, "enable_mcp_tools": true, "subagent": false, "mainAgent": true})
 	if err != nil {
 		cleanup()
 		return nil, noop, err
 	}
 	body := "---\n" + string(metadata) + "---\n\nFollow the user's task and session instructions. Use the attached MCP tools for on-demand skill loading. Native execution permissions remain those selected for this CLI session.\n"
-	path := filepath.Join(dir, "agent.md")
+	path := filepath.Join(agentDir, "agent.md")
 	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
 		cleanup()
 		return nil, noop, err
 	}
-	return []string{"--agent", path}, cleanup, nil
+	return []string{"--agent", name}, cleanup, nil
 }

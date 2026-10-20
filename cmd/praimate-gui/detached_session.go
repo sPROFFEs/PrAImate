@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -102,18 +103,20 @@ type detachedWireEvent struct {
 }
 
 type detachedWindow struct {
-	id        string
-	kind      string
-	sessionID string
-	title     string
-	folder    string
-	cmd       *exec.Cmd
-	events    chan detachedWireEvent
-	ready     chan struct{}
-	done      chan struct{}
-	readyOnce sync.Once
-	doneOnce  sync.Once
-	resync    bool
+	id          string
+	kind        string
+	sessionID   string
+	title       string
+	folder      string
+	cmd         *exec.Cmd
+	events      chan detachedWireEvent
+	ready       chan struct{}
+	done        chan struct{}
+	readyOnce   sync.Once
+	doneOnce    sync.Once
+	resync      bool
+	watchCancel context.CancelFunc
+	watchFolder string
 }
 
 type detachedCoordinator struct {
@@ -360,6 +363,9 @@ func (d *detachedCoordinator) remove(id string) {
 	d.mu.Lock()
 	w := d.windows[id]
 	delete(d.windows, id)
+	if w != nil && w.watchCancel != nil {
+		w.watchCancel()
+	}
 	d.mu.Unlock()
 	if w != nil && (w.kind == "chat" || w.kind == "studio") {
 		d.app.approvalMu.Lock()
@@ -484,12 +490,45 @@ func (a *App) SaveStudioConfig(chatID, name, cli, model, tools, localEndpoint, l
 		LocalEndpoint: localEndpoint, LocalModel: localModel, MCPServers: mcpServers,
 	}
 	if a.detachedClient != nil {
-		return a.detachedClient.saveStudioConfig(body)
+		if err := a.detachedClient.saveStudioConfig(body); err != nil {
+			return err
+		}
+		if strings.TrimSpace(workspacePath) != "" {
+			if chat, err := a.DetachedChatConfig(); err == nil {
+				a.detachedClient.mu.Lock()
+				a.detachedClient.mode.folder = chat.WorkspacePath
+				a.detachedClient.mu.Unlock()
+				if a.ctx != nil {
+					wailsruntime.WindowSetTitle(a.ctx, "PrAImate — Documents — "+filepath.Base(chat.WorkspacePath))
+				}
+			}
+		}
+		return nil
 	}
 	return a.saveStudioConfig(body)
 }
 
 func (a *App) saveStudioConfig(body studioConfigSaveRequest) error {
+	c, err := a.requireCore()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(body.WorkspacePath) != "" {
+		body.WorkspacePath, err = core.ValidateWorkspaceDirectory(body.WorkspacePath)
+		if err != nil {
+			return err
+		}
+		chat, err := c.GetChat(a.ctx, body.ChatID)
+		if err != nil {
+			return err
+		}
+		a.chatCancelMu.Lock()
+		running := a.chatCancels[body.ChatID] != nil
+		a.chatCancelMu.Unlock()
+		if running && chat.WorkspacePath != body.WorkspacePath {
+			return errors.New("stop the current turn before changing the document folder")
+		}
+	}
 	if err := a.UpdateChatConfig(body.ChatID, body.CLI, body.Model, body.Tools, body.LocalEndpoint, "", body.LocalModel); err != nil {
 		return err
 	}
@@ -499,8 +538,11 @@ func (a *App) saveStudioConfig(body studioConfigSaveRequest) error {
 		}
 	}
 	if strings.TrimSpace(body.WorkspacePath) != "" {
-		if err := a.UpdateChatWorkspace(body.ChatID, strings.TrimSpace(body.WorkspacePath)); err != nil {
+		if err := c.UpdateChatWorkspace(a.ctx, body.ChatID, body.WorkspacePath); err != nil {
 			return err
+		}
+		if a.detached != nil {
+			a.detached.updateDocumentFolder(body.ChatID, body.WorkspacePath)
 		}
 	}
 	return a.SetChatMCPServers(body.ChatID, body.MCPServers)
@@ -698,6 +740,7 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 	switch req.Method {
 	case "window.ready":
 		w.readyOnce.Do(func() { close(w.ready) })
+		d.startDocumentWatcher(w)
 		return nil, nil
 	case "session.active":
 		if w.kind == "workers" {
@@ -884,7 +927,7 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 		if w.kind != "studio" {
 			return nil, errors.New("operation is outside this window's scope")
 		}
-		return d.withEditorFolder(w.folder, func() (any, error) { return d.app.EditorListFiles() })
+		return d.withEditorFolder(d.documentFolder(w), func() (any, error) { return d.app.EditorListFiles() })
 	case "editor.read":
 		if w.kind != "studio" {
 			return nil, errors.New("operation is outside this window's scope")
@@ -895,7 +938,7 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 		if err := decodeRPCBody(req.Body, &body); err != nil {
 			return nil, err
 		}
-		return d.withEditorFolder(w.folder, func() (any, error) { return d.app.EditorReadFile(body.Path) })
+		return d.withEditorFolder(d.documentFolder(w), func() (any, error) { return d.app.EditorReadFile(body.Path) })
 	case "editor.write":
 		if w.kind != "studio" {
 			return nil, errors.New("operation is outside this window's scope")
@@ -904,7 +947,7 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 		if err := decodeRPCBody(req.Body, &body); err != nil {
 			return nil, err
 		}
-		return nil, d.withEditorFolderErr(w.folder, func() error { return d.app.EditorWriteFile(body.Path, body.Content) })
+		return nil, d.withEditorFolderErr(d.documentFolder(w), func() error { return d.app.EditorWriteFile(body.Path, body.Content) })
 	case "editor.create":
 		if w.kind != "studio" {
 			return nil, errors.New("operation is outside this window's scope")
@@ -915,7 +958,7 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 		if err := decodeRPCBody(req.Body, &body); err != nil {
 			return nil, err
 		}
-		return d.withEditorFolder(w.folder, func() (any, error) { return d.app.EditorCreateFile(body.Path) })
+		return d.withEditorFolder(d.documentFolder(w), func() (any, error) { return d.app.EditorCreateFile(body.Path) })
 	case "editor.delete":
 		if w.kind != "studio" {
 			return nil, errors.New("operation is outside this window's scope")
@@ -926,7 +969,7 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 		if err := decodeRPCBody(req.Body, &body); err != nil {
 			return nil, err
 		}
-		return nil, d.withEditorFolderErr(w.folder, func() error { return d.app.EditorDeleteFile(body.Path) })
+		return nil, d.withEditorFolderErr(d.documentFolder(w), func() error { return d.app.EditorDeleteFile(body.Path) })
 	case "editor.rename":
 		if w.kind != "studio" {
 			return nil, errors.New("operation is outside this window's scope")
@@ -935,12 +978,12 @@ func (d *detachedCoordinator) call(w *detachedWindow, req detachedRPCRequest) (a
 		if err := decodeRPCBody(req.Body, &body); err != nil {
 			return nil, err
 		}
-		return d.withEditorFolder(w.folder, func() (any, error) { return d.app.EditorRenameFile(body.Src, body.Dst) })
+		return d.withEditorFolder(d.documentFolder(w), func() (any, error) { return d.app.EditorRenameFile(body.Src, body.Dst) })
 	case "editor.open-folder":
 		if w.kind != "studio" {
 			return nil, errors.New("operation is outside this window's scope")
 		}
-		return nil, openPathInFileManager(w.folder)
+		return nil, openPathInFileManager(d.documentFolder(w))
 	case "terminal.snapshot":
 		if w.kind != "terminal" {
 			return nil, errors.New("operation is outside this window's scope")
@@ -1000,6 +1043,11 @@ func (d *detachedCoordinator) close() {
 		return
 	}
 	d.closed = true
+	for _, w := range d.windows {
+		if w.watchCancel != nil {
+			w.watchCancel()
+		}
+	}
 	server := d.server
 	d.mu.Unlock()
 	if server != nil {

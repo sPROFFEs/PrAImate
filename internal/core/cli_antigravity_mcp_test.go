@@ -14,6 +14,10 @@ import (
 )
 
 func TestAntigravityMCPLaunchIsScopedAndCleaned(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("ANTIGRAVITY_GEMINI_DIR", "")
 	if !CapabilitiesForCLI("antigravity").MCP {
 		t.Fatal("MCP support is not advertised to Desktop/Studio")
 	}
@@ -31,7 +35,8 @@ func TestAntigravityMCPLaunchIsScopedAndCleaned(t *testing.T) {
 	if len(args) != 2 || args[0] != "--agent" {
 		t.Fatalf("MCP config was not passed to Antigravity: %v", args)
 	}
-	body, err := os.ReadFile(args[1])
+	agentPath := filepath.Join(home, ".gemini", "config", "agents", args[1], "agent.md")
+	body, err := os.ReadFile(agentPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,8 +72,11 @@ func TestAntigravityMCPLaunchIsScopedAndCleaned(t *testing.T) {
 		t.Fatal("modified project files")
 	}
 	cleanup()
-	if _, err := os.Stat(args[1]); !os.IsNotExist(err) {
+	if _, err := os.Stat(agentPath); !os.IsNotExist(err) {
 		t.Fatal("launch MCP files retained after exit")
+	}
+	if _, err := os.Stat(meta.Plugins[0]); !os.IsNotExist(err) {
+		t.Fatal("launch plugin retained after exit")
 	}
 }
 
@@ -81,6 +89,7 @@ func TestAntigravityInstalledSessionMCPConfig(t *testing.T) {
 		t.Fatal("native CLI path must be absolute")
 	}
 	root := t.TempDir()
+	t.Setenv("ANTIGRAVITY_GEMINI_DIR", "")
 	for k, v := range map[string]string{"HOME": root, "USERPROFILE": root, "XDG_CONFIG_HOME": filepath.Join(root, "config"), "XDG_DATA_HOME": filepath.Join(root, "data")} {
 		t.Setenv(k, v)
 	}
@@ -99,18 +108,35 @@ func TestAntigravityInstalledSessionMCPConfig(t *testing.T) {
 	defer cleanup()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	plugin := filepath.Join(filepath.Dir(args[1]), "plugin")
+	agentPath := filepath.Join(root, ".gemini", "config", "agents", args[1], "agent.md")
+	agentBody, err := os.ReadFile(agentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.SplitN(string(agentBody), "---", 3)
+	var meta struct {
+		Plugins []string `yaml:"plugins"`
+	}
+	if len(parts) != 3 {
+		t.Fatal("invalid launch agent")
+	}
+	if err := yaml.Unmarshal([]byte(parts[1]), &meta); err != nil || len(meta.Plugins) != 1 {
+		t.Fatal("missing launch plugin", err)
+	}
+	plugin := meta.Plugins[0]
 	validate := exec.CommandContext(ctx, bin, "plugin", "validate", plugin)
 	validate.Dir = root
-	if output, err := validate.CombinedOutput(); err != nil || !strings.Contains(string(output), "1 processed") {
+	if output, err := validate.CombinedOutput(); err != nil || !(strings.Contains(string(output), "1 processed") || strings.Contains(string(output), "Validation passed")) {
 		t.Fatalf("native CLI rejected MCP plugin: %s %v", output, err)
 	}
 	// Empty JSONL input exercises CLI setup without sending a model request.
 	launch := exec.CommandContext(ctx, bin, append([]string{"--input-format", "stream-json", "--output-format", "stream-json"}, args...)...)
 	launch.Dir = root
+	var stderr strings.Builder
+	launch.Stderr = &stderr
 	output, err := launch.Output()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("native CLI session setup: %v: %s", err, stderr.String())
 	}
 	var event struct {
 		Event string `json:"event"`

@@ -98,8 +98,8 @@ declares skills or MCP servers in its definition (`agent.yaml` / `skills.lock.js
 2. **Dynamic Tool Execution:** The CLI receives the standard tools `list_available_skills`, `load_skill`, and `read_skill_resource`. The agent inspects available procedures and calls `load_skill(name)` on demand rather than bloating the initial prompt.
 3. **User MCP Servers:** Declared MCP servers (`mcp_servers`) are resolved from encrypted settings and injected into the CLI's environment and configuration automatically.
 
-Antigravity currently uses its own MCP configuration and does not receive this
-bridge. Copilot's Safe/Edits tool allowlists exclude MCP tools; Full mode is
+Antigravity receives the bridge through a per-launch agent/plugin, using its
+native named-agent discovery. Copilot's Safe/Edits tool allowlists exclude MCP tools; Full mode is
 required to use injected MCP tools.
 
 ## Database unlock

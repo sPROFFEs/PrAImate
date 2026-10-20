@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -527,12 +526,14 @@ func (c *Core) UpdateChatWorkspace(ctx context.Context, chatID, newWorkspacePath
 	}
 	clean := strings.TrimSpace(newWorkspacePath)
 	if clean != "" {
-		if abs, err := filepath.Abs(clean); err == nil {
-			clean = abs
+		var err error
+		clean, err = ValidateWorkspaceDirectory(clean)
+		if err != nil {
+			return err
 		}
 	}
 	_, err := c.store.DB().ExecContext(ctx,
-		"UPDATE chats SET workspace_path = ?, updated_at = ? WHERE id = ?",
-		clean, time.Now().UTC().Format(time.RFC3339Nano), chatID)
+		"UPDATE chats SET session_id = CASE WHEN COALESCE(workspace_path, '') <> ? THEN NULL ELSE session_id END, workspace_path = ?, updated_at = ? WHERE id = ?",
+		clean, clean, time.Now().UTC().Format(time.RFC3339Nano), chatID)
 	return err
 }

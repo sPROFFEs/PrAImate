@@ -23,7 +23,13 @@
   let files = []
   let agentName = ''
   let error = ''
-  let treeLoading = false
+  let treeLoading = true
+  let disposed = false
+  let workspaceRevision = 0
+  let treeFlight = null
+  let treeRequested = false
+  let fileSyncError = ''
+  let watchError = ''
   let tabs = [] // [{path, content, dirty, ref, flushTimer, externalPending}]
   let active = '' // active tab path
   let cursorInfo = { line: 1, col: 1, selLen: 0 }
@@ -99,20 +105,33 @@
   }
 
   async function saveConfig() {
-    if (!cfg || !chatId) return
+    if (!cfg || !chatId || cfgSaving || sending) return
     cfgSaving = true
     error = ''
     try {
       const newWs = cfg.workspacePath?.trim() || ''
+      if (!newWs) throw new Error('Choose an existing project folder.')
+      const wsChanged = newWs !== folder
+      if (wsChanged) {
+        for (const tab of tabs) {
+          clearTimeout(tab.flushTimer)
+          if (!(await flush(tab))) throw new Error('Save the open documents before changing the project folder.')
+        }
+      }
       await api.saveStudioConfig(
         chatId, cfg.name.trim(), cfg.cli, cfg.model.trim(), normalizeToolsForCli(cfg.cli, cfg.tools),
         cfg.localEndpoint.trim(), cfg.localModel.trim(), cfg.mcps || [], newWs
       )
-      const wsChanged = newWs && newWs !== folder
       cfg = null
+      if (wsChanged) {
+        ++workspaceRevision
+        folder = newWs
+        tabs = []; active = ''; files = []; expandedDirs = new Set(); initExpanded = true; watchError = ''
+      }
       await loadChat()
       if (wsChanged) {
-        folder = newWs
+        folder = chat?.WorkspacePath || newWs
+        document.title = `PrAImate — Documents — ${folder.split(/[\\/]/).filter(Boolean).pop() || folder}`
         await loadTree()
       }
     } catch (e) {
@@ -244,23 +263,32 @@
     } catch (e) { error = String(e) }
   }
 
-  async function loadTree() {
+  function loadTree() {
+    if (disposed) return Promise.resolve()
+    treeRequested = true
+    if (treeFlight) return treeFlight
     treeLoading = true
-    try {
-      files = (await api.editorListFiles()) || []
-      error = ''
-    } catch (e) {
-      error = String(e)
-    } finally {
-      treeLoading = false
-    }
+    treeFlight = (async () => {
+      await Promise.resolve()
+      while (treeRequested && !disposed) {
+        treeRequested = false
+        const revision = workspaceRevision
+        try {
+          const result = (await api.editorListFiles()) || []
+          if (!disposed && revision === workspaceRevision) { files = result; fileSyncError = '' }
+        } catch (e) { if (!disposed && revision === workspaceRevision) fileSyncError = String(e) }
+      }
+    })().finally(() => { treeFlight = null; if (!disposed) treeLoading = false })
+    return treeFlight
   }
 
   async function open(path) {
     const existing = tabs.find((t) => t.path === path)
     if (existing) { active = path; return }
     try {
+      const revision = workspaceRevision
       const content = await api.editorReadFile(path)
+      if (disposed || revision !== workspaceRevision) return
       tabs = [...tabs, { path, content, dirty: false, ref: null, flushTimer: null, externalPending: false }]
       active = path
       error = ''
@@ -300,15 +328,21 @@
   }
 
   async function flush(t) {
-    if (!t.dirty) return
-    try {
-      await api.editorWriteFile(t.path, t.content)
-      t.dirty = false
-      tabs = tabs
-      error = ''
-    } catch (e) {
-      error = String(e)
-    }
+    if (t.flushPromise && !(await t.flushPromise)) return false
+    if (!t.dirty) return true
+    const content = t.content, revision = workspaceRevision
+    t.flushPromise = Promise.resolve().then(async () => {
+      try {
+        await api.editorWriteFile(t.path, content)
+        if (!disposed && revision === workspaceRevision) {
+          if (t.content === content) t.dirty = false
+          tabs = tabs
+          error = ''
+        }
+        return true
+      } catch (e) { if (!disposed) error = String(e); return false }
+    }).finally(() => { t.flushPromise = null })
+    return t.flushPromise
   }
 
   // Inline new-file input (window.prompt is unavailable in WebView2).
@@ -333,23 +367,29 @@
   // External change (the agent wrote a file): merge into the open tab
   // with the minimal-span diff; refresh the tree for creates/renames.
   async function onFsEvent(ev) {
+    if (disposed || (ev.folder && ev.folder !== folder)) return
+    if (ev.error) { watchError = ev.error; return }
+    const revision = workspaceRevision
     await loadTree()
-    const t = tabs.find((x) => x.path === ev.path)
-    if (!t) return
+    if (disposed || revision !== workspaceRevision) return
+    for (const t of tabs.filter(t => !ev.path || t.path === ev.path)) {
     try {
-      const fresh = await api.editorReadFile(ev.path)
+      const fresh = await api.editorReadFile(t.path)
+      if (disposed || revision !== workspaceRevision) return
+      if (fresh === t.content) continue
       if (t.dirty) {
         // The user has unflushed keystrokes — don't clobber them.
         // Surface a banner on the tab instead.
         t.externalPending = true
         t.freshContent = fresh
         tabs = tabs
-        return
+        continue
       }
       t.content = fresh
       t.ref?.setExternal(fresh)
       tabs = tabs
     } catch {}
+    }
   }
 
   function acceptExternal(t) {
@@ -419,6 +459,10 @@
   function closeAsk() {
     activeTab?.ref?.closeAskMenu()
     ask = null
+  }
+
+  function onWindowPointerDown(event) {
+    if (ask && !event.target?.closest?.('.ask-menu')) closeAsk()
   }
 
   function onAskCtx(e) {
@@ -580,7 +624,7 @@
         await api.sendChatStream(chatId, text + focused, [])
       }
       messages = (await api.chatMessages(chatId)) || messages
-      await loadTree()
+      await onFsEvent({ path: '' })
       const refreshed = ((await api.listChats().catch(() => [])) || []).find((item) => item.ID === chatId)
       if (refreshed) {
         chat = refreshed
@@ -706,18 +750,23 @@
   }
 
   let unsubFs = () => {}
+  let unsubResync = () => {}
+  let unsubConnected = () => {}
   onMount(async () => {
     // Studio runs as a brokered child process. Signal readiness before any
     // project scan or chat hydration so the main window does not time out
     // while a large workspace is being indexed.
     window.addEventListener('pointerdown', onWindowPointerDown, true)
-    try { await api.detachedRendererReady() } catch {}
     unsubStream = onChatStream(handleStreamEvent)
     unsubApproval = onApproval(handleApproval)
     if (typeof window !== 'undefined' && window.runtime?.EventsOn) {
-      window.runtime.EventsOn('praimate:editor-fs', onFsEvent)
-      unsubFs = () => window.runtime.EventsOff('praimate:editor-fs')
+      unsubFs = window.runtime.EventsOn('praimate:editor-fs', onFsEvent)
+      const resync = () => { loadTree(); loadChat() }
+      unsubResync = window.runtime.EventsOn('praimate:detached-resync', resync)
+      unsubConnected = window.runtime.EventsOn('praimate:detached-connected', resync)
     }
+    try { await api.detachedRendererReady() } catch {}
+    if (disposed) return
     // Start session hydration immediately instead of putting it behind the
     // potentially expensive workspace scan.
     const chatReady = loadChat()
@@ -735,10 +784,18 @@
     if (first) await open(first)
   })
   onDestroy(() => {
+    disposed = true
+    ++workspaceRevision
+    for (const tab of tabs) {
+      clearTimeout(tab.flushTimer)
+      if (tab.dirty) flush(tab)
+    }
     window.removeEventListener('pointerdown', onWindowPointerDown, true)
     unsubStream()
     unsubApproval()
     unsubFs()
+    unsubResync()
+    unsubConnected()
   })
 
   $: activeTab = tabs.find((t) => t.path === active)
@@ -831,7 +888,9 @@
         </div>
       {/if}
     {/each}
-    {#if files.length === 0}<div class="card-sub" style="padding:8px">No editable files yet — create one.</div>{/if}
+    {#if fileSyncError || watchError}<div class="banner" role="alert">{fileSyncError || watchError}</div>{/if}
+    {#if treeLoading && !files.length}<div class="card-sub" role="status" style="padding:8px">Loading files…</div>
+    {:else if files.length === 0 && !fileSyncError}<div class="card-sub" style="padding:8px">No editable files yet — create one.</div>{/if}
   </aside>
   {/if}
 
@@ -1105,7 +1164,7 @@
 
       <div class="row" style="margin-top:16px; justify-content:flex-end; gap:8px">
         <button class="btn" on:click={() => (cfg = null)} disabled={cfgSaving}>Cancel</button>
-        <button class="btn primary" on:click={saveConfig} disabled={cfgSaving}>{cfgSaving ? 'Saving…' : 'Save settings'}</button>
+        <button class="btn primary" on:click={saveConfig} disabled={cfgSaving || sending}>{cfgSaving ? 'Saving…' : sending ? 'Wait for the current turn' : 'Save settings'}</button>
       </div>
     </div>
   </div>
@@ -1284,8 +1343,12 @@
     background: var(--bg-panel);
     padding: 8px;
     min-height: 0;
+    min-width: 0;
   }
-  .chat-head { display: flex; gap: 6px; align-items: center; padding-bottom: 8px; font-size: 13px; }
+  .chat-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-bottom: 8px; font-size: 13px; min-width: 0; }
+  .chat-head .grow { min-width: 0; overflow-wrap: anywhere; }
+  .chat-head .pill { max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+  .chat-head .btn { flex: none; }
   .thread { flex: 1; overflow-y: auto; min-height: 0; }
   .composer { display: flex; gap: 6px; align-items: flex-end; padding-top: 8px; }
   .composer textarea { resize: none; }

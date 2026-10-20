@@ -119,8 +119,28 @@ func (w WorktreeManager) Repository(ctx context.Context) (base, branch string, e
 	if status != "" {
 		return "", "", errors.New("commit or stash workspace changes before using parallel workers")
 	}
-	base, err = gitCommand(ctx, w.Workspace, "rev-parse", "HEAD")
-	return
+	base, err = gitCommand(ctx, w.Workspace, "rev-parse", "--verify", "HEAD")
+	if err == nil {
+		return
+	}
+	// A clean unborn branch has no base for isolated worktrees. Create an
+	// empty baseline without touching the index or staging the user's files.
+	_, missing := gitCommand(ctx, w.Workspace, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	var exit *exec.ExitError
+	if !errors.As(missing, &exit) || exit.ExitCode() != 1 {
+		return "", "", err
+	}
+	tree, err := gitCommand(ctx, w.Workspace, "hash-object", "-w", "-t", "tree", "--stdin")
+	if err != nil {
+		return "", "", err
+	}
+	base, err = gitCommand(ctx, w.Workspace, "commit-tree", tree, "-m", "Initialize empty repository for PrAImate workers")
+	if err != nil {
+		return "", "", err
+	}
+	// Compare-and-swap refuses to replace a branch created concurrently.
+	_, err = gitCommand(ctx, w.Workspace, "update-ref", "refs/heads/"+branch, base, strings.Repeat("0", len(base)))
+	return base, branch, err
 }
 
 func (w WorktreeManager) Create(ctx context.Context, taskID, base string) (*Worktree, error) {

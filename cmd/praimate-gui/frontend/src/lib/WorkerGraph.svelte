@@ -36,12 +36,13 @@
   function routeLabel(task, recorded = false) { const route = workerTaskRoute(task, snapshot, recorded); return `${route.runtime === 'native' ? 'Local' : route.cli} / ${route.model || 'Backend default'}` }
   function profileChanged(task) { task.worker = { profile: task.worker.profile }; tasks = tasks; dispatch('models', cliFor(task)) }
   async function action(callback) {
+    if (busy) return
     busy = true; error = ''
     try { await callback(); dispatch('refresh') }
     catch (e) { error = String(e) }
     finally { busy = false }
   }
-  async function execute() {
+  export async function execute() {
     await action(async () => {
       if (editable) await api.saveWorkerDAG(snapshot.id, tasks, parallel)
       await api.executeWorkerDAG(snapshot.id)

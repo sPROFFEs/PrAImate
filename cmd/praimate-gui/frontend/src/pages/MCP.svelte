@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { api } from '../lib/api.js'
   import { showConfirm } from '../lib/stores.js'
-  import { commandForMCPForm, envForMCPForm } from '../lib/mcpForm.js'
+  import { commandForMCPForm, envForMCPForm, headersForMCPForm } from '../lib/mcpForm.js'
 
   let catalogue = []
   let servers = []
@@ -16,6 +16,7 @@
   let cCommand = ''
   let cURL = ''
   let cEnv = ''
+  let cHeaders = ''
   let editingID = ''
 
   // import JSON dialog
@@ -36,6 +37,7 @@
     cCommand = ''
     cURL = ''
     cEnv = ''
+    cHeaders = ''
   }
 
   function openAdd() {
@@ -54,6 +56,7 @@
     cCommand = commandForMCPForm(s)
     cURL = s.url || ''
     cEnv = envForMCPForm(s)
+    cHeaders = headersForMCPForm(s)
     showCustom = true
     error = ''
   }
@@ -65,6 +68,7 @@
     cCommand = commandForMCPForm(entry)
     cURL = entry.url || ''
     cEnv = entry.auth?.env_var ? `${entry.auth.env_var}=` : ''
+    cHeaders = ''
     showCustom = true
     error = ''
   }
@@ -75,9 +79,9 @@
     const url = cTransport === 'stdio' ? '' : cURL.trim()
     try {
       if (editingID) {
-        await api.updateMCPServer(editingID, cName.trim(), cTransport, command, url, cEnv)
+        await api.updateMCPServer(editingID, cName.trim(), cTransport, command, url, cEnv, cHeaders)
       } else {
-        await api.addCustomMCP(cName.trim(), cTransport, command, url, cEnv)
+        await api.addCustomMCP(cName.trim(), cTransport, command, url, cEnv, cHeaders)
       }
       resetForm()
       await load()
@@ -204,6 +208,9 @@
     {:else}
       <label class="lbl" for="mcp-url" style="margin-top:8px">URL</label>
       <input id="mcp-url" class="field mono" bind:value={cURL} placeholder="http://127.0.0.1:9000/mcp" />
+      <label class="lbl" for="mcp-headers" style="margin-top:8px">HTTP headers</label>
+      <textarea id="mcp-headers" class="field mono" rows="3" bind:value={cHeaders} placeholder="Authorization: Bearer YOUR_TOKEN&#10;X-API-Key: YOUR_KEY" spellcheck="false"></textarea>
+      <p class="card-sub">One Header: value per line. Headers are used by connection tests and supported CLIs, and stored in the encrypted local database.</p>
     {/if}
     <label class="lbl" for="mcp-environment" style="margin-top:8px">Environment variables (KEY=VALUE per line)</label>
     <textarea id="mcp-environment" class="field mono" rows="3" bind:value={cEnv} placeholder="GITHUB_TOKEN=...&#10;API_KEY=..."></textarea>

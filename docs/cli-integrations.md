@@ -216,10 +216,14 @@ and `copilot help monitoring` for the installed version's telemetry options.
   restrictions. Consequently Antigravity is unavailable for managed Workers.
 - Selected MCP servers, including the internal Skills MCP, are attached through
   a private agent/plugin generated for each launch. This integration is validated
-  with Antigravity CLI 1.3.3. It is shared by Desktop and Studio chats and native
+  with Antigravity CLI 1.4.0. Since 1.4 selects discovered agents by name,
+  PrAImate creates a uniquely named private agent under
+  `~/.gemini/config/agents/` (or `ANTIGRAVITY_GEMINI_DIR/config/agents/`).
+  It is shared by Desktop and Studio chats and native
   terminals, and is regenerated when resuming a conversation. The files are
   removed after the process exits; project files and the user's global MCP
-  configuration are preserved. Native CLI permissions still apply to MCP calls.
+  configuration are preserved. Only the generated launch agent and plugin are
+  removed. Native CLI permissions still apply to MCP calls.
 - Headless token metrics count completed step reports. The cumulative session
   total is ignored so resuming does not count earlier turns again. Interactive
   terminal usage has no verified exporter and is shown as unavailable.

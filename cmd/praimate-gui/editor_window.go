@@ -49,6 +49,8 @@ type EditorModeInfo struct {
 
 func (a *App) EditorMode() EditorModeInfo {
 	if a.detachedClient != nil && a.detachedClient.mode.kind == "studio" {
+		a.detachedClient.mu.Lock()
+		defer a.detachedClient.mu.Unlock()
 		return EditorModeInfo{Active: true, Folder: a.detachedClient.mode.folder, ChatID: a.detachedClient.mode.sessionID}
 	}
 	return EditorModeInfo{Active: editorFolder != "", Folder: editorFolder, ChatID: editorChatID}

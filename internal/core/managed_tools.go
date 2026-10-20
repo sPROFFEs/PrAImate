@@ -671,6 +671,24 @@ func (b *managedToolBroker) execInDirectory(parent context.Context, cwd string, 
 		return "", err
 	}
 	cmd := exec.CommandContext(ctx, path, args...)
+	if strings.TrimSuffix(strings.ToLower(filepath.Base(path)), ".exe") == "git" {
+		// Only carry the public Git identity across the restricted command
+		// environment. Do not expose the user's credentials or config files.
+		identity := []string{}
+		for _, field := range []struct{ key, fallback string }{{"user.name", "PrAImate Workers"}, {"user.email", "workers@praimate.local"}} {
+			lookup := exec.CommandContext(ctx, path, "config", "--get", field.key)
+			lookup.Dir = cwd
+			hideConsole(lookup)
+			value, lookupErr := lookup.Output()
+			text := strings.TrimSpace(string(value))
+			if lookupErr != nil || text == "" {
+				text = field.fallback
+			}
+			identity = append(identity, "-c", field.key+"="+text)
+		}
+		// Later -c flags supplied by the caller can still override defaults.
+		cmd.Args = append([]string{path}, append(identity, args...)...)
+	}
 	hideConsole(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = cwd

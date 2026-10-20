@@ -30,12 +30,16 @@ independent persistent terminal daemon in this implementation.
 ## Parallel task graphs
 
 Select **Parallel task graph** (Desktop) or **Task board** (VS Code) when creating a worker chat. This is the default mode for new runs. The workspace must
-be a clean Git repository root on a checked-out branch with an initial commit.
+be a clean Git repository root on a checked-out branch. For an empty repository,
+PrAImate creates an empty initial commit without staging any files. Repositories
+with uncommitted files still require the user to commit or stash those files.
 The Reasoner returns a draft DAG; it does not modify the project while planning.
 Review task descriptions, dependencies, profile, CLI/local endpoint and model
 before pressing **Run task graph**. Routes reuse the existing backend/model
 registry. A task override takes precedence over its selected profile; provider
 routing follows that backend's existing model ID or configured local endpoint.
+**Review plan** opens the plan without starting it; **Run task graph** saves the
+current plan and starts execution directly.
 
 The host schedules independent tasks concurrently (default 2, maximum 4 per
 run). Every task receives a separate Git worktree and scoped context. Its
@@ -46,6 +50,9 @@ Workers use the existing JSON tool protocol and profile permissions; delegation
 inside a DAG task is disabled. The host creates a single task commit and its
 diff, including any model-created commits, rather than trusting a worker's
 claimed changes. A no-change task has a saved result without a new commit.
+Git commands delegated through managed tools inherit the configured public Git
+author name and email, with a PrAImate Workers fallback when none is configured.
+This does not forward the user's global configuration or credentials.
 
 Task cards preserve profile, CLI, provider/model route, branch, worktree path,
 base/result commits, changed files, result and Git diff. Diff previews are capped

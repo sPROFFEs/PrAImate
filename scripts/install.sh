@@ -675,7 +675,9 @@ create_shortcuts() {
       # Core startup imports managed and common CLI paths, including nvm.
       # Never source interactive shell files here: they may block, exit, or
       # contain syntax for a different shell than this launcher.
-      cat > "$DEST/praimate-launch" <<'WRAP'
+      local launcher_tmp
+      launcher_tmp="$(mktemp)" || return 1
+      cat > "$launcher_tmp" <<'WRAP'
 #!/usr/bin/env bash
 set -eu
 praimate_bin="${0##*/}"
@@ -683,9 +685,16 @@ praimate_bin="${praimate_bin%-launch}"
 praimate_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 exec "$praimate_dir/$praimate_bin" "$@"
 WRAP
-      chmod 755 "$DEST/praimate-launch"
-
-      ln -sf praimate-launch "$DEST/praimate-gui-launch"
+      if ! ${SUDO:-} install -m 755 "$launcher_tmp" "$DEST/praimate-launch"; then
+        rm -f "$launcher_tmp"
+        c_red "Failed to install the launcher in $DEST"
+        return 1
+      fi
+      rm -f "$launcher_tmp"
+      if ! ${SUDO:-} ln -sf praimate-launch "$DEST/praimate-gui-launch"; then
+        c_red "Failed to create the GUI launcher in $DEST"
+        return 1
+      fi
       local exec_path home_path
       exec_path="$(desktop_exec_path "$DEST/praimate-gui-launch")"
       home_path="$(desktop_string "$HOME")"
@@ -786,7 +795,7 @@ ICON_SRC=""
 [[ -n "${extracted:-}" && -f "${extracted:-}/praimate.png" ]] && ICON_SRC="$extracted/praimate.png"
 [[ -z "$ICON_SRC" && -n "${LOCAL_BINS:-}" && -f "${LOCAL_BINS:-}/praimate.png" ]] && ICON_SRC="$LOCAL_BINS/praimate.png"
 [[ -z "$ICON_SRC" && -n "${SOURCE_DIR:-}" && -f "${SOURCE_DIR:-}/cmd/praimate-gui/frontend/src/assets/monke-icon.png" ]] && ICON_SRC="$SOURCE_DIR/cmd/praimate-gui/frontend/src/assets/monke-icon.png"
-create_shortcuts "$ICON_SRC" || true
+create_shortcuts "$ICON_SRC"
 
 step "Done"
 printf 'Try it:    %s -version\n' "$DEST/praimate"

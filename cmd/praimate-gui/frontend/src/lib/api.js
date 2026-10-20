@@ -275,10 +275,10 @@ export const api = {
 
   mcpCatalogue: () => call('MCPCatalogue'),
   mcpServers: () => call('MCPServers'),
-  addCustomMCP: (name, transport, command, url, envText) =>
-    call('AddCustomMCP', name, transport, command, url, envText),
-  updateMCPServer: (id, name, transport, command, url, envText) =>
-    call('UpdateMCPServer', id, name, transport, command, url, envText),
+  addCustomMCP: (name, transport, command, url, envText, headersText) =>
+    headersText === undefined ? call('AddCustomMCP', name, transport, command, url, envText) : call('AddCustomMCPWithHeaders', name, transport, command, url, envText, headersText),
+  updateMCPServer: (id, name, transport, command, url, envText, headersText) =>
+    headersText === undefined ? call('UpdateMCPServer', id, name, transport, command, url, envText) : call('UpdateMCPServerWithHeaders', id, name, transport, command, url, envText, headersText),
   setMCPEnabled: (id, on) => call('SetMCPEnabled', id, on),
   deleteMCPServer: (id) => call('DeleteMCPServer', id),
 

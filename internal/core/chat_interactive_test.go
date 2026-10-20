@@ -175,6 +175,9 @@ func TestContinueChat_PrAImateCodeInjectsEncryptedLocalLLMKey(t *testing.T) {
 
 func TestContinueChat_OpenClaudeResolvesLocalKeyFromEncryptedSetting(t *testing.T) {
 	withTempConfigDir(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	mock := &mockAdapter{name: "openclaude", replies: []string{"connected"}}
 	withMockAdapter(t, mock)
 

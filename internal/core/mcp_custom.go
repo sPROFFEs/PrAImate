@@ -8,6 +8,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,8 @@ type AddCustomMCPRequest struct {
 	Args      []string
 	URL       string            // http/sse endpoint
 	Env       map[string]string // KEY=VALUE pairs (e.g. API tokens)
+	Auth      map[string]string // Legacy/OAuth metadata; preserved on edit.
+	Headers   map[string]string // nil preserves headers; an empty map clears them.
 	Enabled   *bool             // optional; defaults to enabled for new servers
 }
 
@@ -68,6 +71,23 @@ func (c *Core) AddCustomMCP(ctx context.Context, req AddCustomMCPRequest) (*MCPS
 		args = expandMCPProcessArgs(args)
 	}
 
+	auth := req.Auth
+	if req.Headers != nil {
+		if err := validateMCPHeaders(req.Headers); err != nil {
+			return nil, err
+		}
+		auth = map[string]string{}
+		for key, value := range req.Auth {
+			auth[key] = value
+		}
+		delete(auth, "header")
+		delete(auth, "token")
+		delete(auth, "headers")
+		if len(req.Headers) > 0 {
+			body, _ := json.Marshal(req.Headers)
+			auth["headers"] = string(body)
+		}
+	}
 	return c.ConnectMCP(ctx, ConnectMCPRequest{
 		ID:        id,
 		Name:      name,
@@ -76,6 +96,7 @@ func (c *Core) AddCustomMCP(ctx context.Context, req AddCustomMCPRequest) (*MCPS
 		Args:      args,
 		URL:       strings.TrimSpace(req.URL),
 		Env:       req.Env,
+		Auth:      auth,
 		Enabled:   req.Enabled,
 	})
 }
@@ -90,6 +111,9 @@ func (c *Core) UpdateMCPServer(ctx context.Context, id string, req AddCustomMCPR
 	}
 	req.ID = current.ID
 	req.Enabled = &current.Enabled
+	if req.Auth == nil {
+		req.Auth = current.Auth
+	}
 	return c.AddCustomMCP(ctx, req)
 }
 

@@ -93,6 +93,27 @@ func (a *App) UpdateChatWorkspace(chatID, workspacePath string) error {
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(workspacePath) != "" {
+		workspacePath, err = core.ValidateWorkspaceDirectory(workspacePath)
+		if err != nil {
+			return err
+		}
+	} else if chat, getErr := c.GetChat(a.ctx, chatID); getErr == nil && chat.Settings.Surface == "studio" {
+		return errors.New("choose an existing document folder")
+	}
+	if a.detached != nil {
+		a.detached.mu.Lock()
+		open := false
+		for _, w := range a.detached.windows {
+			if w.kind == "studio" && w.sessionID == chatID && w.folder != workspacePath {
+				open = true
+			}
+		}
+		a.detached.mu.Unlock()
+		if open {
+			return fmt.Errorf("change this folder in the open Document window, or close that window before editing it here")
+		}
+	}
 	return c.UpdateChatWorkspace(a.ctx, chatID, workspacePath)
 }
 

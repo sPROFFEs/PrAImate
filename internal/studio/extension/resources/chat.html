@@ -427,7 +427,7 @@ function renderWorkerRuns() {
   if(['running','planning','merging'].includes(workerSnapshot.status)) bar.appendChild(button('Stop',() => post('workerCancel',{id:workerSelected})));result.appendChild(bar);
   if(workerSnapshot.dag && workerSnapshot.dag.tasks?.length) {
     if(workerSnapshot.status==='draft')result.appendChild(element('p','Tasks have not started. Review the assignments below, then select Run task graph to start the workers.','hint'));
-    const plan=element('details','','worker-plan');plan.open=workerSnapshot.status==='draft' || graphDetailsOpen.has(workerSelected+':plan');plan.appendChild(element('summary',workerSnapshot.status==='draft'?'Review and run plan':'Plan, routes and integration'));plan.addEventListener('toggle',()=>{if(plan.open)graphDetailsOpen.add(workerSelected+':plan');else graphDetailsOpen.delete(workerSelected+':plan');});renderWorkerGraph(plan);result.appendChild(plan);
+    const plan=element('details','','worker-plan');plan.open=workerSnapshot.status==='draft' || graphDetailsOpen.has(workerSelected+':plan');plan.appendChild(element('summary',workerSnapshot.status==='draft'?'Review plan':'Plan, routes and integration'));plan.addEventListener('toggle',()=>{if(plan.open)graphDetailsOpen.add(workerSelected+':plan');else graphDetailsOpen.delete(workerSelected+':plan');});renderWorkerGraph(plan);result.appendChild(plan);
   }
   if(workerSnapshot.activityVersion)result.appendChild(element('p',workerSnapshot.usage?.calls?((workerSnapshot.usage.input || 0)+(workerSnapshot.usage.output || 0)).toLocaleString()+' reported tokens · '+workerSnapshot.usage.calls+' model call(s)':'Token usage not reported yet','hint'));
   if(workerSnapshot.dag && !workerSnapshot.dag.tasks?.length) {

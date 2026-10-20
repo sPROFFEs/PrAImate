@@ -26,6 +26,14 @@
   let error = ''
   let settings = null
   let showGraph = false
+  let graph
+  async function runPlan() {
+    if (busy || active) return
+    const runID = snapshot.id
+    showGraph = true
+    await tick()
+    if (snapshot.id === runID && snapshot.status === 'draft') await graph?.execute()
+  }
   let revealedPlan = ''
   let draft = ''
   let lastRun = ''
@@ -124,7 +132,7 @@
     {#if snapshot.dag && !tasks.length && !active}<div class="buttons"><button disabled={busy} on:click={() => action(() => api.retryWorkerPlanning(snapshot.id))}>Retry planning</button>{#if snapshot.profiles?.some(p => p.tier === 'primary' && p.timeoutSeconds > 0) && /deadline|timeout/i.test(snapshot.error)}<button disabled={busy} on:click={retryWithoutTimeout}>Retry without call timeout</button>{/if}</div>{/if}
   </section>{/if}
   {#if error}<p class="failure" role="alert">{error}</p>{/if}
-  {#if snapshot.status === 'draft'}<div class="plan-ready" role="status"><div><strong>Plan ready · {tasks.length} assignment{tasks.length === 1 ? '' : 's'}</strong><span>Tasks have not started. Review the plan below, then select Run task graph to start the workers.</span></div><button class="primary" on:click={() => showGraph = true}>Review and run plan</button></div>{/if}
+  {#if snapshot.status === 'draft'}<div class="plan-ready" role="status"><div><strong>Plan ready · {tasks.length} assignment{tasks.length === 1 ? '' : 's'}</strong><span>Review the assignments below, then run the task graph to start the workers.</span></div><div class="buttons"><button on:click={() => showGraph = true}>Review plan</button><button class="primary" disabled={busy || !tasks.length} on:click={runPlan}>Run task graph</button></div></div>{/if}
   <WorkerBoard items={board} selected={selectedTask || (current ? 'tier:' + current.tier : selected)} on:select={event => chooseCard(event.detail)} />
   <div class="console">
     <header class="console-head">
@@ -157,7 +165,7 @@
       <div class="detail-pane"><h3>Assignment</h3><pre>{currentTask?.description || current?.assignment || snapshot.task}</pre>{#if currentTask?.dependencies?.length}<p>Depends on: {currentTask.dependencies.join(', ')}</p>{/if}<code>{current?.workspace || currentTask?.worktree?.path || snapshot.workspace}</code>{#if current?.sessionID}<p class="muted">CLI session: {current.sessionID}</p>{/if}{#if current?.parentID}<p class="muted">Delegated by {workerLabel(executions.find(e => e.id === current.parentID)?.tier)}. Results return to that assignment.</p>{/if}</div>
     {/if}
   </div>
-  {#if snapshot.dag && tasks.length}<button class="graph-toggle" aria-expanded={showGraph} on:click={() => showGraph = !showGraph}>{showGraph ? 'Hide plan & integration' : 'Plan, routes & integration'}</button>{#if showGraph}<WorkerGraph {snapshot} {clis} {models} on:models on:refresh />{/if}{/if}
+  {#if snapshot.dag && tasks.length}<button class="graph-toggle" aria-expanded={showGraph} on:click={() => showGraph = !showGraph}>{showGraph ? 'Hide plan & integration' : 'Plan, routes & integration'}</button>{#if showGraph}<WorkerGraph bind:this={graph} {snapshot} {clis} {models} on:models on:refresh />{/if}{/if}
   {#if snapshot.result}<details class="result"><summary>Run summary</summary><pre>{snapshot.result}</pre></details>{/if}
   {#if !snapshot.dag}<div class="composer" data-voice-composer><VoiceButton disabled={active || busy} context={{page:'workers',worker_id:snapshot.id}} on:transcript={event => { draft = [draft,event.detail.text].filter(Boolean).join(' '); if (event.detail.autoSend) continueRun() }} /><textarea rows="2" bind:value={draft} disabled={active || busy} aria-label="Follow-up worker task" placeholder="Continue with a new instruction…"></textarea><button class="primary" disabled={active || busy || !draft.trim()} on:click={continueRun}>Continue</button></div>{/if}
 </section>

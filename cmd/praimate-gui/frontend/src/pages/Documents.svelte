@@ -61,12 +61,13 @@
     if (!cfg) return
     cfgSaving = true; error = ''
     try {
+      if (!cfg.workspacePath?.trim()) throw new Error('Choose an existing document folder.')
+      if (cfg.workspacePath.trim() !== (cfg.chat.WorkspacePath || '')) {
+        await api.updateChatWorkspace(cfg.chat.ID, cfg.workspacePath.trim())
+      }
       await api.updateChatConfig(cfg.chat.ID, cfg.cli, cfg.model.trim(), normalizeToolsForCli(cfg.cli, cfg.tools), cfg.localEndpoint.trim(), cfg.localApiKey, cfg.localModel.trim())
       if (cfg.name.trim() && cfg.name.trim() !== cfg.chat.Title) {
         await api.renameChat(cfg.chat.ID, cfg.name.trim())
-      }
-      if (cfg.workspacePath !== undefined && cfg.workspacePath.trim() !== (cfg.chat.WorkspacePath || '')) {
-        await api.updateChatWorkspace(cfg.chat.ID, cfg.workspacePath.trim())
       }
       await api.setChatMCPServers(cfg.chat.ID, cfg.mcps || [])
       cfg = null

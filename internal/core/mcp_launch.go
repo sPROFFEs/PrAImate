@@ -383,30 +383,30 @@ func envRefs(s MCPServer, launchEnv map[string]string, pattern string) map[strin
 }
 
 func headerRefs(s MCPServer, launchEnv map[string]string, bearerPattern, rawPattern string) map[string]string {
-	header, token, ok := headerAndToken(s)
-	if !ok {
-		return nil
+	var out map[string]string
+	if header, token, ok := headerAndToken(s); ok {
+		envName := mcpSecretEnvName(s.ID, header)
+		launchEnv[envName] = token
+		pattern := rawPattern
+		if strings.EqualFold(header, "Authorization") && !strings.HasPrefix(strings.ToLower(token), "bearer ") {
+			pattern = bearerPattern
+		}
+		out = map[string]string{header: fmt.Sprintf(pattern, envName)}
 	}
-	envName := mcpSecretEnvName(s.ID, header)
-	launchEnv[envName] = token
-	if strings.EqualFold(header, "Authorization") && !strings.HasPrefix(strings.ToLower(token), "bearer ") {
-		return map[string]string{header: fmt.Sprintf(bearerPattern, envName)}
-	}
-	return map[string]string{header: fmt.Sprintf(rawPattern, envName)}
+	return explicitHeaderRefs(s, launchEnv, out, rawPattern)
 }
 
 func codexHeaderEnvRefs(s MCPServer, launchEnv map[string]string) map[string]string {
-	header, token, ok := headerAndToken(s)
-	if !ok {
-		return nil
-	}
-	envName := mcpSecretEnvName(s.ID, header)
-	if strings.EqualFold(header, "Authorization") && !strings.HasPrefix(strings.ToLower(token), "bearer ") {
-		launchEnv[envName] = "Bearer " + token
-	} else {
+	var out map[string]string
+	if header, token, ok := headerAndToken(s); ok {
+		envName := mcpSecretEnvName(s.ID, header)
+		if strings.EqualFold(header, "Authorization") && !strings.HasPrefix(strings.ToLower(token), "bearer ") {
+			token = "Bearer " + token
+		}
 		launchEnv[envName] = token
+		out = map[string]string{header: envName}
 	}
-	return map[string]string{header: envName}
+	return explicitHeaderRefs(s, launchEnv, out, "%s")
 }
 
 func headerAndToken(s MCPServer) (string, string, bool) {

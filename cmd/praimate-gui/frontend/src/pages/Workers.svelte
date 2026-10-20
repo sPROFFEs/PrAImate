@@ -193,7 +193,7 @@
         <header class="dialog-heading"><h2>New worker chat</h2><button aria-label="Close" on:click={() => showCreate = false}>×</button></header>
         <p>Choose a workspace and configure the three workers for this chat. These profiles remain attached to its saved history.</p>
         <label>Execution mode <select bind:value={executionMode}><option value="hierarchical">Hierarchical worker chat</option><option value="parallel">Parallel task graph · isolated Git worktrees</option></select></label>
-        {#if executionMode === 'parallel'}<label>Concurrent tasks <input type="number" min="1" max="4" bind:value={maxParallel} /></label><p>The workspace must be a clean Git repository. The reasoner drafts a plan for review before execution; changes reach your branch only after you accept and merge them.</p>{/if}
+        {#if executionMode === 'parallel'}<label>Concurrent tasks <input type="number" min="1" max="4" bind:value={maxParallel} /></label><p>The workspace must be a clean Git repository. A new repository with no commits receives an empty initial commit; no files are staged. The reasoner drafts a plan for review before execution; changes reach your branch only after you accept and merge them.</p>{/if}
         {#if error}<p class="error" role="alert">{error}</p>{/if}
         <div data-voice-composer><VoiceButton context={{page:'workers'}} on:transcript={event => { newTask = [newTask,event.detail.text].filter(Boolean).join(' ') }} />
         <label>Task for the reasoner <textarea bind:value={newTask} rows="3" placeholder="Describe the task to complete…"></textarea></label></div>

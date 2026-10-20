@@ -220,6 +220,12 @@ are separate from that sidebar chat.
 
 **Documents** combines a document editor and assistant chat. These sessions have
 their own page and saved conversation context.
+The file tree loads on opening and follows external and agent file changes.
+Unsaved edits are preserved when an external change arrives. Changing the folder
+in the Document window saves drafts first, switches the editor and assistant
+together, and starts a fresh native CLI session while retaining chat history.
+Choose an existing directory; PrAImate does not create a missing workspace.
+To change the folder from the Documents list, first close its open window.
 
 ## Workers
 
@@ -500,7 +506,8 @@ does not present a catalogue of third-party hosted services.
 Supported transports:
 
 - **stdio**: a local executable, script, package runner, or container command;
-- **HTTP**: an endpoint hosted on infrastructure the user controls.
+- **HTTP**: a Streamable HTTP endpoint hosted on infrastructure the user controls;
+- **SSE**: a legacy server-sent events endpoint.
 
 The add/edit form supports:
 
@@ -508,11 +515,15 @@ The add/edit form supports:
 - transport;
 - quoted stdio command and arguments;
 - HTTP URL;
+- HTTP headers, one `Header: value` per line (including `Authorization` or API keys);
 - environment variables.
 
 Stdio commands expand `~/`, `$VAR`, and `${VAR}` before launch. MCP secrets
 are stored in the encrypted database. Every saved server can be enabled,
 disabled, edited, or removed.
+JSON imports preserve a server's `headers` map. Explicit header values are sent
+literally, so include the required `Bearer` or `Basic` prefix. Connection tests
+use the same authenticated MCP handshake as the runtime and list its tools.
 
 The Local catalogue contains optional utilities PrAImate launches as local
 processes. Catalogue entries can be configured and edited like other local
@@ -738,8 +749,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.18
-scripts/build.sh --version=1.2.18 --with-code --with-graphify
+scripts/build.sh --version=1.2.19
+scripts/build.sh --version=1.2.19 --with-code --with-graphify
 ```
 
 Build only the GUI:

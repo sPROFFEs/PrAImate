@@ -12,7 +12,7 @@ FUNCTIONS = SOURCE[SOURCE.index("# Desktop Entry strings"):SOURCE.index('\nICON_
 
 
 class DesktopShortcuts(unittest.TestCase):
-    def generate(self, root, platform):
+    def generate(self, root, platform, sudo=False, fail_sudo=False):
         dest = root / 'bin space $cash %tools "quote" `tick` \\slash'
         dest.mkdir()
         home = root / "home"
@@ -20,13 +20,42 @@ class DesktopShortcuts(unittest.TestCase):
         (dest / "praimate-gui").write_text('#!/bin/sh\nprintf launched > "$LAUNCH_RECORD"\n')
         (dest / "praimate-gui").chmod(0o755)
         env = {**os.environ, "HOME": str(home), "XDG_DATA_HOME": str(root / "data"),
-               "DEST": str(dest), "LAUNCH_RECORD": str(root / "launched")}
+               "DEST": str(dest), "LAUNCH_RECORD": str(root / "launched"),
+               "SUDO": "sudo" if sudo else "", "SUDO_LOG": str(root / "sudo-log"),
+               "FAIL_SUDO": "1" if fail_sudo else "0"}
         # This tests bundle/desktop generation, not native signing or iconutil.
-        setup = 'c_grn() { :; }; xattr() { :; }; codesign() { :; }; uname() { printf "%s" "$TEST_OS"; };\n'
-        subprocess.run(["bash", "-eu", "-c", setup + FUNCTIONS + '\ncreate_shortcuts "$1"',
-                        "test", str(ROOT / "docs/assets/monke-icon.png")],
-                       env={**env, "TEST_OS": platform}, check=True, capture_output=True)
+        setup = 'c_grn() { :; }; c_red() { printf "%s\\n" "$*" >&2; }; xattr() { :; }; codesign() { :; }; uname() { printf "%s" "$TEST_OS"; };\n'
+        if sudo:
+            dest.chmod(0o555)
+            setup += '''sudo() {
+              printf '%s\\n' "$1" >> "$SUDO_LOG"
+              [ "$FAIL_SUDO" = 0 ] || return 73
+              chmod u+w "$DEST"
+              command "$@"
+              chmod u-w "$DEST"
+            }\n'''
+        try:
+            subprocess.run(["bash", "-eu", "-c", setup + FUNCTIONS + '\ncreate_shortcuts "$1"',
+                            "test", str(ROOT / "docs/assets/monke-icon.png")],
+                           env={**env, "TEST_OS": platform}, check=True, capture_output=True)
+        finally:
+            dest.chmod(0o755)
         return home, dest, env
+
+    def test_linux_system_launchers_use_sudo_but_desktop_files_belong_to_user(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home, dest, _ = self.generate(root, "Linux", sudo=True)
+            self.assertEqual((root / "sudo-log").read_text().splitlines(), ["install", "ln"])
+            self.assertEqual((dest / "praimate-launch").stat().st_mode & 0o777, 0o755)
+            self.assertEqual((dest / "praimate-gui-launch").resolve(), dest / "praimate-launch")
+            self.assertTrue((home / "Desktop/praimate.desktop").is_file())
+            self.assertTrue((root / "data/icons/praimate.png").is_file())
+
+    def test_linux_required_launcher_failure_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.generate(Path(tmp), "Linux", sudo=True, fail_sudo=True)
 
     def test_linux_exec_quoting_and_icon(self):
         try:

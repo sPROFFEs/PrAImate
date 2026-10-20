@@ -711,11 +711,8 @@ func applyMCPHeaders(req *http.Request, server MCPServer, sessionID string) {
 	if sessionID != "" {
 		req.Header.Set("Mcp-Session-Id", sessionID)
 	}
-	if header, token, ok := headerAndToken(server); ok {
-		if strings.EqualFold(header, "Authorization") && !strings.HasPrefix(strings.ToLower(token), "bearer ") {
-			token = "Bearer " + token
-		}
-		req.Header.Set(header, token)
+	for header, value := range MCPHTTPHeaders(server) {
+		req.Header.Set(header, value)
 	}
 }
 
