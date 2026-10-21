@@ -22,7 +22,12 @@ type HTTPProvider struct {
 }
 
 func (p *HTTPProvider) Start(context.Context) error { return nil }
-func (p *HTTPProvider) Stop(context.Context) error  { return nil }
+func (p *HTTPProvider) Stop(context.Context) error {
+	if p.Client != nil {
+		p.Client.CloseIdleConnections()
+	}
+	return nil
+}
 func (p *HTTPProvider) base() (string, error) {
 	u, err := url.Parse(p.Endpoint)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {

@@ -24,6 +24,12 @@ import (
 
 const managedMCPProtocolVersion = "2025-03-26"
 
+// Wire frames (especially tools/list) can be much larger than a model-facing
+// tool result. Bound protocol memory independently; never truncate JSON frames.
+const managedMCPMessageLimit = 16 << 20
+
+var errMCPMessageTooLarge = errors.New("MCP message exceeds 16 MiB limit")
+
 type managedMCPTool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
@@ -321,16 +327,18 @@ func (c *protocolMCPClient) CallTool(ctx context.Context, name string, arguments
 func (c *protocolMCPClient) Close() error { return c.rpc.Close() }
 
 type stdioMCPRPC struct {
-	mu     sync.Mutex
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	nextID int64
+	mu        sync.Mutex
+	closeOnce sync.Once
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdout    *bufio.Reader
+	nextID    int64
 }
 
 func newStdioMCPRPC(root string, server MCPServer) (*stdioMCPRPC, error) {
 	command, args := resolvedStdioMCPCommand(server)
 	cmd := exec.Command(command, args...)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = root
 	cmd.Env = append(managedMCPEnv(), stringMapEnv(server.Env)...)
 	stdin, err := cmd.StdinPipe()
@@ -346,12 +354,15 @@ func newStdioMCPRPC(root string, server MCPServer) (*stdioMCPRPC, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	return &stdioMCPRPC{cmd: cmd, stdin: stdin, stdout: bufio.NewReaderSize(stdout, managedOutputLimit), nextID: 1}, nil
+	return &stdioMCPRPC{cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout), nextID: 1}, nil
 }
 
 func (r *stdioMCPRPC) Request(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	id := r.nextID
 	r.nextID++
 	if err := writeMCPLine(r.stdin, mcpRequest{JSONRPC: "2.0", ID: id, Method: method, Params: params}); err != nil {
@@ -360,6 +371,9 @@ func (r *stdioMCPRPC) Request(ctx context.Context, method string, params any) (j
 	for skipped := 0; skipped < 100; skipped++ {
 		line, err := readMCPLine(ctx, r.stdout)
 		if err != nil {
+			// A cancelled or oversized frame cannot safely share this reader
+			// with a later request. Closing the pipe also releases the read goroutine.
+			_ = r.Close()
 			return nil, err
 		}
 		var response mcpResponse
@@ -382,11 +396,13 @@ func (r *stdioMCPRPC) Notify(_ context.Context, method string, params any) error
 }
 
 func (r *stdioMCPRPC) Close() error {
-	_ = r.stdin.Close()
-	if r.cmd.Process != nil {
-		_ = r.cmd.Process.Kill()
-	}
-	_ = r.cmd.Wait()
+	r.closeOnce.Do(func() {
+		_ = r.stdin.Close()
+		if r.cmd.Process != nil {
+			_ = r.cmd.Process.Kill()
+		}
+		_ = r.cmd.Wait()
+	})
 	return nil
 }
 
@@ -407,8 +423,24 @@ func readMCPLine(ctx context.Context, reader *bufio.Reader) ([]byte, error) {
 	}
 	ch := make(chan result, 1)
 	go func() {
-		line, err := reader.ReadSlice('\n')
-		ch <- result{line: line, err: err}
+		var line []byte
+		for {
+			part, err := reader.ReadSlice('\n')
+			size := len(line) + len(part)
+			if err == nil {
+				size--
+			} // delimiter is not part of the JSON payload
+			if size > managedMCPMessageLimit {
+				ch <- result{err: errMCPMessageTooLarge}
+				return
+			}
+			line = append(line, part...)
+			if errors.Is(err, bufio.ErrBufferFull) {
+				continue
+			}
+			ch <- result{line: line, err: err}
+			return
+		}
 	}()
 	select {
 	case <-ctx.Done():
@@ -503,46 +535,61 @@ func (r *httpMCPRPC) Close() error { return nil }
 func decodeMCPHTTPResponse(response *http.Response) (*mcpResponse, error) {
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/event-stream") {
-		scanner := bufio.NewScanner(io.LimitReader(response.Body, managedOutputLimit*2))
-		scanner.Buffer(make([]byte, 4096), managedOutputLimit)
+		scanner := bufio.NewScanner(io.LimitReader(response.Body, managedMCPMessageLimit*2))
+		scanner.Buffer(make([]byte, 4096), managedMCPMessageLimit+64)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if !strings.HasPrefix(line, "data:") {
 				continue
 			}
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if len(data) > managedMCPMessageLimit {
+				return nil, errMCPMessageTooLarge
+			}
 			var result mcpResponse
-			if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &result); err == nil && len(result.ID) > 0 {
+			if err := json.Unmarshal([]byte(data), &result); err == nil && len(result.ID) > 0 {
 				return &result, nil
 			}
 		}
 		if err := scanner.Err(); err != nil {
+			if errors.Is(err, bufio.ErrTooLong) {
+				return nil, errMCPMessageTooLarge
+			}
 			return nil, err
 		}
 		return nil, errors.New("MCP HTTP stream ended without a response")
 	}
 	var result mcpResponse
-	dec := json.NewDecoder(io.LimitReader(response.Body, managedOutputLimit*2))
-	if err := dec.Decode(&result); err != nil {
+	raw, err := io.ReadAll(io.LimitReader(response.Body, managedMCPMessageLimit+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > managedMCPMessageLimit {
+		return nil, errMCPMessageTooLarge
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
 type sseMCPRPC struct {
-	server   MCPServer
-	client   *http.Client
-	cancel   context.CancelFunc
-	endpoint chan string
-	ready    chan error
-	mu       sync.Mutex
-	nextID   int64
-	pending  map[int64]chan mcpResponse
+	server    MCPServer
+	client    *http.Client
+	cancel    context.CancelFunc
+	endpoint  chan string
+	ready     chan error
+	done      chan struct{}
+	mu        sync.Mutex
+	streamErr error
+	nextID    int64
+	pending   map[int64]chan mcpResponse
 }
 
 func newSSEMCPRPC(ctx context.Context, server MCPServer) (*sseMCPRPC, error) {
 	streamCtx, cancel := context.WithCancel(context.Background())
 	rpc := &sseMCPRPC{
-		server: server, client: &http.Client{}, cancel: cancel, endpoint: make(chan string, 1), ready: make(chan error, 1),
+		server: server, client: &http.Client{}, cancel: cancel, endpoint: make(chan string, 1), ready: make(chan error, 1), done: make(chan struct{}),
 		nextID: 1, pending: map[int64]chan mcpResponse{},
 	}
 	go rpc.readStream(streamCtx)
@@ -563,55 +610,80 @@ func newSSEMCPRPC(ctx context.Context, server MCPServer) (*sseMCPRPC, error) {
 }
 
 func (r *sseMCPRPC) readStream(ctx context.Context) {
+	readySent := false
+	streamErr := errors.New("MCP SSE stream ended before endpoint event")
+	defer func() {
+		if !readySent {
+			r.ready <- streamErr
+		}
+		r.mu.Lock()
+		r.streamErr = streamErr
+		close(r.done)
+		r.mu.Unlock()
+	}()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.server.URL, nil)
 	if err != nil {
-		r.ready <- err
+		streamErr = err
 		return
 	}
 	applyMCPHeaders(req, r.server, "")
 	req.Header.Set("Accept", "text/event-stream")
 	response, err := r.client.Do(req)
 	if err != nil {
-		r.ready <- err
+		streamErr = err
 		return
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		r.ready <- fmt.Errorf("SSE HTTP %s", response.Status)
+		streamErr = fmt.Errorf("SSE HTTP %s", response.Status)
 		return
 	}
 	scanner := bufio.NewScanner(response.Body)
-	scanner.Buffer(make([]byte, 4096), managedOutputLimit)
-	event, data := "", ""
-	readySent := false
+	scanner.Buffer(make([]byte, 4096), managedMCPMessageLimit+64)
+	event := ""
+	var data strings.Builder
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
 		case strings.HasPrefix(line, "event:"):
 			event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 		case strings.HasPrefix(line, "data:"):
-			if data != "" {
-				data += "\n"
+			part := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			size := data.Len() + len(part)
+			if data.Len() > 0 {
+				size++
 			}
-			data += strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if size > managedMCPMessageLimit {
+				streamErr = errMCPMessageTooLarge
+				return
+			}
+			if data.Len() > 0 {
+				data.WriteByte('\n')
+			}
+			data.WriteString(part)
 		case line == "":
-			if event == "endpoint" && data != "" && !readySent {
-				endpoint, resolveErr := resolveMCPEndpoint(r.server.URL, data)
+			if event == "endpoint" && data.Len() > 0 && !readySent {
+				endpoint, resolveErr := resolveMCPEndpoint(r.server.URL, data.String())
 				if resolveErr != nil {
-					r.ready <- resolveErr
+					streamErr = resolveErr
 					return
 				}
 				r.endpoint <- endpoint
 				r.ready <- nil
 				readySent = true
-			} else if event == "message" && data != "" {
-				r.deliverSSE([]byte(data))
+				streamErr = errors.New("MCP SSE stream closed")
+			} else if event == "message" && data.Len() > 0 {
+				r.deliverSSE([]byte(data.String()))
 			}
-			event, data = "", ""
+			event = ""
+			data.Reset()
 		}
 	}
-	if !readySent {
-		r.ready <- errors.New("SSE stream ended before endpoint event")
+	if err := scanner.Err(); err != nil {
+		streamErr = err
+		if errors.Is(err, bufio.ErrTooLong) {
+			streamErr = errMCPMessageTooLarge
+		}
 	}
 }
 
@@ -635,6 +707,11 @@ func (r *sseMCPRPC) deliverSSE(raw []byte) {
 
 func (r *sseMCPRPC) Request(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	r.mu.Lock()
+	if r.streamErr != nil {
+		err := r.streamErr
+		r.mu.Unlock()
+		return nil, err
+	}
 	id := r.nextID
 	r.nextID++
 	ch := make(chan mcpResponse, 1)
@@ -654,6 +731,18 @@ func (r *sseMCPRPC) Request(ctx context.Context, method string, params any) (jso
 		return nil, ctx.Err()
 	case response := <-ch:
 		return mcpResult(response)
+	case <-r.done:
+		r.mu.Lock()
+		delete(r.pending, id)
+		err := r.streamErr
+		r.mu.Unlock()
+		// A final response can arrive immediately before the peer closes.
+		select {
+		case response := <-ch:
+			return mcpResult(response)
+		default:
+			return nil, err
+		}
 	}
 }
 
@@ -662,6 +751,11 @@ func (r *sseMCPRPC) Notify(ctx context.Context, method string, params any) error
 }
 
 func (r *sseMCPRPC) post(ctx context.Context, body mcpRequest) error {
+	select {
+	case <-r.done:
+		return r.streamErr
+	default:
+	}
 	var endpoint string
 	select {
 	case endpoint = <-r.endpoint:

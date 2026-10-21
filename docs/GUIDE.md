@@ -474,8 +474,10 @@ supported child process. It is not returned to the GUI renderer.
 Changing the default host preserves each host's key and existing provider/model
 assignments. Models from different hosts or providers remain separate even when
 their names match. Accept a self-signed HTTPS certificate in Local LLM settings
-to use it with the native runtime or the patched bundled PrAImate Code; the
-exception is scoped to that host and exact certificate. See
+to use it with the native runtime, Assistant's existing-endpoint mode, or the
+patched bundled PrAImate Code. Certificate and CA consent stays scoped to the
+selected HTTPS origin. Assistant picks up trust changes on its next check or
+turn. See
 [CLI integrations](cli-integrations.md#self-signed-local-endpoints-in-praimate-code).
 
 ### Execution preflight
@@ -524,6 +526,10 @@ disabled, edited, or removed.
 JSON imports preserve a server's `headers` map. Explicit header values are sent
 literally, so include the required `Bearer` or `Basic` prefix. Connection tests
 use the same authenticated MCP handshake as the runtime and list its tools.
+The Core MCP client accepts protocol messages up to 16 MiB over stdio, HTTP or
+SSE, so large tool catalogues do not hit the model-facing tool-output limit.
+JSON frames are decoded whole; an oversized frame produces an explicit error.
+Tool result text passed to the model remains bounded separately.
 
 The Local catalogue contains optional utilities PrAImate launches as local
 processes. Catalogue entries can be configured and edited like other local
@@ -749,8 +755,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.19
-scripts/build.sh --version=1.2.19 --with-code --with-graphify
+scripts/build.sh --version=1.2.20
+scripts/build.sh --version=1.2.20 --with-code --with-graphify
 ```
 
 Build only the GUI:

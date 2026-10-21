@@ -48,6 +48,12 @@ local profile. Managed profiles require both their model and matching platform
 runtime. Existing profiles use their configured endpoint and authentication.
 Installing packages does not select a model or enable the assistant.
 
+Existing HTTPS profiles share certificate consent with **Local LLM**. An accepted
+certificate or imported private CA applies to both Assistant connection checks
+and completion requests for that origin. Accepting or revoking trust, changing
+the endpoint, or updating its saved API key refreshes the cached provider on the
+next check or turn. Other origins retain normal certificate verification.
+
 ### Windows runtime prerequisites
 
 The published Windows CPU llama.cpp packages require Microsoft Visual C++ v14

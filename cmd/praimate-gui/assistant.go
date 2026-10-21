@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"github.com/sPROFFEs/PrAImate/internal/artifacts"
 	"github.com/sPROFFEs/PrAImate/internal/assistant"
 	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/hosttls"
 	"github.com/sPROFFEs/PrAImate/internal/studio"
 	"github.com/sPROFFEs/PrAImate/internal/voice"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -162,8 +164,21 @@ func (a *App) ensureAssistant() (*assistant.Service, error) {
 	return a.assistantService, nil
 }
 func (a *App) getAssistantProvider(ctx context.Context, config assistant.Config) (assistant.Provider, error) {
-	fingerprintRaw, _ := json.Marshal([]any{config.ModelID, config.Endpoint, config.Model, config.Context, config.Threads, config.GPULayers, config.Batch, config.KeepLoaded, config.IdleSeconds})
-	fingerprint := string(fingerprintRaw)
+	fields := []any{config.ModelID, config.Endpoint, config.Model, config.Context, config.Threads, config.GPULayers, config.Batch, config.KeepLoaded, config.IdleSeconds}
+	var route *core.ChatLocalEndpoint
+	if config.ModelID == "existing" {
+		var err error
+		route, err = a.core.ResolveNativeWorkerRoute(ctx, config.Endpoint, config.Model)
+		if err != nil {
+			return nil, err
+		}
+		// Reuse a provider only while the effective host, credentials and TLS
+		// consent are unchanged. Accepting or revoking trust must apply on the
+		// next health check/turn without restarting the application.
+		fields = append(fields, route.Endpoint, route.Model, route.APIKey, route.TLSCertificate)
+	}
+	fingerprintRaw, _ := json.Marshal(fields)
+	fingerprint := fmt.Sprintf("%x", sha256.Sum256(fingerprintRaw))
 	a.assistantMu.Lock()
 	defer a.assistantMu.Unlock()
 	if a.assistantProvider != nil && a.assistantFingerprint == fingerprint {
@@ -184,11 +199,11 @@ func (a *App) getAssistantProvider(ctx context.Context, config assistant.Config)
 		}
 	}
 	if config.ModelID == "existing" {
-		route, err := a.core.ResolveNativeWorkerRoute(ctx, config.Endpoint, config.Model)
+		client, err := hosttls.Client(route.Endpoint, route.TLSCertificate, 3*time.Minute)
 		if err != nil {
 			return nil, err
 		}
-		a.assistantProvider = &assistant.HTTPProvider{Endpoint: route.Endpoint, Model: route.Model, APIKey: route.APIKey, Usage: usage}
+		a.assistantProvider = &assistant.HTTPProvider{Endpoint: route.Endpoint, Model: route.Model, APIKey: route.APIKey, Client: client, Usage: usage}
 	} else {
 		var definition *artifacts.Definition
 		for _, d := range artifacts.Catalog() {
