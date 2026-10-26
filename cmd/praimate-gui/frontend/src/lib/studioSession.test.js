@@ -20,6 +20,17 @@ function fixture(overrides = {}) {
 }
 const config = { workspacePath: '/tmp/project', cli: 'codex', model: 'test-model', agentID: 'test-agent', tools: 'full' }
 
+test('opening a project refreshes extension status after launch repairs it', async () => {
+  let installed = false
+  const session = createStudioSession(fixture({
+    studioGetStatus: async () => ({state: installed ? 'installed' : 'update_available'}),
+    studioOpenProject: async () => { installed = true },
+  }))
+  await session.refresh()
+  assert.equal(await session.launch(config), true)
+  assert.equal(session.state.status.state, 'installed')
+})
+
 test('overview never probes CLIs and shows projects while status is still pending', async () => {
   const status = deferred()
   let probes = 0
@@ -32,6 +43,32 @@ test('overview never probes CLIs and shows projects while status is still pendin
   assert.equal(probes, 0)
   status.resolve(ready)
   await load
+})
+
+test('an old status check cannot undo the state refreshed after launch', async () => {
+  const oldStatus = deferred()
+  let calls = 0
+  const session = createStudioSession(fixture({
+    studioGetStatus: () => ++calls === 2 ? oldStatus.promise : Promise.resolve(ready),
+  }))
+  await session.refresh()
+  const checking = session.refresh()
+  assert.equal(await session.launch(config), true)
+  oldStatus.resolve({state: 'update_available'})
+  await checking
+  assert.equal(session.state.status.state, 'installed')
+})
+
+test('a status refresh failure after opening is separate from launch failure', async () => {
+  let calls = 0
+  const session = createStudioSession(fixture({
+    studioGetStatus: async () => { if (calls++) throw Error('status unavailable'); return ready },
+  }))
+  await session.refresh()
+  assert.equal(await session.launch(config), true)
+  assert.equal(session.state.error, '')
+  assert.match(session.state.statusError, /status unavailable/)
+  assert.equal(session.state.openingPath, '')
 })
 
 test('refresh and lazy catalogue requests coalesce and only cache successful results', async () => {
@@ -79,6 +116,12 @@ test('failed installation and missing runtime cannot launch an editor', async ()
   assert.match(session.state.error, /download failed/)
   assert.equal(await session.launch(config), false)
   assert.equal(launches, 0)
+})
+
+test('maintenance does not claim success while the integration still needs refresh', async () => {
+  const session = createStudioSession(fixture({studioRepair: async () => ({state: 'update_available'})}))
+  assert.equal(await session.maintain('repair'), false)
+  assert.match(session.state.error, /Studio is not ready/)
 })
 
 test('maintenance invalidates a stale environment check', async () => {

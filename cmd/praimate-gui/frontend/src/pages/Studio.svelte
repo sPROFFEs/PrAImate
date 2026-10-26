@@ -17,7 +17,7 @@
   $: busy = preparing || !!state.operation || !!state.openingPath
   $: refreshing = state.loadingStatus || state.loadingProjects
   $: statusLabel = state.statusError ? 'Check failed' : state.loadingStatus ? 'Checking…' : ({
-    installed: 'Ready', update_available: 'Update available', broken: 'Needs repair', not_installed: 'Setup needed',
+    installed: 'Ready', update_available: 'Integration needs refresh', broken: 'Needs repair', not_installed: 'Setup needed',
   }[state.status?.state] || 'Status unavailable')
   $: selectedCLI = state.clis.find(cli => cli.id === form.cli)
   $: permissionLevels = toolLevelsForCli(form.cli)
@@ -132,7 +132,8 @@
         <dl class="environment-facts">
           <div><dt>Editor</dt><dd>{state.status.binaryPath ? studioProjectName(state.status.binaryPath) : 'Not detected'}</dd></div>
           <div><dt>PrAImate</dt><dd>{state.status.version || '—'}</dd></div>
-          <div><dt>Connection</dt><dd>{state.status.backendRunning ? 'Active' : 'Starts when opened'}</dd></div>
+          <div><dt>Extension</dt><dd>{state.status.state === 'installed' ? 'Installed and current' : 'Setup or refresh needed'}</dd></div>
+          <div><dt>Backend</dt><dd>{state.status.backendRunning ? 'Active' : 'Starts when opened'}</dd></div>
         </dl>
         <div class="toolbar">
           {#if state.status.state === 'not_installed'}

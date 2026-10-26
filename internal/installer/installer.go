@@ -169,6 +169,9 @@ func Methods(agent AgentID, action Action, current OS) []Method {
 // every Node-based agent (codex, opencode, gemini, deepseek), even
 // though the launcher is capable of installing pnpm itself.
 func methodAvailable(m Method, current OS) bool {
+	if m.ID == "studio" && m.ManagedPrefix == string(ToolPraimateStudio) {
+		return true // native application installer, not an executable named "studio"
+	}
 	if m.DownloadAsset != "" {
 		return true // native Go downloader — no external runner needed
 	}
@@ -655,6 +658,9 @@ func Run(ctx context.Context, m Method, stdout, stderr io.Writer) error {
 // RunWithOptions is Run + caller-supplied opt-ins. Streams stdout/stderr
 // to the writers so the TUI can render output live.
 func RunWithOptions(ctx context.Context, m Method, opts RunOptions, stdout, stderr io.Writer) error {
+	if m.ID == "studio" && m.ManagedPrefix == string(ToolPraimateStudio) {
+		return installStudio(ctx, stdout, stderr)
+	}
 	// Native release-asset install — handled fully in-process, before
 	// any prereq/env work (it needs no node, pnpm, curl or PowerShell).
 	// A binary bundled next to the running praimate executable (release

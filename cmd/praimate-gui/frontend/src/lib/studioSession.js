@@ -73,7 +73,7 @@ export function createStudioSession(api, changed = () => {}) {
     try {
       const status = await action()
       patch({ status, statusError: '', loadingStatus: false })
-      if (!status || !['installed', 'update_available'].includes(status.state)) {
+      if (!status || status.state !== 'installed') {
         throw new Error('Studio is not ready. Check the editor environment and try again.')
       }
       return !disposed
@@ -90,12 +90,15 @@ export function createStudioSession(api, changed = () => {}) {
       patch({ error: 'Studio is not ready. Check the editor environment and try again.' })
       return false
     }
+    ++statusSeq
     patch({ openingPath: workspacePath, error: '' })
     try {
       await api.studioOpenProject(workspacePath, cli, model, agentID, tools)
       // Refreshing history can fail after a successful launch; report that
       // separately rather than suggesting that the user launch a second editor.
       if (!disposed) {
+        try { patch({ status: await api.studioGetStatus(), statusError: '', loadingStatus: false }) }
+        catch (error) { patch({ statusError: String(error), loadingStatus: false }) }
         try { patch({ projects: (await api.studioListRecentProjects()) || [], projectsError: '' }) }
         catch (error) { patch({ projectsError: String(error) }) }
       }

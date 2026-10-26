@@ -93,14 +93,7 @@ func runStudio(args []string) int {
 }
 
 func runStudioStatus() int {
-	c, cleanup, err := openCore()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	defer cleanup()
-
-	mgr := studio.NewManager(c)
+	mgr := studio.NewManager(nil)
 	status, err := mgr.GetStatus(context.Background())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error checking status: %v\n", err)
@@ -122,14 +115,7 @@ func runStudioStatus() int {
 }
 
 func runStudioInstall() int {
-	c, cleanup, err := openCore()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	defer cleanup()
-
-	mgr := studio.NewManager(c)
+	mgr := studio.NewManager(nil)
 	fmt.Println("Installing PrAImate Studio integration and extension...")
 	status, err := mgr.Install(context.Background())
 	if err != nil {
@@ -141,14 +127,7 @@ func runStudioInstall() int {
 }
 
 func runStudioUpdate() int {
-	c, cleanup, err := openCore()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	defer cleanup()
-
-	mgr := studio.NewManager(c)
+	mgr := studio.NewManager(nil)
 	fmt.Println("Updating PrAImate Studio integration...")
 	status, err := mgr.Update(context.Background())
 	if err != nil {
@@ -160,14 +139,7 @@ func runStudioUpdate() int {
 }
 
 func runStudioRepair() int {
-	c, cleanup, err := openCore()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	defer cleanup()
-
-	mgr := studio.NewManager(c)
+	mgr := studio.NewManager(nil)
 	fmt.Println("Repairing PrAImate Studio installation...")
 	status, err := mgr.Repair(context.Background())
 	if err != nil {

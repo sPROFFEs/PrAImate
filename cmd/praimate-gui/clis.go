@@ -16,6 +16,7 @@ import (
 
 	"github.com/sPROFFEs/PrAImate/internal/installer"
 	"github.com/sPROFFEs/PrAImate/internal/launcher"
+	"github.com/sPROFFEs/PrAImate/internal/studio"
 )
 
 // CLIBackend is one wrapped CLI with its detection status.
@@ -173,6 +174,15 @@ func (a *App) ListManagedTools() ([]ManagedTool, error) {
 		if t.ID == installer.ToolPraimateCode {
 			continue
 		}
+		if t.ID == installer.ToolPraimateStudio {
+			status, err := studio.NewManager(a.core).GetStatus(ctx)
+			if err != nil {
+				return nil, err
+			}
+			t.Available = status.State == studio.StateInstalled
+			t.Binary = status.BinaryPath
+			t.Version = status.Version
+		}
 		out = append(out, ManagedTool{
 			ID: string(t.ID), Label: t.Label, Binary: t.Binary,
 			Installed: t.Available, Version: t.Version, InstallHint: t.InstallHint,
@@ -206,6 +216,11 @@ func (a *App) InstallManagedTool(tool, methodID string) error {
 			w := installLogWriter{ctx: a.ctx, cli: tool}
 			ctx, cancel := context.WithTimeout(a.ctx, 15*time.Minute)
 			defer cancel()
+			if tool == string(installer.ToolPraimateStudio) {
+				_, err := studio.NewManager(a.core).Install(ctx)
+				refreshManagedPaths()
+				return err
+			}
 			err := installer.Run(ctx, m, w, w)
 			refreshManagedPaths()
 			return err

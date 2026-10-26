@@ -214,6 +214,13 @@ opening that dialog, so they do not delay the project list. **Editor environment
 below the projects contains setup, integration updates and repair actions.
 If setup is required, Studio asks before installing and only opens the editor
 after setup succeeds. Environment and history errors remain on the Studio page.
+The **CLIs & Tools** Studio installer and `praimate studio install` use the same
+setup as Studio's **Repair** action. Installation, status, updates and repair do
+not require unlocking the database. They use a private editor profile and
+extension directory, leaving your normal VS Code / VSCodium profile unchanged.
+If the extension files exist but the editor no longer lists them, repair
+registers the bundled extension again using the editor's extension installer.
+Opening a project also refreshes the integration and its displayed status.
 The PrAImate sidebar provides its own saved assistant chat, model and permissions
 settings, skills, and Workers view. Native CLI terminals opened in the editor
 are separate from that sidebar chat.
@@ -755,8 +762,8 @@ sudo apt-get install -y npm pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
 Build the release bundles:
 
 ```sh
-scripts/build.sh --version=1.2.20
-scripts/build.sh --version=1.2.20 --with-code --with-graphify
+scripts/build.sh --version=1.2.21
+scripts/build.sh --version=1.2.21 --with-code --with-graphify
 ```
 
 Build only the GUI:

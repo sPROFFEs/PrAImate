@@ -1,11 +1,12 @@
 'use strict';
 const assert = require('node:assert/strict');
 const vscode = require('vscode');
-exports.run = async function () {
+async function run() {
   const ext = vscode.extensions.getExtension('PrAImate.praimate-studio');
-  assert.ok(ext, 'development extension discovered');
+  assert.ok(ext, 'installed extension discovered');
+  assert.equal(ext.extensionPath, process.env.PRAIMATE_TEST_EXTENSION_PATH, 'extension loaded from the private installed-extension registry');
   await ext.activate();
-  assert.equal(ext.packageJSON.version, '0.7.0', 'old built-in extension must not win');
+  assert.equal(ext.packageJSON.version, require('./package.json').version, 'old built-in extension must not win');
   let status;
   for (let attempt = 0; attempt < 25; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -40,10 +41,25 @@ exports.run = async function () {
       assert.ok(fs.existsSync(file),'real PTY executed fixture for '+cli);
       const argv=fs.readFileSync(file,'utf8').trimEnd().split('\n');
       assert.equal(argv[0],status.session.workspace,'terminal working folder');
-      assert.deepEqual(argv.slice(1),cli==='claude'?['--model','fixture-model']:[],'CLI model arguments');
+      const args=argv.slice(1);
+      if(cli==='codex') {
+        assert.equal(args.length,8,'Codex receives only its usage exporter arguments');
+        assert.match(args[1],/^otel\.exporter\.otlp-http\.endpoint=http:\/\/127\.0\.0\.1:\d+\/v1\/logs$/);
+        assert.deepEqual(args.filter((_,i)=>i%2===0),['-c','-c','-c','-c']);
+        assert.deepEqual(args.slice(2),['-c','otel.exporter.otlp-http.protocol=json','-c','otel.exporter.otlp-http.headers={}','-c','otel.log_user_prompt=false']);
+      } else {
+        assert.deepEqual(args,cli==='claude'?['--model','fixture-model']:[],'CLI model arguments');
+      }
       terminals.push(cli);
     } finally {terminal.dispose();}
   }
   fs.writeFileSync(process.env.PRAIMATE_TEST_RESULT,JSON.stringify({ok:true,version:ext.packageJSON.version,connected:status.backendRunning,cli:status.session.cli,panel:true,sidebar:true,readyWebviews:ui.readyViews,terminals}));
-  console.log('PRAIMATE_EDITOR_SMOKE_OK: extension 0.7.0, authenticated Core, both webviews, five native terminal fixtures');
+  console.log(`PRAIMATE_EDITOR_SMOKE_OK: installed extension ${ext.packageJSON.version}, authenticated Core, both webviews, five native terminal fixtures`);
+}
+exports.run = async function () {
+  try { await run(); }
+  catch(error) {
+    require('node:fs').writeFileSync(process.env.PRAIMATE_TEST_RESULT,JSON.stringify({ok:false,error:String(error)}));
+    throw error;
+  }
 };

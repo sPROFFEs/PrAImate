@@ -95,7 +95,7 @@ func DetectBinary() (string, string) {
 			}
 			candidates = append(candidates, managedCandidates(filepath.Join(sDir, "app"), "codium")...)
 			for _, c := range candidates {
-				if _, err := os.Stat(c); err == nil {
+				if usableManagedEditor(c) {
 					return c, "managed-codium"
 				}
 			}
@@ -108,7 +108,7 @@ func DetectBinary() (string, string) {
 			candidates = append(candidates, managedCandidates(filepath.Join(sDir, "app"), "codium")...)
 			candidates = append(candidates, managedCandidates(filepath.Join(sDir, "app"), "code-oss")...)
 			for _, c := range candidates {
-				if _, err := os.Stat(c); err == nil {
+				if usableManagedEditor(c) {
 					return c, "managed-codium"
 				}
 			}
@@ -120,7 +120,7 @@ func DetectBinary() (string, string) {
 			candidates = append(candidates, managedCandidates(filepath.Join(sDir, "app"), "VSCodium.exe")...)
 			candidates = append(candidates, managedCandidates(filepath.Join(sDir, "app"), "Code.exe")...)
 			for _, c := range candidates {
-				if _, err := os.Stat(c); err == nil {
+				if usableManagedEditor(c) {
 					return c, "managed-codium"
 				}
 			}
@@ -149,6 +149,40 @@ func DetectBinary() (string, string) {
 	return "", ""
 }
 
+func usableManagedEditor(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	if info.Mode().Perm()&0111 == 0 {
+		return false
+	}
+	if filepath.Base(filepath.Dir(path)) != "bin" {
+		return true
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	var prefix [2]byte
+	n, _ := file.Read(prefix[:])
+	file.Close()
+	if n != 2 || string(prefix[:]) != "#!" {
+		return true
+	}
+	// Archive launch scripts depend on the Electron executable next to bin/.
+	// Removing that executable must not leave a "detected" but unusable editor.
+	native := filepath.Join(filepath.Dir(filepath.Dir(path)), filepath.Base(path))
+	if strings.Contains(filepath.ToSlash(path), ".app/Contents/Resources/app/bin/") {
+		native = filepath.Join(filepath.Dir(path), "..", "..", "..", "MacOS", "Electron")
+	}
+	info, err = os.Stat(native)
+	return err == nil && !info.IsDir() && info.Mode().Perm()&0111 != 0
+}
+
 func managedCandidates(root, executable string) []string {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -171,7 +205,10 @@ func (m *Manager) GetStatus(ctx context.Context) (*StudioStatus, error) {
 	sockPath, _ := SocketPath()
 	binPath, flavor := DetectBinary()
 	extDir, _ := ExtensionsDir()
-	praimateExtDir := filepath.Join(extDir, "praimate")
+	praimateExtDir, registered, err := registeredExtension(extDir)
+	if err != nil {
+		return nil, err
+	}
 
 	backendRunning := false
 	if sockPath != "" {
@@ -189,7 +226,7 @@ func (m *Manager) GetStatus(ctx context.Context) (*StudioStatus, error) {
 		sockPath = desktopServers.endpoint
 	}
 	desktopServers.Unlock()
-	extInstalled := true
+	extInstalled := registered
 	dirs, err := extensionLocations()
 	if err != nil {
 		return nil, err
@@ -255,16 +292,19 @@ func (m *Manager) Install(ctx context.Context) (*StudioStatus, error) {
 		return nil, fmt.Errorf("create studio app dir: %w", err)
 	}
 
-	if err := provisionExtensions(); err != nil {
-		return nil, err
-	}
-
 	// If no Code-OSS binary is installed on system or app directory, download standalone VSCodium
 	binPath, _ := DetectBinary()
 	if binPath == "" {
 		if err := m.downloadAndExtractCodeOSS(ctx, appDir); err != nil {
 			return nil, fmt.Errorf("download Code-OSS runtime: %w", err)
 		}
+	}
+	binPath, _ = DetectBinary()
+	if binPath == "" {
+		return nil, errors.New("Studio editor runtime is missing after setup")
+	}
+	if err := prepareExtensions(ctx, binPath); err != nil {
+		return nil, err
 	}
 
 	// Create launcher wrapper script
@@ -290,7 +330,9 @@ else
     exit 1
 fi
 `, extDir, dataDir, binPath)
-		_ = os.WriteFile(wrapperPath, []byte(script), 0755)
+		if err := os.WriteFile(wrapperPath, []byte(script), 0755); err != nil {
+			return nil, fmt.Errorf("write Studio launcher: %w", err)
+		}
 	}
 
 	// Ensure run directory exists for sockets
@@ -384,7 +426,7 @@ func (m *Manager) Launch(ctx context.Context, opts LaunchOptions) error {
 		return errors.New("no Code-OSS or VSCodium runtime found. Please click 'Install' to set up PrAImate Studio.")
 	}
 
-	if err := provisionExtensions(); err != nil {
+	if err := prepareExtensions(ctx, binPath); err != nil {
 		return err
 	}
 	// An already running Code instance keeps the first launch's environment.

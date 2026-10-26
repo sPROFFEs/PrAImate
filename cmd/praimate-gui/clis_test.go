@@ -8,7 +8,49 @@ import (
 	"testing"
 
 	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/studio"
 )
+
+func TestManagedStudioInstallationUsesStudioManager(t *testing.T) {
+	t.Setenv("PRAIMATE_HOME", t.TempDir())
+	appDir, _ := studio.AppDir()
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	name := "codium"
+	if runtime.GOOS == "windows" {
+		name = "VSCodium.exe"
+	}
+	if err := os.WriteFile(filepath.Join(appDir, name), []byte("#!/bin/sh\necho fixture\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	a := NewApp()
+	a.ctx = context.Background()
+	methods, err := a.ListToolInstallMethods("praimate-studio")
+	if err != nil || len(methods) != 1 || methods[0].ID != "studio" {
+		t.Fatalf("native Studio installer missing from CLIs: %+v %v", methods, err)
+	}
+	if err := a.InstallManagedTool("praimate-studio", "studio"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := a.StudioGetStatus()
+	if err != nil || status.State != studio.StateInstalled {
+		t.Fatalf("Studio setup was not reflected in status: %+v %v", status, err)
+	}
+	tools, err := a.ListManagedTools()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools {
+		if tool.ID == "praimate-studio" {
+			if !tool.Installed || tool.Binary != status.BinaryPath {
+				t.Fatalf("CLIs and Studio disagree about the installation: %+v %+v", tool, status)
+			}
+			return
+		}
+	}
+	t.Fatal("Studio missing from managed tools")
+}
 
 func TestListCLIBackendsRefreshesUserPATHBeforeDetection(t *testing.T) {
 	home := t.TempDir()

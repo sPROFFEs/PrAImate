@@ -6,12 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sPROFFEs/PrAImate/internal/core"
+	"github.com/sPROFFEs/PrAImate/internal/installer"
 	"github.com/sPROFFEs/PrAImate/internal/orchestrator"
 )
 
@@ -74,25 +75,7 @@ func desktopEndpoint(c *core.Core) (string, string, error) {
 }
 
 func backendExecutable() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	name := "praimate"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	if strings.EqualFold(filepath.Base(exe), name) {
-		return exe, nil
-	}
-	sibling := filepath.Join(filepath.Dir(exe), name)
-	if info, err := os.Stat(sibling); err == nil && !info.IsDir() {
-		return sibling, nil
-	}
-	if found, err := exec.LookPath(name); err == nil {
-		return found, nil
-	}
-	return "", fmt.Errorf("PrAImate backend executable is missing; expected %s", sibling)
+	return installer.ResolvePraimateBinary()
 }
 
 func studioEnvironment(base []string, overrides map[string]string) []string {
@@ -181,13 +164,29 @@ func extensionFiles() map[string]string {
 func extensionCurrent(dir string) bool {
 	for name, want := range extensionFiles() {
 		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil || string(data) != want {
+		if err != nil {
+			return false
+		}
+		if name == "package.json" {
+			var actual, expected map[string]any
+			if json.Unmarshal(data, &actual) != nil || json.Unmarshal([]byte(want), &expected) != nil {
+				return false
+			}
+			// The editor adds installation metadata and reformats package.json.
+			delete(actual, "__metadata")
+			if !reflect.DeepEqual(actual, expected) {
+				return false
+			}
+		} else if string(data) != want {
 			return false
 		}
 	}
 	return true
 }
 func provisionExtension(dir string) error {
+	if extensionCurrent(dir) {
+		return nil
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "resources"), 0755); err != nil {
 		return err
 	}
@@ -211,7 +210,17 @@ func extensionLocations() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	dirs := []string{filepath.Join(ext, "praimate")}
+	primary, _, err := registeredExtension(ext)
+	if err != nil {
+		return nil, err
+	}
+	dirs := []string{primary}
+	legacy := filepath.Join(ext, "praimate")
+	if primary != legacy {
+		if _, err := os.Stat(filepath.Join(legacy, "package.json")); err == nil {
+			dirs = append(dirs, legacy)
+		}
+	}
 	roots := []string{app}
 	entries, _ := os.ReadDir(app)
 	for _, entry := range entries {
