@@ -70,6 +70,12 @@ resolve_work_parent() {
     printf '%s\n' "$PRAIMATE_BUILD_DIR"
     return
   fi
+  # MSBuild's native dependency builds still have a 260-character path limit.
+  # GitHub's short runner temp avoids nesting them below the Windows profile.
+  if [ "$NATIVE_GOOS" = "windows" ] && [ -n "${RUNNER_TEMP:-}" ]; then
+    cygpath -u "$RUNNER_TEMP/p"
+    return
+  fi
   printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/praimate/build"
 }
 
@@ -89,9 +95,15 @@ require_work_space() {
 WORK_PARENT="$(resolve_work_parent)"
 mkdir -p "$WORK_PARENT"
 require_work_space "$WORK_PARENT"
-WORK="$(mktemp -d "$WORK_PARENT/praimate-code-XXXXXX")"
+WORK_PATTERN="praimate-code-XXXXXX"
+SRC_NAME="opencode"
+if [ "$NATIVE_GOOS" = "windows" ]; then
+  WORK_PATTERN="p-XXXXXX"
+  SRC_NAME="s"
+fi
+WORK="$(mktemp -d "$WORK_PARENT/$WORK_PATTERN")"
 trap 'rm -rf "$WORK"' EXIT
-SRC="$WORK/opencode"
+SRC="$WORK/$SRC_NAME"
 mkdir -p "$WORK/tmp"
 export TMPDIR="$WORK/tmp"
 echo "→ scratch dir: $WORK"
