@@ -191,6 +191,7 @@ func (s *Service) Transcribe(ctx context.Context, c Config, audio []byte, vocabu
 		}()
 	}
 	var body bytes.Buffer
+	body.Grow(len(audio) + 2048)
 	form := multipart.NewWriter(&body)
 	file, err := form.CreateFormFile("file", "recording.wav")
 	if err != nil {
@@ -245,10 +246,12 @@ func (s *Service) Transcribe(ctx context.Context, c Config, audio []byte, vocabu
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return Result{}, err
 	}
-	if result.Text == "" {
+	if result.Text == "" && len(result.Transcription) > 0 {
+		var sb strings.Builder
 		for _, segment := range result.Transcription {
-			result.Text += segment.Text
+			sb.WriteString(segment.Text)
 		}
+		result.Text = sb.String()
 	}
 	return Result{Text: strings.TrimSpace(result.Text), Language: result.Language}, nil
 }

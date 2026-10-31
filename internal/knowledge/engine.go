@@ -2,9 +2,11 @@ package knowledge
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -36,7 +38,7 @@ func SetEngine(dir, engine string) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	return root.Rename(name, Directory+"/engine")
+	return rootRename(root, name, Directory+"/engine")
 }
 func UseNative(dir string) bool {
 	root, err := os.OpenRoot(dir)
@@ -58,4 +60,19 @@ func UseNative(dir string) bool {
 		}
 	}
 	return HasIndex(dir)
+}
+
+func rootRename(root *os.Root, oldName, newName string) error {
+	if root == nil {
+		return errors.New("nil root")
+	}
+	err := root.Rename(oldName, newName)
+	if err != nil && root.Name() != "" {
+		oldPath := filepath.Join(root.Name(), filepath.FromSlash(oldName))
+		newPath := filepath.Join(root.Name(), filepath.FromSlash(newName))
+		if fbErr := os.Rename(oldPath, newPath); fbErr == nil {
+			return nil
+		}
+	}
+	return err
 }

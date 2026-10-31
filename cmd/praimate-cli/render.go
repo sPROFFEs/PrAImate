@@ -197,6 +197,10 @@ func (r *textRenderer) flushTable() {
 		return
 	}
 	columns := len(r.table[0])
+	if columns == 0 {
+		r.table = nil
+		return
+	}
 	maxWidth := (r.width - columns*3 - 1) / columns
 	if maxWidth > 36 {
 		maxWidth = 36
@@ -238,9 +242,15 @@ func stripMarkup(text string) string {
 }
 
 func truncateRunes(text string, width int) string {
+	if width <= 0 {
+		return ""
+	}
 	runes := []rune(text)
 	if len(runes) <= width {
 		return text
+	}
+	if width == 1 {
+		return "…"
 	}
 	return string(runes[:width-1]) + "…"
 }

@@ -120,6 +120,7 @@ func (s *Store) Close() error {
 	defer s.credentialMu.Unlock()
 	var err error
 	if s.db != nil {
+		_, _ = s.db.Exec("PRAGMA wal_checkpoint(PASSIVE)")
 		err = s.db.Close()
 		s.db = nil
 	}

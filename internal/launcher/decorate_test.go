@@ -22,6 +22,14 @@ func freshWorkspace(t *testing.T, settings WorkspaceSettings) Workspace {
 		t.Skipf("no samples at %s", src)
 	}
 	root := t.TempDir()
+	t.Cleanup(func() {
+		_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err == nil && info != nil {
+				_ = os.Chmod(path, 0666)
+			}
+			return nil
+		})
+	})
 	if _, err := SeedSamples(root, []string{src}); err != nil {
 		t.Fatal(err)
 	}
@@ -141,6 +149,14 @@ func TestDecorate_OnlineSkillsClonedIntoClaudeSkillsDir(t *testing.T) {
 	}
 	// Build a local git "remote" repo.
 	src := filepath.Join(t.TempDir(), "demoskill")
+	t.Cleanup(func() {
+		_ = filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+			if err == nil && info != nil {
+				_ = os.Chmod(path, 0666)
+			}
+			return nil
+		})
+	})
 	_ = os.MkdirAll(src, 0o755)
 	_ = os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("# demoskill\n"), 0o644)
 	for _, args := range [][]string{

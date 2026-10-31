@@ -39,6 +39,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // PrivacyCategory names a class of secret. Used to label matches and
@@ -97,6 +98,7 @@ type Match struct {
 // PrivacyScanner is the configurable entry point. Hold one per Core;
 // callers extend it via AddCustomPattern.
 type PrivacyScanner struct {
+	mu     sync.RWMutex
 	custom []privacyPattern
 }
 
@@ -121,6 +123,8 @@ func (p *PrivacyScanner) AddCustomPattern(pattern string) error {
 	if err != nil {
 		return fmt.Errorf("compile custom pattern: %w", err)
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.custom = append(p.custom, privacyPattern{Category: CatCustom, Regex: re, Pattern: pattern})
 	return nil
 }
@@ -136,12 +140,16 @@ func (p *PrivacyScanner) SetCustomPatterns(patterns []string) error {
 		}
 		next = append(next, privacyPattern{Category: CatCustom, Regex: re, Pattern: pattern})
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.custom = next
 	return nil
 }
 
 // CustomPatterns returns the currently configured custom regex strings.
 func (p *PrivacyScanner) CustomPatterns() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	out := make([]string, 0, len(p.custom))
 	for _, pat := range p.custom {
 		out = append(out, pat.Pattern)
@@ -153,8 +161,10 @@ func (p *PrivacyScanner) CustomPatterns() []string {
 // resolved deterministically: leftmost-longest wins. The returned
 // slice is sorted by Start ascending.
 func (p *PrivacyScanner) Match(text string) []Match {
+	p.mu.RLock()
 	patterns := append([]privacyPattern{}, builtinPatterns...)
 	patterns = append(patterns, p.custom...)
+	p.mu.RUnlock()
 
 	var hits []Match
 	for _, pat := range patterns {

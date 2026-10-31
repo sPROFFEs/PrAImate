@@ -76,6 +76,15 @@ func fetchOne(ctx context.Context, raw, targetRoot string) FetchResult {
 		return FetchResult{URL: raw, Path: dst}
 	}
 
+	// Local filesystem transport: copy directory tree directly.
+	if info, err := os.Stat(raw); err == nil && info.IsDir() {
+		if err := copyDir(raw, dst); err != nil {
+			_ = os.RemoveAll(dst)
+			return FetchResult{URL: raw, Err: err}
+		}
+		return FetchResult{URL: raw, Path: dst}
+	}
+
 	// Default transport: git clone.
 	gitArgs := gitutil.DisableSSLVerifyForInternalHost("clone", "--depth=1", raw, dst)
 	cmd := exec.CommandContext(ctx, "git", gitArgs...)
@@ -316,3 +325,28 @@ func hasURLScheme(s string) bool {
 }
 
 var nonSlug = regexp.MustCompile(`[^a-z0-9_-]+`)
+
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return os.MkdirAll(dst, 0755)
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		mode := info.Mode() | 0600
+		return os.WriteFile(target, data, mode)
+	})
+}

@@ -272,7 +272,7 @@ func writeAtomic(ctx context.Context, root *os.Root, destination string, raw []b
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err = root.Rename(name, destination); err != nil {
+	if err = rootRename(root, name, destination); err != nil {
 		return err
 	}
 	return nil

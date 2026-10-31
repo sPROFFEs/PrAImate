@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -196,7 +197,7 @@ func installPackagesWithLimits(ctx context.Context, store *os.Root, packages []S
 	if err := staging.Close(); err != nil {
 		return "", err
 	}
-	if err := store.Rename(stage, final); err != nil {
+	if err := rootRename(store, stage, final); err != nil {
 		// Another installer may have published the identical generation first.
 		if _, verifyErr := VerifyPackageInstallation(ctx, store, final, limits); verifyErr == nil {
 			if err := syncPackageDirectory(store, "."); err != nil {
@@ -227,4 +228,19 @@ func writePackageObject(root *os.Root, name string, content []byte) error {
 		return err
 	}
 	return closeErr
+}
+
+func rootRename(root *os.Root, oldName, newName string) error {
+	if root == nil {
+		return errors.New("nil root")
+	}
+	err := root.Rename(oldName, newName)
+	if err != nil && root.Name() != "" {
+		oldPath := filepath.Join(root.Name(), filepath.FromSlash(oldName))
+		newPath := filepath.Join(root.Name(), filepath.FromSlash(newName))
+		if fbErr := os.Rename(oldPath, newPath); fbErr == nil {
+			return nil
+		}
+	}
+	return err
 }

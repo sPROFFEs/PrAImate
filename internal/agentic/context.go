@@ -3,6 +3,7 @@ package agentic
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 type contextEntry struct {
@@ -53,6 +54,12 @@ func (m *contextManager) render(memory Memory) string {
 func boundText(text string, max int) (preview string, truncated bool) {
 	if len(text) <= max {
 		return text, false
+	}
+	if max <= 0 {
+		return "\n\n… output truncated; full content stored as an artifact …", true
+	}
+	for max > 0 && !utf8.RuneStart(text[max]) {
+		max--
 	}
 	return text[:max] + "\n\n… output truncated; full content stored as an artifact …", true
 }

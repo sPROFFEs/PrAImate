@@ -264,9 +264,11 @@ func claudeProjectSlug(cwd string) string {
 	if cwd == "" {
 		return ""
 	}
-	abs, err := filepath.Abs(cwd)
-	if err != nil {
-		abs = cwd
+	abs := cwd
+	if !filepath.IsAbs(cwd) && !strings.HasPrefix(cwd, "/") && !strings.HasPrefix(cwd, "\\") {
+		if a, err := filepath.Abs(cwd); err == nil {
+			abs = a
+		}
 	}
 	// Claude on Windows still uses forward-slash-style slugs derived
 	// from the path with both separators replaced.

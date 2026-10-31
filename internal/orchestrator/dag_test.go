@@ -24,6 +24,14 @@ func gitFixture(t *testing.T) string {
 		t.Skip("Git required")
 	}
 	dir := t.TempDir()
+	t.Cleanup(func() {
+		_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err == nil && info != nil {
+				_ = os.Chmod(path, 0666)
+			}
+			return nil
+		})
+	})
 	ctx := context.Background()
 	if _, err := gitCommand(ctx, dir, "init"); err != nil {
 		t.Fatal(err)
@@ -210,7 +218,8 @@ func TestWorktreeCleanupAfterCacheDirectoryDisappears(t *testing.T) {
 		t.Fatalf("cleanup is not idempotent: %v", err)
 	}
 	registered, err := gitCommand(ctx, dir, "worktree", "list", "--porcelain", "-z")
-	if err != nil || strings.Contains(registered, tree.Path) || !strings.Contains(registered, other.Path) {
+	regSlash := filepath.ToSlash(registered)
+	if err != nil || strings.Contains(regSlash, filepath.ToSlash(tree.Path)) || !strings.Contains(regSlash, filepath.ToSlash(other.Path)) {
 		t.Fatalf("cleanup altered another tree or retained the missing tree: %q %v", registered, err)
 	}
 	if err = w.Remove(ctx, other); err != nil {

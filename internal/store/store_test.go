@@ -16,6 +16,7 @@ func openTestStore(t *testing.T, path string) *Store {
 	if err != nil {
 		t.Fatalf("initialize test store: %v", err)
 	}
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 

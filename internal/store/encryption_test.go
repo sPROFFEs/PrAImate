@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -183,10 +184,12 @@ func TestOpenCreatesEncryptedDatabaseAndReopens(t *testing.T) {
 	if len(raw) >= len(sqliteHeader) && string(raw[:len(sqliteHeader)]) == string(sqliteHeader) {
 		t.Fatal("database has a plaintext SQLite header")
 	}
-	if info, err := os.Stat(path); err != nil {
-		t.Fatal(err)
-	} else if info.Mode().Perm()&0o077 != 0 {
-		t.Fatalf("database permissions = %o, want user-only", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(path); err != nil {
+			t.Fatal(err)
+		} else if info.Mode().Perm()&0o077 != 0 {
+			t.Fatalf("database permissions = %o, want user-only", info.Mode().Perm())
+		}
 	}
 	keyEnvelope, err := os.ReadFile(KeyPath(path))
 	if err != nil {
@@ -195,10 +198,12 @@ func TestOpenCreatesEncryptedDatabaseAndReopens(t *testing.T) {
 	if len(keyEnvelope) == encryptionKeyBytes {
 		t.Fatal("database key is still stored as raw bytes")
 	}
-	if info, err := os.Stat(KeyPath(path)); err != nil {
-		t.Fatal(err)
-	} else if info.Mode().Perm()&0o077 != 0 {
-		t.Fatalf("key permissions = %o, want user-only", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(KeyPath(path)); err != nil {
+			t.Fatal(err)
+		} else if info.Mode().Perm()&0o077 != 0 {
+			t.Fatalf("key permissions = %o, want user-only", info.Mode().Perm())
+		}
 	}
 
 	reopened, err := OpenWithPassword(path, testDatabasePassword)

@@ -305,13 +305,18 @@ func TestInspectRejectsSensitiveOrEscapingPaths(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("outside"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	hasSymlink := true
 	if err := os.Symlink(outside, filepath.Join(root, "link.go")); err != nil {
-		t.Fatal(err)
+		hasSymlink = false
 	}
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("secret"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"../source.go", ".env", "link.go"} {
+	paths := []string{"../source.go", ".env"}
+	if hasSymlink {
+		paths = append(paths, "link.go")
+	}
+	for _, path := range paths {
 		if _, err := inspectSource(root, path); err == nil {
 			t.Fatalf("accepted %q", path)
 		}

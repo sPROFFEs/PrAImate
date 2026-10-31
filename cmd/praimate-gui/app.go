@@ -123,6 +123,9 @@ type App struct {
 
 	studioWindowMu     sync.Mutex
 	studioWindowHidden bool
+
+	dashboardMu    sync.Mutex
+	dashboardCache map[string]dashboardCacheEntry
 }
 
 func NewApp() *App {

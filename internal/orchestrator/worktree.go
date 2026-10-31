@@ -50,7 +50,7 @@ func (b *gitBuffer) Write(p []byte) (int, error) {
 func gitCommand(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
-	argv := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false", "-c", "core.quotePath=false", "-c", "rerere.enabled=true", "-c", "rerere.autoupdate=true"}
+	argv := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false", "-c", "core.quotePath=false", "-c", "rerere.enabled=true", "-c", "rerere.autoupdate=true", "-c", "core.autocrlf=false"}
 	cmd := exec.CommandContext(ctx, "git", append(argv, args...)...)
 	cmd.Dir = dir
 	// Host-created commits do not invoke hooks or require the user's Git identity.

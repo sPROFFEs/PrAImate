@@ -11,6 +11,14 @@ import (
 func TestParallelWorkersInitializeEmptyRepositoryWithoutStagingFiles(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
+	t.Cleanup(func() {
+		_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err == nil && info != nil {
+				_ = os.Chmod(path, 0666)
+			}
+			return nil
+		})
+	})
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	if out, err := exec.Command("git", "init", "-b", "main", dir).CombinedOutput(); err != nil {
 		t.Fatalf("init: %s: %v", out, err)
@@ -57,6 +65,14 @@ func TestParallelWorkersInitializeEmptyRepositoryWithoutStagingFiles(t *testing.
 
 func TestEmptyRepositoryWithUncommittedFilesIsNotInitialized(t *testing.T) {
 	dir := t.TempDir()
+	t.Cleanup(func() {
+		_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err == nil && info != nil {
+				_ = os.Chmod(path, 0666)
+			}
+			return nil
+		})
+	})
 	if out, err := exec.Command("git", "init", "-b", "main", dir).CombinedOutput(); err != nil {
 		t.Fatalf("init: %s: %v", out, err)
 	}

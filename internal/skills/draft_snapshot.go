@@ -92,7 +92,7 @@ func saveImmutableRecord(ctx context.Context, store *os.Root, kind string, body 
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if err := store.Rename(tmp, name); err != nil {
+	if err := rootRename(store, tmp, name); err != nil {
 		return "", err
 	}
 	if err := syncPackageDirectory(store, "."); err != nil {

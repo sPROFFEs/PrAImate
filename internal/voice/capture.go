@@ -56,11 +56,23 @@ func StartPCMRecorder() (*PCMRecorder, error) {
 }
 
 func (r *PCMRecorder) Stop() {
-	r.once.Do(func() { _ = r.cmd.Process.Kill() })
-	<-r.done
+	if r == nil {
+		return
+	}
+	r.once.Do(func() {
+		if r.cmd != nil && r.cmd.Process != nil {
+			_ = r.cmd.Process.Kill()
+		}
+	})
+	if r.done != nil {
+		<-r.done
+	}
 }
 
 func (r *PCMRecorder) Finish() ([]byte, error) {
+	if r == nil {
+		return nil, errors.New("recorder not initialized")
+	}
 	r.Stop()
 	if r.err != nil && len(r.pcm) == 0 {
 		return nil, errors.New("no microphone audio was captured")

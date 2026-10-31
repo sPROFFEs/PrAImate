@@ -353,7 +353,7 @@ func (s *HostSkillStore) writeHead(ctx context.Context, head hostHead) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := s.root.Rename(tmp, "host-head.json"); err != nil {
+	if err := rootRename(s.root, tmp, "host-head.json"); err != nil {
 		return err
 	}
 	return syncPackageDirectory(s.root, ".")

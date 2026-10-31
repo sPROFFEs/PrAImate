@@ -39,4 +39,23 @@ func TestUsageDashboardRequiresUnlockedCoreAndReturnsProfileMetrics(t *testing.T
 	if d.Totals.Runs != 1 || d.Totals.Tokens != 20 {
 		t.Fatalf("incorrect profile totals: %+v", d)
 	}
+
+	// Repeated call should hit cache and return identical pointer.
+	d2, err := a.UsageDashboard("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d2 != d {
+		t.Fatal("expected cached dashboard pointer")
+	}
+
+	// Invalidate clears cache so a new query runs.
+	a.InvalidateUsageDashboard()
+	d3, err := a.UsageDashboard("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d3 == d {
+		t.Fatal("expected fresh dashboard pointer after invalidation")
+	}
 }

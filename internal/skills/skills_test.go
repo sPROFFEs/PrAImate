@@ -43,6 +43,14 @@ func TestFetchAll_ClonesLocalRepo(t *testing.T) {
 
 	// Build a minimal local bare repo to act as the "remote".
 	src := filepath.Join(t.TempDir(), "fakeskill")
+	t.Cleanup(func() {
+		_ = filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+			if err == nil && info != nil {
+				_ = os.Chmod(path, 0666)
+			}
+			return nil
+		})
+	})
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
 	}

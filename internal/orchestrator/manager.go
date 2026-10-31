@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sPROFFEs/PrAImate/internal/core"
 )
@@ -404,10 +405,16 @@ func (m *Manager) ContinueWithApproval(id, task string, approvalProvider func(st
 }
 
 func truncateWorkerText(value string, limit int) string {
-	if len(value) > limit {
-		return value[:limit] + "…"
+	if limit <= 0 {
+		return ""
 	}
-	return value
+	if len(value) <= limit {
+		return value
+	}
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	return value[:limit] + "…"
 }
 
 func (m *Manager) execute(ctx context.Context, cancel context.CancelFunc, id string, config Config, input, userTask string, approvalProvider func(string) *core.ApprovalConfig) {

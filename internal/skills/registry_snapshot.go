@@ -79,7 +79,7 @@ func (c *VersionCatalogue) SaveSnapshot(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if err := c.store.Rename(tmp, name); err != nil {
+	if err := rootRename(c.store, tmp, name); err != nil {
 		return "", err
 	}
 	if err := syncPackageDirectory(c.store, "."); err != nil {
