@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -69,6 +70,7 @@ func (d *detachedCoordinator) startDocumentWatcher(w *detachedWindow) {
 			}
 			d.publish("studio", w.sessionID, "praimate:editor-fs", map[string]string{"path": path, "op": op, "folder": folder})
 		}
+		watchedDirs := 0
 		addTree := func(root string) {
 			err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 				if ctx.Err() != nil {
@@ -83,7 +85,18 @@ func (d *detachedCoordinator) startDocumentWatcher(w *detachedWindow) {
 				if path != root && editorSkipDir(entry.Name()) {
 					return filepath.SkipDir
 				}
-				return watcher.Add(path)
+				if watchedDirs >= maxWatchDirs {
+					return filepath.SkipDir
+				}
+				rel, relErr := filepath.Rel(folder, path)
+				if relErr == nil && strings.Count(rel, string(filepath.Separator)) > maxWatchDepth {
+					return filepath.SkipDir
+				}
+				if err := watcher.Add(path); err != nil {
+					return err
+				}
+				watchedDirs++
+				return nil
 			})
 			if err != nil {
 				report(err)

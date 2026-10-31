@@ -65,10 +65,22 @@ var editableExts = map[string]bool{
 	".go": true, ".py": true, ".rs": true, ".sh": true, ".sql": true, ".xml": true,
 }
 
-const editorMaxFileSize = 2 << 20 // 2MB
+const (
+	editorMaxFileSize = 2 << 20 // 2MB
+	maxWatchDirs      = 500     // Cap on simultaneously watched directories to protect OS descriptors (e.g. inotify)
+	maxWatchDepth     = 8       // Maximum folder nesting to watch recursively
+)
 
 func editorSkipDir(name string) bool {
-	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "dist" || name == "vendor"
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	switch name {
+	case "node_modules", "dist", "vendor", "build", "target", ".cache", "tmp", ".next", ".svelte-kit", "out", "coverage":
+		return true
+	default:
+		return false
+	}
 }
 
 // editorPath resolves rel inside the studio folder, refusing escapes —
@@ -279,6 +291,7 @@ func (a *App) startEditorWatcher() {
 	if err != nil {
 		return
 	}
+	watchedDirs := 0
 	addTree := func(root string) {
 		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || !d.IsDir() {
@@ -287,7 +300,16 @@ func (a *App) startEditorWatcher() {
 			if path != root && editorSkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
-			_ = w.Add(path)
+			if watchedDirs >= maxWatchDirs {
+				return filepath.SkipDir
+			}
+			rel, relErr := filepath.Rel(editorFolder, path)
+			if relErr == nil && strings.Count(rel, string(filepath.Separator)) > maxWatchDepth {
+				return filepath.SkipDir
+			}
+			if err := w.Add(path); err == nil {
+				watchedDirs++
+			}
 			return nil
 		})
 	}

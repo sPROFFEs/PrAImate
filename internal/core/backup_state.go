@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -306,14 +307,20 @@ func mergeTable(ctx context.Context, live, snap *sql.DB, spec mergeTableSpec, sa
 }
 
 func copyPrivateFile(src, dest string) error {
-	body, err := os.ReadFile(src)
+	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(dest, body, 0o600); err != nil {
+	defer in.Close()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
 		return err
 	}
-	return nil
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
 }
 
 func replaceFile(src, dest string) error {
@@ -452,15 +459,47 @@ func buildUpdateSet(cols []string, keyIdx []int, vals []any) (string, []any) {
 }
 
 // filesEqual reports whether two files have identical contents. Either
-// file missing = not equal.
+// file missing = not equal. Streams in chunks to avoid allocating full files.
 func filesEqual(a, b string) (bool, error) {
-	ra, err := os.ReadFile(a)
+	ia, err := os.Stat(a)
 	if err != nil {
 		return false, err
 	}
-	rb, err := os.ReadFile(b)
+	ib, err := os.Stat(b)
 	if err != nil {
 		return false, err
 	}
-	return bytes.Equal(ra, rb), nil
+	if ia.Size() != ib.Size() {
+		return false, nil
+	}
+	fa, err := os.Open(a)
+	if err != nil {
+		return false, err
+	}
+	defer fa.Close()
+	fb, err := os.Open(b)
+	if err != nil {
+		return false, err
+	}
+	defer fb.Close()
+
+	bufA := make([]byte, 32<<10)
+	bufB := make([]byte, 32<<10)
+	for {
+		na, errA := io.ReadFull(fa, bufA)
+		nb, errB := io.ReadFull(fb, bufB)
+		if na != nb || !bytes.Equal(bufA[:na], bufB[:nb]) {
+			return false, nil
+		}
+		if errA == io.EOF || errA == io.ErrUnexpectedEOF {
+			break
+		}
+		if errA != nil {
+			return false, errA
+		}
+		if errB != nil {
+			return false, errB
+		}
+	}
+	return true, nil
 }

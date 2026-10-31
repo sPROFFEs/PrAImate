@@ -116,8 +116,10 @@ func OpenChatWithOptions(c Chat, opts OpenChatOptions) (LaunchPlan, Agent, error
 	} else {
 		resume = RestoreNativeSession(picked, c)
 	}
+	launcherMu.Lock()
 	LastResumeNote = resume.Note
 	LastResumeRestoredTo = resume.RestoredTo
+	launcherMu.Unlock()
 	if len(resume.Args) > 0 {
 		switch picked.ID {
 		case AgentCodex:

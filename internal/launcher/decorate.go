@@ -360,9 +360,10 @@ func appendRecentSessionsDirective(ws Workspace, agent Agent) error {
 	// Filter out any summary that belongs to the just-created session
 	// dir (it has no transcript yet; including it would tell the
 	// agent "look at yourself" which is unhelpful).
+	lastDir, _ := GetLastSession()
 	filtered := summaries[:0]
 	for _, s := range summaries {
-		if s.SessionDir != LastSessionDir {
+		if s.SessionDir != lastDir {
 			filtered = append(filtered, s)
 		}
 	}
@@ -555,8 +556,7 @@ func recordChatSession(ws Workspace, agent Agent) error {
 	}
 	// Publish so main() can find this session's slot after the agent
 	// exits and write transcript.jsonl + summary.md into it.
-	LastSessionDir = dir
-	LastSessionStartedAt = started
+	SetLastSession(dir, started)
 	return nil
 }
 

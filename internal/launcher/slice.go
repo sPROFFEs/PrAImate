@@ -625,7 +625,9 @@ func StartMirrorOutAsyncWithHome(agent Agent, sandboxDir, sessionDir, homeOverri
 	go func() {
 		res := MirrorOutSliceWithHome(agent, sandboxDir, sessionDir, homeOverride)
 		mirrorInFlight.mu.Lock()
+		launcherMu.Lock()
 		LastMirrorResult = res
+		launcherMu.Unlock()
 		mirrorInFlight.count--
 		if mirrorInFlight.count == 0 {
 			// Wake any WaitForMirror callers and reset the channel

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sPROFFEs/PrAImate/internal/ollama"
@@ -66,13 +67,11 @@ func PrepareSandbox(ws Workspace, agent Agent) error {
 	// `clade -install-tool <name>` command the user should run, so
 	// no extra UI work to surface it.
 	notes = append(notes, missingImportedToolNotes(wp)...)
-	if len(notes) > 0 {
-		LastDecorationNotes = notes
-	} else {
-		LastDecorationNotes = nil
-	}
+	SetLastDecorationNotes(notes)
 	return nil
 }
+
+var launcherMu sync.RWMutex
 
 // LastDecorationNotes is set by PrepareSandbox after each call so the TUI
 // can surface non-fatal warnings (online-skill clone failed, memory copy
@@ -91,6 +90,42 @@ var LastSessionDir string
 // "ignore files modified before this" cutoff so we don't accidentally
 // grab a previous session's artifact for the same cwd.
 var LastSessionStartedAt time.Time
+
+// GetLastSession returns the most recent session directory and start time under read lock.
+func GetLastSession() (string, time.Time) {
+	launcherMu.RLock()
+	defer launcherMu.RUnlock()
+	return LastSessionDir, LastSessionStartedAt
+}
+
+// SetLastSession updates the most recent session directory and start time under write lock.
+func SetLastSession(dir string, started time.Time) {
+	launcherMu.Lock()
+	defer launcherMu.Unlock()
+	LastSessionDir = dir
+	LastSessionStartedAt = started
+}
+
+// GetLastDecorationNotes returns a safe copy of the decoration notes under read lock.
+func GetLastDecorationNotes() []string {
+	launcherMu.RLock()
+	defer launcherMu.RUnlock()
+	if len(LastDecorationNotes) == 0 {
+		return nil
+	}
+	return append([]string(nil), LastDecorationNotes...)
+}
+
+// SetLastDecorationNotes updates decoration notes under write lock.
+func SetLastDecorationNotes(notes []string) {
+	launcherMu.Lock()
+	defer launcherMu.Unlock()
+	if len(notes) > 0 {
+		LastDecorationNotes = append([]string(nil), notes...)
+	} else {
+		LastDecorationNotes = nil
+	}
+}
 
 // contextPrimerRootDoc returns the compiled root-doc filename the given
 // agent's wpc target writes to the SANDBOX ROOT — the file that embeds
@@ -232,14 +267,16 @@ type LaunchPlan struct {
 // accepts OpenAI-compatible endpoints. Claude Code remains on Anthropic;
 // OpenClaude is the supported Claude-style local route.
 func Plan(ws Workspace, agent Agent) (LaunchPlan, error) {
-	// Clear per-launch globals so a partial run on a prior chat
+	// Clear per-launch globals under lock so a partial run on a prior chat
 	// doesn't leak state into this one.
+	launcherMu.Lock()
 	LastSessionDir = ""
 	LastSessionStartedAt = time.Time{}
 	LastResumeNote = ""
 	LastResumeRestoredTo = ""
 	LastMirrorResult = MirrorResult{}
 	LastMirrorInResult = MirrorResult{}
+	launcherMu.Unlock()
 	if err := PrepareSandbox(ws, agent); err != nil {
 		return LaunchPlan{}, err
 	}

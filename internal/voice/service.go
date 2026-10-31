@@ -30,12 +30,13 @@ type Config struct {
 	KeepLoaded               bool
 }
 type Service struct {
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	done     chan struct{}
-	endpoint string
-	config   Config
-	closed   bool
+	mu        sync.Mutex
+	cmd       *exec.Cmd
+	done      chan struct{}
+	endpoint  string
+	config    Config
+	closed    bool
+	idleTimer *time.Timer
 }
 type Result struct {
 	Text     string `json:"text"`
@@ -54,6 +55,10 @@ func ValidateWAV(audio []byte) error {
 	return nil
 }
 func (s *Service) stopLocked(ctx context.Context) error {
+	if s.idleTimer != nil {
+		s.idleTimer.Stop()
+		s.idleTimer = nil
+	}
 	if s.cmd == nil {
 		return nil
 	}
@@ -87,52 +92,66 @@ func (s *Service) start(ctx context.Context, c Config) error {
 			}
 		}
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return err
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-	var token [24]byte
-	if _, err := rand.Read(token[:]); err != nil {
-		return err
-	}
-	prefix := "/" + hex.EncodeToString(token[:])
-	cmd := exec.Command(c.Runtime, "-m", c.Model, "-t", strconv.Itoa(c.Threads), "-l", c.Language, "--host", "127.0.0.1", "--port", strconv.Itoa(port), "--request-path", prefix, "--public", filepath.Join(filepath.Dir(c.Runtime), "no-web-ui"), "-ng", "-mc", "0")
-	cmd.Dir = filepath.Dir(c.Runtime)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	s.cmd = cmd
-	s.done = make(chan struct{})
-	done := s.done
-	go func() { _ = cmd.Wait(); close(done) }()
-	s.config = c
-	s.endpoint = fmt.Sprintf("http://127.0.0.1:%d%s", port, prefix)
-	ready, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	ticker := time.NewTicker(150 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-done:
-			s.cmd = nil
-			return errors.New("Whisper runtime exited before loading; verify runtime/model compatibility")
-		case <-ready.Done():
-			_ = cmd.Process.Kill()
-			<-done
-			s.cmd = nil
-			return ready.Err()
-		case <-ticker.C:
-			conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 100*time.Millisecond)
-			if err == nil {
-				conn.Close()
-				return nil
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return err
+		}
+		port := listener.Addr().(*net.TCPAddr).Port
+		_ = listener.Close()
+		var token [24]byte
+		if _, err := rand.Read(token[:]); err != nil {
+			return err
+		}
+		prefix := "/" + hex.EncodeToString(token[:])
+		cmd := exec.Command(c.Runtime, "-m", c.Model, "-t", strconv.Itoa(c.Threads), "-l", c.Language, "--host", "127.0.0.1", "--port", strconv.Itoa(port), "--request-path", prefix, "--public", filepath.Join(filepath.Dir(c.Runtime), "no-web-ui"), "-ng", "-mc", "0")
+		cmd.Dir = filepath.Dir(c.Runtime)
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+		if err := cmd.Start(); err != nil {
+			lastErr = err
+			continue
+		}
+		s.cmd = cmd
+		s.done = make(chan struct{})
+		done := s.done
+		go func() { _ = cmd.Wait(); close(done) }()
+		s.config = c
+		s.endpoint = fmt.Sprintf("http://127.0.0.1:%d%s", port, prefix)
+		ready, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		ticker := time.NewTicker(150 * time.Millisecond)
+		started := false
+		for !started {
+			select {
+			case <-done:
+				ticker.Stop()
+				cancel()
+				s.cmd = nil
+				lastErr = errors.New("Whisper runtime exited before loading; verify runtime/model compatibility")
+				started = true
+			case <-ready.Done():
+				ticker.Stop()
+				cancel()
+				_ = cmd.Process.Kill()
+				<-done
+				s.cmd = nil
+				return ready.Err()
+			case <-ticker.C:
+				conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 100*time.Millisecond)
+				if err == nil {
+					_ = conn.Close()
+					ticker.Stop()
+					cancel()
+					return nil
+				}
 			}
 		}
 	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return errors.New("failed to start Whisper runtime after multiple attempts")
 }
 func (s *Service) Transcribe(ctx context.Context, c Config, audio []byte, vocabulary []string) (Result, error) {
 	if err := ValidateWAV(audio); err != nil {
@@ -146,14 +165,29 @@ func (s *Service) Transcribe(ctx context.Context, c Config, audio []byte, vocabu
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	if s.idleTimer != nil {
+		s.idleTimer.Stop()
+		s.idleTimer = nil
+	}
 	if err := s.start(ctx, c); err != nil {
 		return Result{}, err
 	}
 	if !c.KeepLoaded {
 		defer func() {
-			stop, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = s.stopLocked(stop)
+			if !s.closed && s.cmd != nil {
+				if s.idleTimer != nil {
+					s.idleTimer.Stop()
+				}
+				s.idleTimer = time.AfterFunc(60*time.Second, func() {
+					s.mu.Lock()
+					defer s.mu.Unlock()
+					if s.cmd != nil && !s.config.KeepLoaded {
+						stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						_ = s.stopLocked(stopCtx)
+					}
+				})
+			}
 		}()
 	}
 	var body bytes.Buffer

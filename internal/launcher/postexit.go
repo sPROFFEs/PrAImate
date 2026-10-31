@@ -29,15 +29,15 @@ import (
 // errors — callers shouldn't fail the launch because a transcript
 // couldn't be found.
 func CapturePostExit(ws Workspace, agent Agent, sessionStart, sessionEnd time.Time) (SessionSummary, error) {
-	if LastSessionDir == "" {
+	dir, started := GetLastSession()
+	if dir == "" {
 		// Nothing for us to write into; decorate.go never reached the
 		// recordChatSession step (possible if PrepareSandbox failed
 		// before that line). Bail quietly — main() just exits.
 		return SessionSummary{}, nil
 	}
-	dir := LastSessionDir
 	if sessionStart.IsZero() {
-		sessionStart = LastSessionStartedAt
+		sessionStart = started
 	}
 	if sessionEnd.IsZero() {
 		sessionEnd = time.Now().UTC()

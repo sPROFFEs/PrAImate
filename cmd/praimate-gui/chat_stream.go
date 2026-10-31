@@ -9,6 +9,8 @@ package main
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -91,6 +93,16 @@ func (a *App) SendChatStream(chatID, message string, attachments []string) (*cor
 		a.chatCancelMu.Unlock()
 	}
 
+	emitImmediate := func(streamEvent ChatStreamEvent) {
+		wruntime.EventsEmit(a.ctx, "praimate:chat-stream", streamEvent)
+		if a.detached != nil {
+			a.detached.publish("chat", chatID, "praimate:chat-stream", streamEvent)
+			a.detached.publish("studio", chatID, "praimate:chat-stream", streamEvent)
+		}
+	}
+	coalescer := newStreamCoalescer(20*time.Millisecond, emitImmediate)
+	defer coalescer.Flush()
+
 	onEvent := func(ev core.StreamEvent) {
 		streamEvent := ChatStreamEvent{
 			ChatID: chatID,
@@ -101,13 +113,10 @@ func (a *App) SendChatStream(chatID, message string, attachments []string) (*cor
 			ID:     ev.ID,
 			OK:     ev.OK,
 		}
-		wruntime.EventsEmit(a.ctx, "praimate:chat-stream", streamEvent)
-		if a.detached != nil {
-			a.detached.publish("chat", chatID, "praimate:chat-stream", streamEvent)
-			a.detached.publish("studio", chatID, "praimate:chat-stream", streamEvent)
-		}
+		coalescer.push(streamEvent)
 	}
 	turn, streamErr := c.ContinueChatStream(ctx, chatID, message, chat.WorkspacePath, systemPrompt, attachments, onEvent)
+	coalescer.Flush()
 	cleanup()
 	if a.detached != nil {
 		finished := ChatFinishedEvent{ChatID: chatID}
@@ -157,4 +166,64 @@ func (a *App) CancelChatTurn(chatID string) {
 	if ok {
 		cancel()
 	}
+}
+
+// streamCoalescer aggregates rapid sequential text deltas over a small duration
+// (e.g. 20ms) to avoid overwhelming the frontend event bus and IPC serialization.
+type streamCoalescer struct {
+	emitFn   func(ChatStreamEvent)
+	mu       sync.Mutex
+	pending  ChatStreamEvent
+	timer    *time.Timer
+	interval time.Duration
+}
+
+func newStreamCoalescer(interval time.Duration, emitFn func(ChatStreamEvent)) *streamCoalescer {
+	return &streamCoalescer{
+		emitFn:   emitFn,
+		interval: interval,
+	}
+}
+
+func (c *streamCoalescer) push(ev ChatStreamEvent) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if ev.Type == "text" {
+		if c.pending.Type == "text" {
+			c.pending.Text += ev.Text
+			return
+		}
+		c.flushLocked()
+		c.pending = ev
+		if c.timer == nil {
+			c.timer = time.AfterFunc(c.interval, func() {
+				c.mu.Lock()
+				c.flushLocked()
+				c.mu.Unlock()
+			})
+		} else {
+			c.timer.Reset(c.interval)
+		}
+		return
+	}
+
+	c.flushLocked()
+	c.emitFn(ev)
+}
+
+func (c *streamCoalescer) flushLocked() {
+	if c.timer != nil {
+		c.timer.Stop()
+	}
+	if c.pending.Type != "" {
+		c.emitFn(c.pending)
+		c.pending = ChatStreamEvent{}
+	}
+}
+
+func (c *streamCoalescer) Flush() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.flushLocked()
 }
