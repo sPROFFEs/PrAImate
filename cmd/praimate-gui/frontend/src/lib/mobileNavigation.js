@@ -67,6 +67,12 @@ export const mobileNavigation = [
     "icon": "M12 22v-5M9 8V2M15 8V2M6 8h12v5a6 6 0 0 1-12 0z"
   },
   {
+    "id": "server",
+    "label": "Server",
+    "group": "Configure",
+    "icon": "M4 3h16v7H4zM4 14h16v7H4zM8 6.5h.01M8 17.5h.01M12 6.5h5M12 17.5h5"
+  },
+  {
     "id": "settings",
     "label": "Settings",
     "group": "Configure",

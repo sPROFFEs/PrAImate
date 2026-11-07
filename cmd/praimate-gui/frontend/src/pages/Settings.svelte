@@ -3,9 +3,9 @@
   import { onMount, onDestroy, tick } from 'svelte'
   import { api } from '../lib/api.js'
   import AssistantSettings from '../lib/AssistantSettings.svelte'
-  import CloudflareSettings from '../lib/CloudflareSettings.svelte'
+  import { canConfigureServer } from '../lib/editionNavigation.js'
   import { focusDialog } from '../lib/focusDialog.js'
-  import { showToast } from '../lib/stores.js'
+  import { showToast, appEdition, activePage } from '../lib/stores.js'
   import {
     ACCENT_PRESETS,
     themeMode,
@@ -420,8 +420,13 @@
 
 {#if error}<div class="banner">{error}</div>{/if}
 
+{#if canConfigureServer($appEdition, window.praimateRemote?.status?.identity?.role)}
+<div class="card">
+  <div class="row"><div class="grow"><div class="card-title">PrAImate Server</div><div class="card-sub">Manage remote access, startup, TLS, device pairing, and Cloudflare Tunnel.</div></div><button class="btn primary" on:click={() => activePage.set('server')}>Configure Server</button></div>
+</div>
+{/if}
+
 <AssistantSettings />
-<CloudflareSettings />
 
 <h1 style="font-size:16px">Updates</h1>
 {#if updateNotice}<p class="subtitle" role="status">{updateNotice}</p>{/if}

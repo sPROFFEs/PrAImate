@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+// Devices returns the shared registry so local administration and HTTP access
+// use the same revocation state, including while requests are in flight.
+func (g *Gateway) Devices() *Devices { return g.devices }
+
 func (g *Gateway) authenticate(r *http.Request) (Principal, bool) {
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {

@@ -5,6 +5,7 @@ import { api } from './api.js'
 // activePage; openChatId, when set, tells the Chats page to open that
 // chat as a live thread (used when Agents starts a new chat).
 export const activePage = writable('dashboard')
+export const appEdition = writable('desktop')
 // Increment after setting pendingTerm when Code must consume a fresh attach
 // request. This also handles clicking a Code session while Code is already
 // the active page (setting the same activePage value alone does not remount).

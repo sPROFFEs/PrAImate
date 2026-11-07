@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 type Config struct {
 	Listen          string
 	Token           string
+	Administrator   *AdministratorCredential `json:"-"`
 	TLSCert, TLSKey string
 	AllowedOrigins  []string
 	State           State
@@ -29,6 +31,17 @@ type Config struct {
 	Assets          http.Handler
 	Files           *Files
 	Upload          func(context.Context, string, io.Reader) (any, error)
+}
+
+// AdministratorCredential carries only the in-memory verifier across listener
+// restarts. Its private fields cannot expose a bootstrap credential via JSON.
+type AdministratorCredential struct {
+	hash    [32]byte
+	enabled bool
+}
+
+func (g *Gateway) AdministratorCredential() *AdministratorCredential {
+	return &AdministratorCredential{hash: g.tokenHash, enabled: g.adminEnabled}
 }
 
 type Call func(context.Context, string, json.RawMessage) (any, error)
@@ -70,7 +83,7 @@ func (g *Gateway) SetPublicOrigin(origin string) error {
 }
 
 func New(config Config, call Call) (*Gateway, error) {
-	if (config.Token != "" && len(config.Token) < 32) || (config.Token == "" && config.State == nil) {
+	if (config.Token != "" && len(config.Token) < 32) || (config.Token == "" && config.State == nil && config.Administrator == nil) {
 		return nil, errors.New("remote access requires a token of at least 32 characters")
 	}
 	if config.Listen == "" {
@@ -78,6 +91,9 @@ func New(config Config, call Call) (*Gateway, error) {
 	}
 	hash := sha256.Sum256([]byte(config.Token))
 	adminEnabled := config.Token != ""
+	if config.Token == "" && config.Administrator != nil {
+		hash, adminEnabled = config.Administrator.hash, config.Administrator.enabled
+	}
 	config.Token = ""
 	epoch, err := randomID(9)
 	if err != nil {
@@ -100,19 +116,9 @@ func New(config Config, call Call) (*Gateway, error) {
 // Start validates TLS before opening a socket. Loopback HTTP supports SSH/VPN
 // forwarding; an externally bound endpoint always requires explicit TLS.
 func (g *Gateway) Start(ctx context.Context) (string, error) {
-	host, _, err := net.SplitHostPort(g.config.Listen)
+	tlsConfig, err := ValidateListener(g.config)
 	if err != nil {
-		return "", fmt.Errorf("remote listen address: %w", err)
-	}
-	var tlsConfig *tls.Config
-	if g.config.TLSCert != "" || g.config.TLSKey != "" {
-		cert, err := tls.LoadX509KeyPair(g.config.TLSCert, g.config.TLSKey)
-		if err != nil {
-			return "", fmt.Errorf("remote TLS certificate: %w", err)
-		}
-		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}
-	} else if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
-		return "", errors.New("remote listeners outside loopback require a TLS certificate and key")
+		return "", err
 	}
 	g.mu.Lock()
 	if g.server != nil || g.closed {
@@ -139,6 +145,30 @@ func (g *Gateway) Start(ctx context.Context) (string, error) {
 		}
 	}()
 	return listener.Addr().String(), nil
+}
+
+// ValidateListener checks a saved configuration without opening a socket or
+// interrupting a working listener.
+func ValidateListener(config Config) (*tls.Config, error) {
+	host, port, err := net.SplitHostPort(config.Listen)
+	if err != nil {
+		return nil, fmt.Errorf("remote listen address: %w", err)
+	}
+	number, err := strconv.Atoi(port)
+	if err != nil || number < 0 || number > 65535 {
+		return nil, errors.New("remote port must be between 0 and 65535")
+	}
+	if config.TLSCert != "" || config.TLSKey != "" {
+		cert, err := tls.LoadX509KeyPair(config.TLSCert, config.TLSKey)
+		if err != nil {
+			return nil, fmt.Errorf("remote TLS certificate: %w", err)
+		}
+		return &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}, nil
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		return nil, errors.New("remote listeners outside loopback require a TLS certificate and key")
+	}
+	return nil, nil
 }
 
 func (g *Gateway) Close() error {

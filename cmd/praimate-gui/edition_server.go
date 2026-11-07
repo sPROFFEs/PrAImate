@@ -19,17 +19,21 @@ import (
 )
 
 type editionServices struct {
-	mu               sync.Mutex
-	config           remote.Config
-	gateway          *remote.Gateway
-	registry         *remote.Registry
-	leases           *remote.Leases
-	files            *remote.Files
-	startError       error
-	address          string
-	owner            *os.File
-	restartRequested bool
-	tunnel           *cloudflared.Manager
+	listenerMu          sync.Mutex
+	mu                  sync.Mutex
+	settingsLoaded      bool
+	startupDisabled     bool
+	activeConfiguration *ServerConfiguration
+	config              remote.Config
+	gateway             *remote.Gateway
+	registry            *remote.Registry
+	leases              *remote.Leases
+	files               *remote.Files
+	startError          error
+	address             string
+	owner               *os.File
+	restartRequested    bool
+	tunnel              *cloudflared.Manager
 }
 
 func newEditionServices() editionServices {
@@ -51,12 +55,33 @@ func newEditionServices() editionServices {
 }
 
 func (e *editionServices) start(a *App) {
+	e.listenerMu.Lock()
+	defer e.listenerMu.Unlock()
+	e.startListener(a)
+}
+
+// Serialized by listenerMu. Closing a gateway must never hold edition.mu:
+// HTTP handlers can need that mutex while Shutdown waits for them to return.
+func (e *editionServices) startListener(a *App) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.gateway != nil || a.detachedClient != nil || editorFolder != "" {
 		return
 	}
 	e.startError = nil
+	if e.startupDisabled {
+		return
+	}
+	if !e.settingsLoaded {
+		ready, err := e.prepareServerSettingsLocked(a)
+		if err != nil {
+			e.startError = err
+			return
+		}
+		if !ready {
+			return
+		}
+	}
 	if e.config.Listen == "" {
 		publicURL, err := e.tunnelLocked(a).PublicURL(a.ctx)
 		if err != nil {
@@ -99,7 +124,10 @@ func (e *editionServices) start(a *App) {
 		return
 	}
 	e.config.Token = ""
+	e.config.Administrator = g.AdministratorCredential()
 	e.gateway = g
+	active := serverConfiguration(e.config)
+	e.activeConfiguration = &active
 	if a.workers != nil {
 		changes, unsubscribe := a.workers.SubscribeChanges()
 		go func() {
@@ -130,9 +158,17 @@ func (e *editionServices) start(a *App) {
 }
 
 func (e *editionServices) close() {
+	e.listenerMu.Lock()
+	defer e.listenerMu.Unlock()
+	e.closeListener()
+}
+
+func (e *editionServices) closeListener() {
 	e.mu.Lock()
 	g := e.gateway
 	e.gateway = nil
+	e.address = ""
+	e.activeConfiguration = nil
 	e.mu.Unlock()
 	if g != nil {
 		_ = g.Close()

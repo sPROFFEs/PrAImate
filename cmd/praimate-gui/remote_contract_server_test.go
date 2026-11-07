@@ -28,6 +28,14 @@ func TestRemoteControlCatalogCanSelectARouteWithoutAdminConfigurationAccess(t *t
 	if available["api.GetGUISetting"] || available["api.SaveLocalHost"] || available["api.CloudflareStatus"] || available["api.SaveCloudflareConfig"] || available["api.CloudflareService"] || available["api.ServerPairing"] {
 		t.Fatal("controller can administer stored configuration")
 	}
+	for _, name := range []string{"api.ServerStatus", "api.SaveServerConfig", "api.ServerListener", "api.ServerDevices", "api.RevokeServerDevice"} {
+		if available[name] {
+			t.Errorf("controller can administer Server using %s", name)
+		}
+		if _, err := r.Call(remote.WithPrincipal(context.Background(), controller), name, []byte(`[]`)); err == nil {
+			t.Errorf("controller could call %s", name)
+		}
+	}
 	_, err := r.Call(remote.WithPrincipal(context.Background(), controller), "api.GetGUISetting", []byte(`["example"]`))
 	if err == nil {
 		t.Fatal("catalog filtering was not enforced at execution")

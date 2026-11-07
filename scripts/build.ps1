@@ -22,7 +22,7 @@ param(
         "windows-amd64",
         "windows-arm64"
     ),
-    [string] $Version = "1.2.27",
+    [string] $Version = "1.2.28",
     [ValidateSet("Desktop", "Server")]
     [string] $Edition = "Desktop",
     [string] $LdFlags = "-s -w",

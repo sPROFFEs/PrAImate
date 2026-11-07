@@ -1,35 +1,39 @@
-# PrAImate 1.2.27
+# PrAImate 1.2.28
 
-**[Install Desktop, Server or Android](https://github.com/sPROFFEs/PrAImate/blob/main/docs/INSTALLATION.md)**:
-platform downloads, edition selection, first startup, pairing and separate profiles.
+**[Install Desktop, Server or Android](https://github.com/sPROFFEs/PrAImate/blob/v1.2.28/docs/INSTALLATION.md)**:
+platform downloads, edition selection, first startup and device pairing.
 
-This release includes Desktop, the optional Server edition and an installable
-Android preview, built from the `server` branch. `main` remains Desktop-only.
-Desktop and Server archives remain self-contained. Shared native
-CLI, PrAImate Code and Graphify standalone assets are published once per platform;
-there are no separate Server copies of these tools.
+The Server edition now has a visible **SERVER** label and a dedicated **Server**
+page, also linked from **Settings → Configure Server**. Configure remote access
+without environment variables or terminal commands.
 
-- Server provides the shared workspace, conversations, Studio, terminal streams,
-  workers, files, device pairing and administration through authenticated HTTPS.
-- Optional Cloudflare Tunnel setup installs a dedicated per-user connector from
-  a user-provided token. Cloudflare Access email/PIN sign-in is supported by the
-  Android client without exposing its native bridge or device bearer to login pages.
-- The Android preview uses the desktop interface with mobile navigation and an
-  encrypted device vault. It can check GitHub releases manually or once daily
-  on opening, download an update over HTTPS, verify SHA-256, package identity and
-  its signing certificate, then hand installation to Android with user confirmation.
-- Edition-aware installers and updates accept combined releases while refusing
-  to install a Desktop archive over Server or vice versa.
+- Configure the listen address/port, TLS certificate and key paths, allowed
+  browser origins, and automatic startup after database unlock. Settings are
+  stored in the encrypted database.
+- Save settings independently of applying them. Start, stop or restart the
+  listener while local chats, workers and native terminals keep running. A failed
+  bind restores the previous listener configuration and shows the error.
+- Manage Cloudflare Tunnel, generate pairing codes for direct or tunnel
+  connections, and list/revoke paired devices from the same page. Saving
+  connector settings respects a stopped listener and the startup preference.
+- Listener restarts preserve device authentication and the bootstrap verifier.
+  Remote restart requests retain their completed operation receipt.
+- Fix browser connections failing with `Illegal invocation` when calling native
+  `fetch`. The shared Server page supports light/dark themes and mobile layouts;
+  remote administration is restricted to administrator devices.
 
-Use `praimate-<platform>` for Desktop, `praimate-server-<platform>` for Server,
-and `praimate-mobile-preview.apk` for Android. The APK uses a persistent preview
-signer and the `com.praimate.mobile.debug` application ID, retaining compatibility
-with the local preview builds. `SHA256SUMS` covers every published asset.
+This combined release is built from `server`; `main` remains Desktop-only.
+Choose `praimate-<platform>` for Desktop, `praimate-server-<platform>` for Server,
+and `praimate-mobile-preview.apk` for Android. Desktop and Server archives remain
+self-contained; shared CLI, PrAImate Code and Graphify standalone assets are
+published once per platform. `SHA256SUMS` covers every published asset.
 
-Automated Go, browser, distribution, Android JVM and lint checks run before
-publication. Server/mobile are available for testing: actual Android device
-permissions, native file/installer flows and the real Cloudflare email/PIN flow
-still need device/account validation. The VM's software emulator was not usable
-for those checks. Existing desktop workflows do not require the remote module.
+The APK keeps the persistent preview signer and `com.praimate.mobile.debug`
+application ID, supporting updates from the previous preview without re-pairing.
+Server/mobile remain available for testing. Native Android permission/installer
+flows and real Cloudflare email/PIN sign-in still require device/account
+validation; the VM's software emulator cannot validate those flows reliably.
 
-See `docs/REMOTE-SERVER.md` and `docs/MOBILE-ANDROID.md` for setup and limitations.
+See the [Server guide](https://github.com/sPROFFEs/PrAImate/blob/v1.2.28/docs/REMOTE-SERVER.md)
+and [Android guide](https://github.com/sPROFFEs/PrAImate/blob/v1.2.28/docs/MOBILE-ANDROID.md)
+for setup and limitations.

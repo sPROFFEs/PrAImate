@@ -9,6 +9,11 @@ import "github.com/sPROFFEs/PrAImate/internal/remote"
 func (a *App) remoteMethods() *remote.Registry {
 	r := remote.NewRegistry()
 	r.SetErrorSanitizer(a.remoteError)
+	r.Register("api.ServerStatus", "admin", false, a.ServerStatus)
+	r.Register("api.SaveServerConfig", "admin", true, a.SaveServerConfig)
+	r.Register("api.ServerListener", "admin", true, a.remoteServerListener)
+	r.Register("api.ServerDevices", "admin", false, a.ServerDevices)
+	r.Register("api.RevokeServerDevice", "admin", true, a.RevokeServerDevice)
 	r.Register("api.CloudflareStatus", "admin", false, a.CloudflareStatus)
 	r.Register("api.SaveCloudflareConfig", "admin", true, a.SaveCloudflareConfig)
 	r.Register("api.CloudflareService", "admin", true, a.CloudflareService)

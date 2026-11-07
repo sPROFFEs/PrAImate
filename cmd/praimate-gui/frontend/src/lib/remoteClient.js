@@ -17,7 +17,9 @@ export class RemoteClient {
   constructor({ baseURL, token, fetchImpl = globalThis.fetch, onEvent = () => {}, onConnection = () => {} }) {
     this.baseURL = baseURL.replace(/\/$/, '')
     this.token = token
-    this.fetch = fetchImpl
+    // Native Window.fetch validates its receiver. Keeping it as an unbound
+    // instance property makes browser logins fail with "Illegal invocation".
+    this.fetch = fetchImpl.bind(globalThis)
     this.onEvent = onEvent
     this.onConnection = onConnection
     this.methods = new Map()

@@ -19,6 +19,11 @@ function call(method, ...args) {
 }
 
 export const api = {
+	serverStatus: () => call('ServerStatus'),
+	saveServerConfig: config => call('SaveServerConfig', JSON.stringify(config)),
+	serverListener: action => call('ServerListener', action),
+	serverDevices: () => call('ServerDevices'),
+	revokeServerDevice: id => call('RevokeServerDevice', id),
   cloudflareStatus: () => call('CloudflareStatus'),
   saveCloudflareConfig: config => call('SaveCloudflareConfig', JSON.stringify(config)),
   cloudflareService: action => call('CloudflareService', action),

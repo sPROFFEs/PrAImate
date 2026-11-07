@@ -2,6 +2,17 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { RemoteClient } from './remoteClient.js'
 
+test('browser fetch keeps the global receiver when used by the remote client', async t => {
+  const mock=t.mock.method(globalThis,'fetch',async function () {
+    assert.equal(this,globalThis,'native Window.fetch rejects a RemoteClient receiver')
+    return new Response(JSON.stringify({connected:true}),{headers:{'Content-Type':'application/json'}})
+  })
+  const client=new RemoteClient({baseURL:'https://server.example',token:'fixture-token'})
+  assert.deepEqual(await client.request('/v1/status'),{connected:true})
+  await client.fetch('https://server.example/v1/download')
+  assert.equal(mock.mock.callCount(),2)
+})
+
 test('an Access redirect never follows or repeats a mutation', async()=>{
   let requests=0, cancelled=false
   const client=new RemoteClient({baseURL:'https://server.example',token:'fixture-token',fetchImpl:async(url,options)=>{

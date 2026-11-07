@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
-  import { activePage, agentStudio, pendingTerm, pageRevision } from './stores.js'
+  import { activePage, appEdition, agentStudio, pendingTerm, pageRevision } from './stores.js'
+  import { visibleNavigation } from './editionNavigation.js'
   import { api } from './api.js'
   import { term } from './terminal.js'
   import { mobileNavigation } from './mobileNavigation.js'
@@ -16,8 +17,9 @@
   let menu = false, error = '', terminalID = '', terminalPicker = false, sessions = []
   let ready = false, selectedChat = '', selectedWorker = '', routeTimer
   let leaving = false
+  $: navigation = visibleNavigation(mobileNavigation, $appEdition, window.praimateRemote?.status?.identity?.role)
   $: currentID = workspaceView ? 'studio' : $agentStudio ? 'agents' : $activePage
-  $: current = mobileNavigation.find(page => page.id === currentID)
+  $: current = navigation.find(page => page.id === currentID)
   $: if ($activePage) menu = false
   $: if (ready && !workspaceView) remember(remoteRoute(currentID,{chat:selectedChat,worker:selectedWorker,terminal:terminalID,agent:$agentStudio?.id || ''}))
 
@@ -97,7 +99,7 @@
     <div class="server-address">{mobile.serverURL}</div>
     {#each groups as group}
       <div class="nav-group">{group}</div>
-      {#each mobileNavigation.filter(page => page.group === group) as page}
+      {#each navigation.filter(page => page.group === group) as page}
         <button class="mobile-nav-item" class:active={currentID === page.id} aria-current={currentID === page.id ? 'page' : undefined} on:click={() => navigate(page.id)}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d={page.icon} /></svg><span>{page.label}</span>
         </button>

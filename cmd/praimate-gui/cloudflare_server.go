@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"path/filepath"
 
 	"github.com/sPROFFEs/PrAImate/internal/cloudflared"
@@ -42,22 +41,8 @@ func (a *App) CloudflareStatus() (cloudflared.Status, error) {
 	}
 	status, err := m.Status(a.ctx)
 	a.edition.mu.Lock()
-	if a.edition.address != "" {
-		scheme := "http"
-		if a.edition.config.TLSCert != "" {
-			scheme = "https"
-		}
-		host, port, splitErr := net.SplitHostPort(a.edition.address)
-		if splitErr == nil {
-			if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
-				if ip.To4() != nil {
-					host = "127.0.0.1"
-				} else {
-					host = "::1"
-				}
-			}
-			status.OriginURL = scheme + "://" + net.JoinHostPort(host, port)
-		}
+	if a.edition.gateway != nil {
+		status.OriginURL = serverOriginURL(a.edition.address, a.edition.config.TLSCert != "")
 	}
 	a.edition.mu.Unlock()
 	return status, err
@@ -80,11 +65,17 @@ func (a *App) SaveCloudflareConfig(raw string) error {
 	}
 	a.edition.mu.Lock()
 	g := a.edition.gateway
-	if a.edition.config.Listen == "" {
-		a.edition.config.Listen = "127.0.0.1:8844"
-	}
 	a.edition.mu.Unlock()
 	if g == nil {
+		_, saved, err := a.loadServerConfiguration()
+		if err != nil {
+			return err
+		}
+		// A saved listener configuration is controlled explicitly from Server.
+		// Connector configuration must not undo a user's Stop access action.
+		if saved {
+			return nil
+		}
 		a.edition.start(a)
 		a.edition.mu.Lock()
 		g = a.edition.gateway
