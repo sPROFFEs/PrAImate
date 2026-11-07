@@ -117,7 +117,7 @@
         {#if !status.running}<p class="muted">Start remote access to create a pairing code.</p>{/if}
         {#if pairing}<div class="pairing" role="status">{#if expired}<strong>Pairing code expired. Create a new one.</strong>{:else}<div class="actions"><strong class="pair-code">{pairing.code}</strong><button class="btn sm" on:click={() => copy(pairing.code)}>Copy code</button></div><span class="muted">{pairing.name} · {pairing.role} · expires {new Date(pairing.expiresAt).toLocaleTimeString()}</span><span class="muted">Enter your reachable Server address in the Android app, complete Cloudflare Access if enabled, then enter this code.</span>{/if}</div>{/if}
         <div class="devices">
-          {#each devices as device (device.id)}<div class="device"><div><strong>{device.name}</strong><span class="muted">{device.role} · {device.revoked ? 'Revoked' : Date.parse(device.expiresAt) <= now ? 'Expired' : 'Paired'} · expires {new Date(device.expiresAt).toLocaleDateString()}</span></div>{#if !device.revoked}<button class="btn sm" disabled={!!busy} on:click={() => revoke(device)}>Revoke access</button>{/if}</div>{:else}<p class="muted">No paired devices yet.</p>{/each}
+          {#each devices.filter(device => !device.revoked) as device (device.id)}<div class="device"><div><strong>{device.name}</strong><span class="muted">{device.role} · {Date.parse(device.expiresAt) <= now ? 'Expired' : 'Paired'} · expires {new Date(device.expiresAt).toLocaleDateString()}</span></div><button class="btn sm" disabled={!!busy} on:click={() => revoke(device)}>Revoke access</button></div>{:else}<p class="muted">No active paired devices.</p>{/each}
         </div>
       </section>
     {/if}

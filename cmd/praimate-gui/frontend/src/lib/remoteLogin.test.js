@@ -3,6 +3,21 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { compile, parse } from 'svelte/compiler'
 
+test('saved-session bootstrap shows a connection screen before rendering pairing controls', async () => {
+  let source=await readFile(new URL('./RemoteLogin.svelte',import.meta.url),'utf8')
+  source=source.replace("import logo from '../assets/monke-icon.png'", "const logo = 'fixture-logo'")
+  const {js}=compile(source,{generate:'ssr'})
+  const code=js.code.replace(/^import (.+?) from (['"])([^'"]+)\2;?$/gm, (_,bindings,quote,specifier)=>`import ${bindings} from ${JSON.stringify(import.meta.resolve(specifier))};`)
+  const module=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
+  const previous=globalThis.window
+  try {
+    globalThis.window={praimateMobile:{serverName:'Saved Server'}}
+    const html=module.default.render({connect:async()=>{}}).html
+    assert.match(html,/Connecting/)
+    assert.doesNotMatch(html,/<form|one-time-code|Administrator token/)
+  } finally { if(previous===undefined)delete globalThis.window;else globalThis.window=previous }
+})
+
 async function renderedPairingInput() {
   const source = await readFile(new URL('./RemoteLogin.svelte', import.meta.url), 'utf8')
   const inputs = []

@@ -2,23 +2,41 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createTerminalRenderers } from './terminalRenderers.js'
 
-function fixture() {
+function fixture(options = {}) {
   const data = new Map(), exits = new Map(), writes = [], inputs = []
   const registry = createTerminalRenderers({
     onData: (id, fn) => { data.set(id, fn); return () => data.delete(id) },
     onExit: (id, fn) => { exits.set(id, fn); return () => exits.delete(id) },
     resize: () => {}, write: (id, value) => inputs.push([id, value]),
     makeHost: () => ({ remove() {} }),
+    ...options,
   })
   let created = 0, snapshots = 0
   const factory = () => {
     created++
-    const terminal = { cols: 80, rows: 24, open() {}, focus() {}, dispose() { this.disposed = true }, resize(cols, rows) { this.cols = cols; this.rows = rows }, onData(fn) { this.input = fn }, write(value, callback) { writes.push(value); callback?.() } }
+    const terminal = { cols: 80, rows: 24, open() {}, focus() {this.focused=true}, dispose() { this.disposed = true }, resize(cols, rows) { this.cols = cols; this.rows = rows }, onData(fn) { this.input = fn }, write(value, callback) { writes.push(value); callback?.() } }
     return { xterm: terminal, fit: { fit() {} } }
   }
   const snapshot = async () => { snapshots++; return { data: btoa('initial'), endOffset: 7, cols: 80, rows: 24 } }
   return { registry, data, exits, writes, inputs, factory, snapshot, host: { appendChild() {} }, counts: () => [created, snapshots] }
 }
+
+test('restoring a mobile terminal does not steal keyboard focus from the text composer',async()=>{
+  const f=fixture({autoFocus:()=>false}),entry=f.registry.acquire('term',f.factory,f.snapshot)
+  await entry.mount(f.host,()=>{})
+  assert.equal(entry.xterm.focused,undefined)
+  entry.xterm.modes={bracketedPasteMode:true}
+  assert.equal(f.registry.bracketedPaste('term'),true)
+  assert.equal(f.registry.bracketedPaste('missing'),false)
+  entry.dispose()
+})
+
+test('desktop terminal restoration continues to focus the emulator',async()=>{
+  const f=fixture({autoFocus:()=>true}),entry=f.registry.acquire('term',f.factory,f.snapshot)
+  await entry.mount(f.host,()=>{})
+  assert.equal(entry.xterm.focused,true)
+  entry.dispose()
+})
 
 test('reattaching keeps the same emulator and consumes output while hidden', async () => {
   const f = fixture(), first = f.registry.acquire('term', f.factory, f.snapshot)

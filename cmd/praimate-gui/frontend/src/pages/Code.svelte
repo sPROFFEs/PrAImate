@@ -426,7 +426,7 @@
   // The Sessions panel signals "PTY is gone" by setting termId=''; we
   // launch with the native resume selector in that case.
   async function attachPending(p) {
-    sessionLabel = p.label
+    sessionLabel = p.label || p.cli || 'Terminal'
     cli = p.cli
     cwd = p.cwd
     agent = p.agentId ? agents.find((a) => a.id === p.agentId) || { id: p.agentId, name: p.agentName || p.agentId } : null
@@ -510,6 +510,7 @@
   onDestroy(() => { unsubInstall(); unsubDetached(); teardown(false) })
 </script>
 
+{#if !started || !window.praimateMobile}
 <div class="row" style="margin-bottom:4px">
   <h1 class="grow" style="margin:0">Code</h1>
   {#if !started && !cleanSetup}
@@ -517,6 +518,7 @@
   {/if}
 </div>
 <p class="subtitle">Run a CLI live in a project folder — the real tool, with streaming, tool calls, and file edits. Start a clean session on any CLI/model, or launch an agent persona.</p>
+{/if}
 
 {#if error}<div class="banner">{error}</div>{/if}
 
@@ -693,13 +695,15 @@
     </p>
   {/if}
 {:else}
+  <div class="code-live">
   <div class="row" style="margin-bottom:10px">
     <div class="grow"><strong>{sessionLabel}</strong> <span class="pill">{cli}</span>{#if model}<span class="pill">{model}</span>{/if} <span class="card-sub mono">{cwd}</span></div>
     {#if exited}<button class="btn primary" on:click={reset}>New session</button>{/if}
-    <button class="btn" on:click={detachTerminal} disabled={exited} title="Move this terminal into its own window">Detach</button>
+    {#if !window.praimateMobile}<button class="btn" on:click={detachTerminal} disabled={exited} title="Move this terminal into its own window">Detach</button>{/if}
     <button class="btn danger" on:click={reset}>Stop</button>
   </div>
   <div class="termhost" bind:this={el}></div>
+  </div>
 {/if}
 
 <style>

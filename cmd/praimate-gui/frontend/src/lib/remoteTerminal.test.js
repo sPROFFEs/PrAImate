@@ -35,6 +35,14 @@ test('a failed input is reported once and is never replayed', async () => {
   assert.equal(warnings[0].terminal, 'terminal')
 })
 
+test('terminal ownership failures keep their code for explicit take-control UI',async()=>{
+  const warnings=[]
+  const transport=remoteTerminal({identity:{role:'admin'},call:async()=>{throw Object.assign(new Error('Another connection controls this terminal'),{code:'terminal_busy'})}},warning=>warnings.push(warning))
+  assert.equal(await transport.write('terminal','YQ=='),false)
+  assert.equal(warnings[0].code,'terminal_busy')
+  assert.equal(warnings[0].terminal,'terminal')
+})
+
 test('resize bursts send the latest dimensions without parallel requests', async () => {
   const sizes = []
   let unblock

@@ -12,7 +12,7 @@ export function remoteTerminal(client, warn) {
         return true
       })
       inputs.set(id, next)
-      return next.catch(error => { warn({ message: error.message, terminal: id }); return false }).finally(() => {
+      return next.catch(error => { warn({ message: error.message, code:error.code, terminal: id }); return false }).finally(() => {
         if (inputs.get(id) === next) inputs.delete(id)
       })
     },
@@ -29,7 +29,7 @@ export function remoteTerminal(client, warn) {
           await client.call('api.ResizeTerminal', args)
         }
         return true
-      } catch (error) { warn({ message: error.message, terminal: id }); return false }
+      } catch (error) { warn({ message: error.message, code:error.code, terminal: id }); return false }
       finally { resizes.delete(id) }
     },
   }

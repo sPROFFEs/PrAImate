@@ -4,7 +4,7 @@ import { term, onTermData, onTermExit, decodeBase64Bytes } from './terminal.js'
 // cursor and escape parser. Replaying a bounded tail into a new emulator cannot
 // reconstruct that state. Keep consuming output when Code is not visible.
 export function createTerminalRenderers(dependencies = {}) {
-  const io = { onData: onTermData, onExit: onTermExit, resize: term.resize, write: term.write, makeHost: () => {
+  const io = { onData: onTermData, onExit: onTermExit, resize: term.resize, write: term.write, autoFocus: () => !globalThis.window?.praimateMobile, makeHost: () => {
     const node = document.createElement('div')
     node.style.cssText = 'width:100%;height:100%;overflow:hidden'
     return node
@@ -82,7 +82,7 @@ export function createTerminalRenderers(dependencies = {}) {
         }
       })()
       await loading
-      if (!disposed && mounted) xterm.focus()
+      if (!disposed && mounted && io.autoFocus()) xterm.focus()
     }
     function sync() {
       if (disposed || !mounted) return
@@ -114,7 +114,7 @@ export function createTerminalRenderers(dependencies = {}) {
     return entry
   }
 
-  return { acquire, dispose: id => entries.get(id)?.dispose(), prune: ids => {
+  return { acquire, bracketedPaste: id => !!entries.get(id)?.xterm.modes?.bracketedPasteMode, dispose: id => entries.get(id)?.dispose(), prune: ids => {
     const live = new Set(ids)
     for (const [id, entry] of entries) if (!live.has(id)) entry.dispose()
   } }

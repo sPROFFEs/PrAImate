@@ -16,7 +16,7 @@
   async function stopServer() { if (!confirm('Stop the server and its running sessions?')) return; try { await remote.client.call('api.ServerShutdown', []); error='Server is stopping'; remote.client.stop(); connected=false } catch(e) { error=e.message } }
   async function restartServer() { if (!confirm('Restart the server and interrupt its active sessions?')) return; try { await remote.client.call('api.ServerRestart', []); connected=false; error='Server is restarting' } catch(e) { error=e.message } }
   async function takeControl(){try{await remote.client.call('terminals.claim',[terminal,true]);error='';terminal=''}catch(e){error=e.message}}
-  onMount(() => { const status=event=>monitoring=!!event.detail.monitoring;window.addEventListener('praimate:mobile-status',status);remote.client.call('server.capabilities',[]).then(result=>supervised=!!result.supervised).catch(()=>{}); const offConnection=window.runtime.EventsOn('praimate:remote-connection', state => { connected=state.connected; error=state.error || '' });const offWarning=window.runtime.EventsOn('praimate:remote-warning',warning=>{error=warning.message;terminal=warning.terminal||'';open=true});return()=>{offConnection();offWarning();window.removeEventListener('praimate:mobile-status',status)} })
+  onMount(() => { const status=event=>monitoring=!!event.detail.monitoring;window.addEventListener('praimate:mobile-status',status);remote.client.call('server.capabilities',[]).then(result=>supervised=!!result.supervised).catch(()=>{}); const offConnection=window.runtime.EventsOn('praimate:remote-connection', state => { connected=state.connected; error=state.error || '' });const offWarning=window.runtime.EventsOn('praimate:remote-warning',warning=>{error=warning.message;terminal=warning.terminal||'';if(!mobile||!terminal)open=true});return()=>{offConnection();offWarning();window.removeEventListener('praimate:mobile-status',status)} })
 </script>
 <aside class:offline={!connected}>
   <button class="connection" on:click={() => {open=!open;if(open)refresh()}} aria-expanded={open}><span class="dot"></span>{connected ? mobile ? 'Connected' : 'Server connected' : 'Reconnecting…'}</button>
@@ -38,7 +38,7 @@
       <label>Access<select bind:value={role}><option value="viewer">View activity</option><option value="control">Run chats, workers and terminals</option><option value="admin">Full administration</option></select></label>
       <button class="btn primary" disabled={busy} on:click={createPairing}>Create pairing code</button>
       {#if pairing}<p class="code">{pairing.code}</p><p>Expires {new Date(pairing.expiresAt).toLocaleTimeString()}</p>{/if}
-      <div class="devices">{#each devices as device}<div><span>{device.name}<small>{device.role}{device.revoked ? ' · revoked' : ''}</small></span><button class="btn sm" disabled={device.revoked} on:click={() => revoke(device.id)}>Revoke</button></div>{/each}</div>
+      <div class="devices">{#each devices.filter(device => !device.revoked) as device (device.id)}<div><span>{device.name}<small>{device.role}</small></span><button class="btn sm" on:click={() => revoke(device.id)}>Revoke</button></div>{:else}<p>No active paired devices.</p>{/each}</div>
       <button class="btn" on:click={stopServer}>Stop server</button>
       {#if supervised}<button class="btn" on:click={restartServer}>Restart server</button>{/if}
     {/if}

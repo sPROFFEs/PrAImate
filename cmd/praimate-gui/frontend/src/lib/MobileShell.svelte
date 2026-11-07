@@ -9,6 +9,7 @@
   import { dismissMobileDialog } from './mobileDialogs.js'
   import { themeMode, setThemeMode } from './theme.js'
   import SessionPanel from './SessionPanel.svelte'
+  import MobileTerminalInput from './MobileTerminalInput.svelte'
   import logo from '../assets/monke-icon.png'
 
   const mobile = window.praimateMobile
@@ -46,6 +47,11 @@
   async function key(value) {
     if (!terminalID) { await listTerminals(); return }
     try { await term.write(terminalID, value) } catch (e) { error = e.message }
+  }
+  function measureTerminalDock(node) {
+    const measure=()=>document.documentElement.style.setProperty('--mobile-terminal-inset',`${node.getBoundingClientRect().height}px`)
+    const observer=new ResizeObserver(measure);observer.observe(node);measure()
+    return {destroy(){observer.disconnect();document.documentElement.style.removeProperty('--mobile-terminal-inset')}}
   }
   async function listTerminals() {
     try { sessions = (await api.listTerminalSessions()) || []; terminalPicker = true }
@@ -111,13 +117,17 @@
 {/if}
 
 {#if $activePage === 'code'}
+  <section class="terminal-dock" aria-label="Terminal controls" use:measureTerminalDock>
+  <MobileTerminalInput {terminalID} />
   <div class="terminal-keys" aria-label="Terminal keyboard">
     <button on:click={listTerminals} aria-label="Choose terminal"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3zM7 9h.01M11 9h.01M15 9h.01M7 13h.01M11 13h6" /></svg></button>
     <button on:click={() => key('\u001b')}>Esc</button><button on:click={() => key('\t')}>Tab</button>
     <button on:click={() => key('\u0003')}>Ctrl+C</button><button on:click={() => key('\u0004')}>Ctrl+D</button>
+    <button on:click={() => key('\r')}>Enter ↵</button>
     <button on:click={() => key('\u001b[A')} aria-label="Arrow up">↑</button><button on:click={() => key('\u001b[B')} aria-label="Arrow down">↓</button>
     <button on:click={() => key('\u001b[D')} aria-label="Arrow left">←</button><button on:click={() => key('\u001b[C')} aria-label="Arrow right">→</button>
   </div>
+  </section>
 {/if}
 
 {#if terminalPicker}
@@ -137,7 +147,7 @@
   .mobile-navigation{position:fixed;top:48px;left:0;bottom:0;width:min(300px,85vw);z-index:970;padding:20px 12px 16px;display:flex;flex-direction:column;gap:3px;overflow:auto;background:linear-gradient(160deg,var(--bg-panel),var(--bg));border-right:1px solid var(--border);box-shadow:var(--shadow-overlay);animation:slide-in 160ms var(--ease)}
   .drawer-brand{display:flex;gap:12px;align-items:center;padding:0 8px}.drawer-brand strong{font-size:20px;letter-spacing:-.035em}.drawer-brand small{display:block;color:var(--text-dim);font-size:11px}.server-address{font-size:10px;color:var(--text-dim);padding:10px 9px 4px;overflow-wrap:anywhere}.nav-group{font-size:9px;font-weight:650;text-transform:uppercase;letter-spacing:.12em;color:var(--text-dim);padding:18px 10px 6px}
   .mobile-nav-item{display:flex;align-items:center;gap:12px;min-height:43px;padding:9px 12px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--text-dim);text-align:left;font:inherit;font-weight:550}.mobile-nav-item.active{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 25%,transparent);color:var(--accent)}.mobile-nav-item:active{background:var(--bg-raised)}.drawer-sessions{margin-top:14px}.drawer-footer{display:flex;gap:8px;justify-content:space-between;border-top:1px solid var(--border);padding-top:14px;margin-top:14px}
-  .terminal-keys{position:fixed;bottom:0;left:0;right:0;display:flex;gap:5px;overflow:auto;background:var(--bg-panel);padding:5px;z-index:900;border-top:1px solid var(--border);scrollbar-width:none}.terminal-keys button{flex-shrink:0;min-width:42px;height:38px;padding:0 10px;display:grid;place-items:center;border:1px solid var(--border);border-radius:8px;color:var(--text);background:var(--bg-raised);font:11px var(--mono)}
+  .terminal-dock{position:fixed;bottom:0;left:0;right:0;z-index:900;background:var(--bg-panel);border-top:1px solid var(--border)}.terminal-keys{display:flex;gap:5px;overflow:auto;background:var(--bg-panel);padding:5px;scrollbar-width:none}.terminal-keys button{flex-shrink:0;min-width:42px;height:38px;padding:0 10px;display:grid;place-items:center;border:1px solid var(--border);border-radius:8px;color:var(--text);background:var(--bg-raised);font:11px var(--mono)}
   .terminal-picker-backdrop{position:fixed;inset:0;z-index:1300;padding:20px;display:grid;place-items:center;background:var(--overlay)}.terminal-picker{width:min(480px,100%);padding:18px;border:1px solid var(--border);border-radius:16px;background:var(--bg-panel);box-shadow:var(--shadow-overlay);max-height:75vh;overflow:auto}.terminal-picker header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}.terminal-picker h2{margin:0;font-size:17px}.terminal-option{display:block;width:100%;text-align:left;color:var(--text);border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--bg);margin-top:8px}.terminal-option.selected{border-color:var(--accent)}.terminal-option small{display:block;overflow-wrap:anywhere;color:var(--text-dim);font-size:11px;margin-top:4px}
   .mobile-error{position:fixed;bottom:60px;left:12px;right:12px;background:var(--bg-panel);border:1px solid var(--err);border-radius:12px;padding:12px;z-index:1400;display:flex;gap:12px;align-items:center}
   @keyframes slide-in{from{transform:translateX(-12px);opacity:0}to{transform:translateX(0);opacity:1}}@media(prefers-reduced-motion:reduce){.mobile-navigation{animation:none}.mobile-shade{backdrop-filter:none}}

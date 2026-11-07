@@ -180,7 +180,7 @@
           {/if}
         </div>
         <p class="chat-meta">{snapshot.workspace} · Started {new Date(snapshot.startedAt).toLocaleString()}</p>
-        <div class="monitor-link"><button on:click={async () => { try { await api.detachSession('workers', snapshot.id, snapshot.title || 'Worker execution') } catch (e) { error = String(e) } }}>Open execution window ↗</button><span>Track assignments, backend activity and handoffs in a separate window.</span></div>
+        {#if !window.praimateMobile}<div class="monitor-link"><button on:click={async () => { try { await api.detachSession('workers', snapshot.id, snapshot.title || 'Worker execution') } catch (e) { error = String(e) } }}>Open execution window ↗</button><span>Track assignments, backend activity and handoffs in a separate window.</span></div>{/if}
         <WorkerMonitor {snapshot} {clis} {approvals} models={modelSuggestions} on:models={event => loadModels(event.detail)} on:refresh={refresh} />
       {:else}
         <p class="empty">Select a saved worker chat or create a new one.</p>

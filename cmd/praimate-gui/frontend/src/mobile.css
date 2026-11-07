@@ -1,7 +1,10 @@
 html.praimate-mobile, .praimate-mobile body { overscroll-behavior:none; }
 .praimate-mobile .shell { height:calc(var(--app-height,100dvh) - 48px);margin-top:48px; }
 .praimate-mobile .shell>.sidebar { display:none; }
-.praimate-mobile .main { padding:16px 12px 64px; }
+.praimate-mobile .main { padding:16px 12px calc(16px + var(--mobile-terminal-inset,48px)); }
+.praimate-mobile .main .code-live { display:flex;flex-direction:column;height:max(180px,calc(var(--app-height,100dvh) - 80px - var(--mobile-terminal-inset,48px))); }
+.praimate-mobile .main .code-live>.row { flex-shrink:0; }
+.praimate-mobile .main .code-live .termhost { flex:1;min-height:80px;height:auto; }
 .praimate-mobile input,.praimate-mobile select,.praimate-mobile textarea { font-size:16px;max-width:100%; }
 .praimate-mobile .btn { min-height:40px;touch-action:manipulation; }
 .praimate-mobile .picker,.praimate-mobile .modal-content { max-width:calc(100vw - 24px)!important;max-height:calc(var(--app-height,100dvh) - 72px)!important; }

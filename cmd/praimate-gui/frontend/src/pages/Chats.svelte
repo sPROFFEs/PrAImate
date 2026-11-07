@@ -936,7 +936,7 @@
       disabled={sending}></textarea>
     <VoiceButton disabled={sending || approvals.length > 0} context={{chat_id: selected?.ID || '', page:'chats'}} on:transcript={event => { draft = [draft,event.detail.text].filter(Boolean).join(' '); if (event.detail.autoSend) send() }} />
     <button class="btn composer-action" on:click={() => send('/compact')} disabled={sending || approvals.length > 0} title="Compact saved conversation context" aria-label="Compact context">◫ <span>Compact</span></button>
-    <button class="btn composer-action" on:click={detachChat} disabled={approvals.length > 0} title="Move this chat into its own window">↗ <span>Detach</span></button>
+    {#if !window.praimateMobile}<button class="btn composer-action" on:click={detachChat} disabled={approvals.length > 0} title="Move this chat into its own window">↗ <span>Detach</span></button>{/if}
     {#if sending}
       <button class="btn danger composer-action stop-action" on:click={stop} title="Interrupt the turn — text streamed so far is kept">■ <span>Stop</span></button>
     {:else}
