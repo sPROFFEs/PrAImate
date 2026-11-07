@@ -33,10 +33,11 @@
     {#if mobile}<p class="hint">{mobile.serverName} · {mobile.serverURL}</p><button class="switch" type="button" on:click={()=>mobile.configure()}>Choose another server</button><button class="switch" type="button" on:click={()=>mobile.signInAccess().catch(e=>error=e.message)}>Cloudflare Access sign-in</button>{/if}
     {#if admin}
       <label>Administrator token<input type="password" bind:value={token} autocomplete="off" required /></label>
+      <p class="hint">Optional. Use the token configured as PRAIMATE_REMOTE_TOKEN when starting the Server. You can also pair with a code that grants Full administration.</p>
     {:else}
       <label>Device name<input bind:value={name} maxlength="128" required /></label>
-      <label>Pairing code<input bind:value={code} inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" placeholder="8-digit code" required /></label>
-      <p class="hint">Create a code from the server console or an authorized administrator.</p>
+      <label>Pairing code<input bind:value={code} inputmode="numeric" autocomplete="one-time-code" pattern={'[0-9]{8}'} placeholder="8-digit code" required /></label>
+      <p class="hint">Create the eight-digit code in Server → Pairing and devices. Choose Full administration there for administrator access. Codes expire after five minutes.</p>
     {/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <button class="btn primary" type="submit" disabled={busy}>{busy ? 'Connecting…' : 'Connect'}</button>

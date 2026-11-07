@@ -1,9 +1,11 @@
-# PrAImate 1.2.28
+# PrAImate 1.3.0
 
-**[Install Desktop, Server or Android](https://github.com/sPROFFEs/PrAImate/blob/v1.2.28/docs/INSTALLATION.md)**:
+**[Install Desktop, Server or Android](https://github.com/sPROFFEs/PrAImate/blob/v1.3.0/docs/INSTALLATION.md)**:
 platform downloads, edition selection, first startup and device pairing.
 
-The Server edition now has a visible **SERVER** label and a dedicated **Server**
+This minor release brings Desktop, Server and Android into the 1.3 series.
+
+The Server edition has a visible **SERVER** label and a dedicated **Server**
 page, also linked from **Settings → Configure Server**. Configure remote access
 without environment variables or terminal commands.
 
@@ -18,6 +20,11 @@ without environment variables or terminal commands.
   connector settings respects a stopped listener and the startup preference.
 - Listener restarts preserve device authentication and the bootstrap verifier.
   Remote restart requests retain their completed operation receipt.
+- Fix pairing-code validation in the browser and APK so all eight-digit codes,
+  including codes with leading zeroes, are accepted. Explain administrator pairing
+  and the optional bootstrap token on the connection screen.
+- Let the Server configuration page fill the available window width and resize
+  with desktop windows while retaining mobile layouts.
 - Fix browser connections failing with `Illegal invocation` when calling native
   `fetch`. The shared Server page supports light/dark themes and mobile layouts;
   remote administration is restricted to administrator devices.
@@ -34,6 +41,6 @@ Server/mobile remain available for testing. Native Android permission/installer
 flows and real Cloudflare email/PIN sign-in still require device/account
 validation; the VM's software emulator cannot validate those flows reliably.
 
-See the [Server guide](https://github.com/sPROFFEs/PrAImate/blob/v1.2.28/docs/REMOTE-SERVER.md)
-and [Android guide](https://github.com/sPROFFEs/PrAImate/blob/v1.2.28/docs/MOBILE-ANDROID.md)
+See the [Server guide](https://github.com/sPROFFEs/PrAImate/blob/v1.3.0/docs/REMOTE-SERVER.md)
+and [Android guide](https://github.com/sPROFFEs/PrAImate/blob/v1.3.0/docs/MOBILE-ANDROID.md)
 for setup and limitations.

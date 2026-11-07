@@ -15,7 +15,7 @@
     "test:studio": "node --test src/pages/Studio.test.js src/pages/AgentStudio.test.js src/lib/studioSession.test.js",
     "test:api-events": "node --test src/lib/apiEvents.test.js",
     "test:surfaces": "node --test src/pages/surfaceNavigation.test.js",
-    "test:remote": "node --test src/lib/remoteClient.test.js src/lib/remoteTerminal.test.js src/lib/remoteStudio.test.js src/lib/remoteNavigation.test.js src/lib/approvalOwnership.test.js src/lib/remoteChatSync.test.js",
+    "test:remote": "node --test src/lib/remoteClient.test.js src/lib/remoteLogin.test.js src/lib/remoteTerminal.test.js src/lib/remoteStudio.test.js src/lib/remoteNavigation.test.js src/lib/approvalOwnership.test.js src/lib/remoteChatSync.test.js",
     "test:mobile": "node --test src/lib/androidTransport.test.js src/lib/mobileNavigation.test.js src/lib/mobileDialogs.test.js src/lib/editionNavigation.test.js"
   },
   "dependencies": {
