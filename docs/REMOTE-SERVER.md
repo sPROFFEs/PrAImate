@@ -7,7 +7,26 @@ remote module is excluded from desktop builds by the Go `server` build tag.
 
 ## Install and build
 
-From a local checkout of the server branch:
+For prebuilt binaries, use the **[Desktop/Server installation guide](INSTALLATION.md)**.
+It includes Windows, Linux and macOS commands, the release asset matrix, separate
+prefixes/profiles and the Android connection sequence.
+
+Linux or macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/PrAImate/server/scripts/install.sh | bash -s -- --binary --edition server --user
+```
+
+Windows PowerShell:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/sPROFFEs/PrAImate/server/scripts/install.ps1 -OutFile "$env:TEMP\praimate-install.ps1"
+& "$env:TEMP\praimate-install.ps1" -Mode Binary -Edition Server
+```
+
+The installer selects `praimate-server-<platform>`, not the Desktop archive or
+a standalone CLI asset. From a local checkout of the `server` branch, source
+installation is also supported:
 
 ```sh
 ./scripts/install.sh --edition server --source --user
@@ -29,8 +48,9 @@ Combined `v*` releases contain both editions and the Android preview. Server
 installers and updates accept such a release only when it contains Server archives;
 a newer Desktop-only release cannot replace Server. Legacy `server-v*` releases
 remain supported and standalone Server publication stays a prerelease. Shared
-standalone tools are published once. Binary downloads become available after
-the server branch and its first combined release are published.
+standalone tools are published once. The
+[1.2.27 combined release](https://github.com/sPROFFEs/PrAImate/releases/tag/v1.2.27)
+is published with Server archives for all five release platforms and the Android APK.
 
 Both editions use the existing profile location. Use `PRAIMATE_HOME` for separate
 profiles. Run one owner per profile: either the server GUI or the headless server,

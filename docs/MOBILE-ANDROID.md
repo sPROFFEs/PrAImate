@@ -6,7 +6,28 @@ and a native transport. Models, CLI processes, agents, workers, application stat
 and documents are owned by the selected PrAImate Server. Closing Android does not
 cancel server jobs. Native VS Code/VSCodium windows are not screen-streamed.
 
-## Build
+## Install the published APK
+
+Install **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.2.27/praimate-mobile-preview.apk)**
+from the combined release. You do not need the Android SDK or a source build to
+use it. Android may ask you to allow installation from your browser/file manager.
+The APK requires Android 8.0+ and a current Android System WebView; isolated
+Cloudflare Access login requires Android 9+.
+
+Install and start the [Server edition](INSTALLATION.md#server) on the host first.
+Add its HTTPS origin in the app, complete Cloudflare Access login if enabled,
+then enter the separate PrAImate pairing code. The Desktop-only edition cannot
+serve the APK. See the [complete installation guide](INSTALLATION.md) for the
+host commands and [Connect](#connect) for certificates and profile management.
+
+The published preview uses `com.praimate.mobile.debug` and a persistent signing
+key. Install a newer compatible APK over the old one to preserve local profiles;
+uninstalling the app removes them. App updates are available from the server
+chooser and the connected client's connection panel; see [Android updates](#android-updates).
+
+## Build from source
+
+Build from the `server` branch, which contains `mobile/android` and the script below.
 
 Prerequisites: JDK 17+, Gradle 8.13, Android SDK platform 36/build tools, Node/npm
 and the frontend dependencies. Tool installation is explicit; the build script
@@ -22,8 +43,9 @@ bash scripts/build-android.sh
 The debug APK is `dist/android/praimate-mobile-debug.apk`. It is installable for
 local testing and uses the separate package `com.praimate.mobile.debug`.
 `--release` produces an **unsigned** release APK. Sign it with your own protected
-Android signing key; keys/passwords do not belong in the repository. No APK is
-published automatically and desktop/server build outputs are unchanged.
+Android signing key; keys/passwords do not belong in the repository. The combined
+release workflow automatically publishes the signed **preview** APK using its
+persistent CI signer. It does not publish the local unsigned release APK.
 
 The Android Studio project is `mobile/android`. Android 8.0+ and a current Android
 System WebView are required. No native model libraries/NDK are bundled.

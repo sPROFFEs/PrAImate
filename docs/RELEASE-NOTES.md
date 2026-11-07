@@ -1,8 +1,11 @@
 # PrAImate 1.2.27
 
+**[Install Desktop, Server or Android](https://github.com/sPROFFEs/PrAImate/blob/main/docs/INSTALLATION.md)**:
+platform downloads, edition selection, first startup, pairing and separate profiles.
+
 This release includes Desktop, the optional Server edition and an installable
-Android preview, built from the `server` branch. The desktop-only `main` branch
-is unchanged. Desktop and Server archives remain self-contained. Shared native
+Android preview, built from the `server` branch. `main` remains Desktop-only.
+Desktop and Server archives remain self-contained. Shared native
 CLI, PrAImate Code and Graphify standalone assets are published once per platform;
 there are no separate Server copies of these tools.
 
