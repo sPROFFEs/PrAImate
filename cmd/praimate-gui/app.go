@@ -207,8 +207,16 @@ func (a *App) startup(ctx context.Context) {
 		return
 	}
 	a.dbPath = dbPath
+	if a.edition.connectManaged(a) {
+		return
+	}
+	if err := a.edition.openOwner(dbPath); err != nil {
+		a.initErr = err.Error()
+		return
+	}
 	st, err := store.Open(dbPath)
 	if err != nil {
+		a.edition.releaseOwner()
 		if errors.Is(err, store.ErrPasswordRequired) ||
 			errors.Is(err, store.ErrPasswordSetupRequired) {
 			return
@@ -218,6 +226,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	if err := a.initializeUnlockedStore(ctx, st); err != nil {
 		_ = st.Close()
+		a.edition.releaseOwner()
 		a.initErr = err.Error()
 	}
 }
@@ -322,6 +331,9 @@ func (a *App) initializeUnlockedStore(ctx context.Context, st *store.Store) erro
 func (a *App) shutdown(ctx context.Context) {
 	defer a.edition.releaseOwner()
 	a.edition.close()
+	if a.edition.isClient() {
+		return
+	}
 	a.workflowCancelMu.Lock()
 	for _, cancel := range a.workflowCancels {
 		cancel()

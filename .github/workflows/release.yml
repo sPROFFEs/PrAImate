@@ -48,7 +48,8 @@ jobs:
           node-version: '22'
       - name: Verify release and edition contracts
         run: |
-          go test ./internal/remote ./internal/cloudflared ./internal/updater ./internal/orchestrator
+          go test ./internal/remote ./internal/cloudflared ./internal/serverboot ./internal/updater ./internal/orchestrator
+          go test ./internal/store -run '^TestVerifyPasswordDoesNotOpenOrChangeDatabase$'
           go test -tags server ./internal/updater
           python3 scripts/edition_test.py
           python3 scripts/release_assets_test.py
@@ -145,6 +146,15 @@ jobs:
             bash scripts/build.sh --edition="$EDITIONS" --with-code --with-graphify "$TARGET"
           fi
           python3 scripts/stage-release-assets.py --edition "$EDITIONS" --target "$TARGET"
+
+      - name: Verify native startup contracts
+        shell: bash
+        run: go test ./internal/serverboot
+
+      - name: Verify Server lifecycle on Linux
+        if: runner.os == 'Linux'
+        working-directory: cmd/praimate-gui
+        run: go test -tags desktop,production,webkit2_41,server -run 'TestManaged|TestHeadlessManaged|TestServerListener|TestServerStartup|TestRemoteClientsCannotRegister' .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4

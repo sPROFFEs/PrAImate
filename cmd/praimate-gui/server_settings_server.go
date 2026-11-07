@@ -70,12 +70,15 @@ func (e *editionServices) prepareServerSettingsLocked(a *App) (bool, error) {
 	e.settingsLoaded = true
 	// Explicit headless flags and startup environment keep their precedence.
 	if e.config.Listen == "" {
-		if saved && !s.AutoStart {
+		if saved && !s.AutoStart && !a.headless {
 			e.startupDisabled = true
 			return false, nil
 		}
 		if saved {
 			e.config.Listen = s.Listen
+		}
+		if e.config.Listen == "" && a.headless {
+			e.config.Listen = "127.0.0.1:8844"
 		}
 	}
 	if e.config.TLSCert == "" {
@@ -242,6 +245,16 @@ func (a *App) ServerListener(action string) error {
 		err = e.startError
 		e.mu.Unlock()
 	}
+	if a.headless && a.edition.localToken != "" {
+		a.edition.mu.Lock()
+		running := a.edition.gateway != nil
+		a.edition.mu.Unlock()
+		if running {
+			if _, refreshErr := a.writeManagedSession(); refreshErr != nil {
+				return errors.Join(err, refreshErr)
+			}
+		}
+	}
 	return err
 }
 
@@ -271,6 +284,9 @@ func (a *App) remoteServerListener(action string) (string, error) {
 func (a *App) serverDevices() (*remote.Devices, error) {
 	if a.edition.gateway != nil {
 		return a.edition.gateway.Devices(), nil
+	}
+	if a.edition.apiDevices != nil && a.edition.apiCore == a.core {
+		return a.edition.apiDevices, nil
 	}
 	return remote.NewDevices(remoteCoreState{a.core})
 }

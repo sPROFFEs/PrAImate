@@ -150,6 +150,14 @@ func OpenWithPassword(path, password string) (*Store, error) {
 	return openWithKey(path, key, []byte(password))
 }
 
+// VerifyPassword authenticates the existing envelope without opening SQLite or
+// acquiring another profile owner. Startup setup can run while Core is active.
+func VerifyPassword(path, password string) error {
+	key, err := unlockEnvelopeFile(KeyPath(path), password)
+	zeroBytes(key)
+	return err
+}
+
 // ChangePassword replaces only the password-protected envelope around the
 // live database key. The encrypted database itself is not rewritten. The
 // current password is verified against both the on-disk envelope and the key

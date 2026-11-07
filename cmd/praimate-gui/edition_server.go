@@ -15,10 +15,16 @@ import (
 	"time"
 
 	"github.com/sPROFFEs/PrAImate/internal/cloudflared"
+	"github.com/sPROFFEs/PrAImate/internal/core"
 	"github.com/sPROFFEs/PrAImate/internal/remote"
 )
 
 type editionServices struct {
+	apiCore             *core.Core
+	apiContext          context.Context
+	apiCancel           context.CancelFunc
+	apiOperations       *remote.Operations
+	apiDevices          *remote.Devices
 	listenerMu          sync.Mutex
 	mu                  sync.Mutex
 	settingsLoaded      bool
@@ -34,6 +40,11 @@ type editionServices struct {
 	owner               *os.File
 	restartRequested    bool
 	tunnel              *cloudflared.Manager
+	localToken          string
+	clientMode          bool
+	clientRequests      map[string]*managedRequest
+	clientHTTP          *http.Client
+	clientHTTPKey       string
 }
 
 func newEditionServices() editionServices {
@@ -95,6 +106,19 @@ func (e *editionServices) startListener(a *App) {
 	}
 	e.registry = a.remoteMethods()
 	config := e.config
+	config.LocalOwnerToken = e.localToken
+	if e.apiCore != a.core {
+		if e.apiCancel != nil {
+			e.apiCancel()
+		}
+		e.apiCore = a.core
+		e.apiOperations = nil
+		e.apiDevices = nil
+		e.apiContext, e.apiCancel = context.WithCancel(a.ctx)
+	}
+	config.SharedOperations = e.apiOperations
+	config.SharedDevices = e.apiDevices
+	config.OperationContext = e.apiContext
 	config.Registry = e.registry
 	config.State = remoteCoreState{a.core}
 	config.Files = e.files
@@ -126,6 +150,8 @@ func (e *editionServices) startListener(a *App) {
 	e.config.Token = ""
 	e.config.Administrator = g.AdministratorCredential()
 	e.gateway = g
+	e.apiOperations = g.Operations()
+	e.apiDevices = g.Devices()
 	active := serverConfiguration(e.config)
 	e.activeConfiguration = &active
 	if a.workers != nil {
@@ -158,6 +184,20 @@ func (e *editionServices) startListener(a *App) {
 }
 
 func (e *editionServices) close() {
+	e.mu.Lock()
+	if e.apiCancel != nil {
+		e.apiCancel()
+	}
+	for _, request := range e.clientRequests {
+		request.cancel()
+		if request.writer != nil {
+			request.writer.CloseWithError(context.Canceled)
+		}
+	}
+	if e.clientHTTP != nil {
+		e.clientHTTP.CloseIdleConnections()
+	}
+	e.mu.Unlock()
 	e.listenerMu.Lock()
 	defer e.listenerMu.Unlock()
 	e.closeListener()
@@ -188,6 +228,7 @@ func (e *editionServices) openOwner(path string) error {
 		return err
 	}
 	e.owner = owner
+	e.clientMode = false
 	return nil
 }
 func (e *editionServices) releaseOwner() {

@@ -24,6 +24,9 @@ func (g *Gateway) authenticate(r *http.Request) (Principal, bool) {
 	}
 	token := strings.TrimPrefix(auth, "Bearer ")
 	hash := sha256.Sum256([]byte(token))
+	if g.localOwnerEnabled && subtle.ConstantTimeCompare(hash[:], g.localOwnerHash[:]) == 1 {
+		return Principal{ID: "local-owner", Role: "admin"}, true
+	}
 	if g.adminEnabled && subtle.ConstantTimeCompare(hash[:], g.tokenHash[:]) == 1 {
 		return Principal{ID: "administrator", Role: "admin"}, true
 	}

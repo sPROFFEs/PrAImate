@@ -35,10 +35,11 @@
     {#if status?.error}<p class="error">{status.error}</p>{/if}
     {#if notice}<p class="muted" role="status">{notice}</p>{/if}
     <label>Public hostname<input type="url" placeholder="https://praimate.example.com" bind:value={publicURL} disabled={!!busy} /></label>
-    <label>Connector token<input type="password" autocomplete="new-password" spellcheck="false" placeholder={status?.tokenConfigured?'Token saved · leave blank to keep':'Paste only the eyJ… tunnel token'} bind:value={token} disabled={!!busy||status?.installed} /></label>
+    <label>Connector token<input type="password" autocomplete="new-password" spellcheck="false" placeholder={status?.tokenConfigured?'Token saved · leave blank to keep':'Paste only the eyJ… tunnel token'} bind:value={token} disabled={!!busy||status?.installed||status?.managed} /></label>
     <p class="muted">Create the tunnel and public hostname in Cloudflare. Paste its connector token, then save and install. Remove the connector service before replacing its token.</p>
     <div class="actions"><button class="btn" disabled={!!busy||!publicURL||(!token&&!status?.tokenConfigured)} on:click={save}>Save configuration</button>
-    {#if !status?.installed}<button class="btn primary" disabled={!!busy||dirty||!status?.tokenConfigured||!status?.originURL} on:click={()=>service('install')}>Install and start connector</button>
+    {#if status?.managed}<span class="muted">Lifecycle managed by System startup.</span>
+    {:else if !status?.installed}<button class="btn primary" disabled={!!busy||dirty||!status?.tokenConfigured||!status?.originURL} on:click={()=>service('install')}>Install and start connector</button>
     {:else}<button class="btn primary" disabled={!!busy} on:click={()=>service(status.running?'restart':'start')}>{status.running?'Restart':'Start'} connector</button><button class="btn" disabled={!!busy||!status.running} on:click={()=>service('stop')}>Stop</button><button class="btn" disabled={!!busy} on:click={()=>service('uninstall')}>Remove service</button>{/if}</div>
     {#if busy}<p role="status">{busy}</p>{/if}
     {#if status?.originURL}<div class="origin"><span class="muted">Cloudflare public hostname → service URL</span><code>{status.originURL}</code><span class="muted">Use this local origin on the same machine. Cloudflare Access is configured in your Cloudflare dashboard. PrAImate device pairing is still required.</span></div>{/if}

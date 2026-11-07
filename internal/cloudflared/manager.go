@@ -26,6 +26,7 @@ type Configuration struct {
 
 // Status deliberately has no credential field. Tokens are write-only to clients.
 type Status struct {
+	Managed         bool   `json:"managed"`
 	PublicURL       string `json:"publicURL"`
 	OriginURL       string `json:"originURL"`
 	TokenConfigured bool   `json:"tokenConfigured"`
@@ -39,11 +40,13 @@ type Status struct {
 	Error           string `json:"error,omitempty"`
 }
 type Manager struct {
-	mu   sync.Mutex
-	root string
-	load func(context.Context) ([]byte, error)
-	save func(context.Context, []byte) error
-	run  func(context.Context, []string) (string, error)
+	mu            sync.Mutex
+	root          string
+	load          func(context.Context) ([]byte, error)
+	save          func(context.Context, []byte) error
+	run           func(context.Context, []string) (string, error)
+	managedCancel context.CancelFunc
+	managedPort   int
 }
 
 func New(root string, load func(context.Context) ([]byte, error), save func(context.Context, []byte) error) *Manager {
@@ -110,6 +113,9 @@ func (m *Manager) Save(ctx context.Context, c Configuration) error {
 	}
 	// A running connector reads its token once. Explicitly stop before rotating it.
 	if c.Token != old.Token {
+		if m.managedCancel != nil {
+			return errors.New("Stop the background Server before replacing its managed connector token")
+		}
 		if _, err = os.Stat(filepath.Join(m.root, "service.json")); err == nil {
 			return errors.New("Remove the connector service before replacing its token; existing sessions remain on the server")
 		}
@@ -156,6 +162,19 @@ func (m *Manager) status(ctx context.Context) (Status, error) {
 		s.BinaryInstalled = info.Mode().IsRegular()
 	}
 	i, ok := m.installed()
+	if m.managedCancel != nil {
+		s.Managed = true
+		s.Running = true
+		s.Note = "This connector is supervised by the background PrAImate Server and starts with it before login."
+		client := &http.Client{Timeout: time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		req, _ := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://127.0.0.1:%d/ready", m.managedPort), nil)
+		if response, err := client.Do(req); err == nil {
+			s.Ready = response.StatusCode == 200
+			response.Body.Close()
+		}
+		client.CloseIdleConnections()
+		return s, nil
+	}
 	s.Installed = ok
 	s.Note = "The connector is a per-user service. PrAImate Server must also be running. Configure the public hostname and origin in Cloudflare."
 	if runtime.GOOS == "linux" {
@@ -193,6 +212,9 @@ func (m *Manager) status(ctx context.Context) (Status, error) {
 func (m *Manager) Control(ctx context.Context, action string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.managedCancel != nil {
+		return errors.New("This connector is managed by the background Server; change its System startup configuration instead")
+	}
 	switch action {
 	case "install", "start", "stop", "restart", "uninstall":
 	default:

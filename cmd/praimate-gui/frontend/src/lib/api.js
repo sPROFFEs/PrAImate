@@ -20,6 +20,11 @@ function call(method, ...args) {
 
 export const api = {
 	serverStatus: () => call('ServerStatus'),
+	serverStartupStatus: () => call('ServerStartupStatus'),
+	serverStartupLogs: () => call('ServerStartupLogs'),
+	prepareServerTunnel: () => call('PrepareServerTunnel'),
+	installServerStartup: (databasePassword,windowsPassword,tunnel) => call('InstallServerStartup',databasePassword,windowsPassword,!!tunnel),
+	serverStartupControl: action => call('ServerStartupControl',action),
 	saveServerConfig: config => call('SaveServerConfig', JSON.stringify(config)),
 	serverListener: action => call('ServerListener', action),
 	serverDevices: () => call('ServerDevices'),

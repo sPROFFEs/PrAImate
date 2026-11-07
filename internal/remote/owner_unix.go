@@ -3,6 +3,7 @@
 package remote
 
 import (
+	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
 	"os"
@@ -15,7 +16,10 @@ func LockProfile(path string) (*os.File, error) {
 	}
 	if err = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("another PrAImate server owns this profile: %w", err)
+		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+			return nil, fmt.Errorf("%w: %w", ErrProfileOwned, err)
+		}
+		return nil, fmt.Errorf("lock Server profile: %w", err)
 	}
 	return f, nil
 }

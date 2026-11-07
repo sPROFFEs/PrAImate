@@ -6,12 +6,12 @@ import { restoreRemoteRoute } from './remoteNavigation.js'
 function bytesToBase64(bytes) { let text = ''; for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(text) }
 function base64Bytes(text) { return Uint8Array.from(atob(text || ''), char => char.charCodeAt(0)) }
 
-export async function installRemoteBridge(token) {
+export async function installRemoteBridge(token, options = {}) {
   const listeners = new Map(), hashes = new Map()
   const notify = (name, payload) => { for (const callback of [...(listeners.get(name) || [])]) callback(payload) }
   const editor = new URLSearchParams(location.hash.replace(/^#/, ''))
   let workspace = editor.get('workspace') || ''
-  const client = new RemoteClient({ baseURL: location.origin, token,
+  const client = new RemoteClient({ baseURL: options.baseURL || location.origin, token, ...(options.fetchImpl ? {fetchImpl:options.fetchImpl} : {}),
     onConnection(connected, error) { notify('praimate:remote-connection', { connected, error }) },
     async onEvent(event) {
       if (event.name === 'resync') {
@@ -26,7 +26,7 @@ export async function installRemoteBridge(token) {
   })
   const status = await client.connect()
   const terminal = remoteTerminal(client, warning => notify('praimate:remote-warning', warning))
-  const studio = remoteStudio(client, (...args) => window.open(...args), location.origin, status.version, next => {
+  const studio = remoteStudio(client, (...args) => window.open(...args), client.baseURL, status.version, next => {
     if (!workspace || workspace === next) return
     workspace = next
     hashes.clear()
@@ -71,12 +71,16 @@ export async function installRemoteBridge(token) {
   const openEditor = studio.open
   const file = (method, params) => client.call(method, [{ workspace, ...params }])
   const local = {
+    ServerStartupStatus: () => window.praimateManagedHost ? window.praimateManagedHost.native.ServerStartupStatus() : client.call('api.ServerStartupStatus', []),
+    ServerStartupLogs: () => window.praimateManagedHost ? window.praimateManagedHost.native.ServerStartupLogs() : client.call('api.ServerStartupLogs', []),
+    InstallServerStartup: (...args) => {if(window.praimateManagedHost)return window.praimateManagedHost.native.InstallServerStartup(...args);throw new Error('Authorize system startup from the Server desktop app on its host')},
+    ServerStartupControl: (...args) => {if(window.praimateManagedHost)return window.praimateManagedHost.native.ServerStartupControl(...args);throw new Error('Manage system startup from the Server desktop app on its host')},
     DetachedMode: () => ({ active: false }), DetachedWindows: () => [], DetachedSessionActive: () => false, DetachedRendererReady: () => true,
     DetachedChatConfig: () => null,
     DetachSession: async (kind, id) => {
       const route = kind === 'workers' ? {page:'workers',worker:id} : kind === 'terminal' ? {page:'code',terminal:id} : {page:'chats',chat:id}
       if (kind === 'studio') { const chats=await client.call('api.ListChats',[]); const chat=chats.find(item=>item.ID===id); if (!chat) throw new Error('Conversation not found'); return openEditor(chat.WorkspacePath,id) }
-      const target=window.open(`${location.origin}/#${new URLSearchParams(route)}`,'_blank');if(!target)throw new Error('Allow pop-up windows to open this session');return id
+      const target=window.open(`${client.baseURL}/#${new URLSearchParams(route)}`,'_blank');if(!target)throw new Error('Allow pop-up windows to open this session');return id
     },
     EditorMode: () => ({ active: !!workspace, folder: workspace, chatId: editor.get('chat') || '' }),
     PickFolder: pickServerFolder, PickProjectFolder: pickServerFolder,
@@ -117,9 +121,9 @@ export async function installRemoteBridge(token) {
   window.runtime = {
     EventsOn(name, callback) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(callback); return () => listeners.get(name)?.delete(callback) },
     EventsOff(name) { listeners.delete(name) },
-    ClipboardSetText: text => window.praimateMobile ? window.praimateMobile.copy(text) : navigator.clipboard.writeText(text), Quit: () => window.praimateMobile ? window.praimateMobile.close() : window.close(),
+    ClipboardSetText: text => window.praimateManagedHost ? window.praimateManagedHost.runtime.ClipboardSetText(text) : window.praimateMobile ? window.praimateMobile.copy(text) : navigator.clipboard.writeText(text), Quit: () => window.praimateManagedHost ? window.praimateManagedHost.runtime.Quit() : window.praimateMobile ? window.praimateMobile.close() : window.close(),
   }
-  window.praimateRemote = { client, status, async logout() { client.stop(); if(window.praimateMobile)await window.praimateMobile.credentials.clear();else sessionStorage.removeItem('praimate.remote.token'); location.reload() } }
+  window.praimateRemote = { client, status, async logout() { client.stop(); if(window.praimateManagedHost){window.praimateManagedHost.runtime.Quit();return} if(window.praimateMobile)await window.praimateMobile.credentials.clear();else sessionStorage.removeItem('praimate.remote.token'); location.reload() } }
   window.addEventListener('praimate:mobile-resume',()=>{client.connect().then(()=>notify('praimate:remote-resync',{})).catch(()=>{})})
   window.addEventListener('praimate:app-ready',async()=>{
     try {

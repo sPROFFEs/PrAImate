@@ -11,8 +11,8 @@ async function boot() {
     await import('./mobile.css')
   }
   let login
-  async function mount(token) {
-    if (token) { const { installRemoteBridge } = await import('./lib/remoteBridge.js'); await installRemoteBridge(token) }
+  async function mount(token, options) {
+    if (token) { const { installRemoteBridge } = await import('./lib/remoteBridge.js'); await installRemoteBridge(token, options) }
     const [{default:App},connection,mobileShell] = await Promise.all([
       import('./App.svelte'),
       token ? import('./lib/RemoteConnection.svelte') : null,
@@ -24,7 +24,25 @@ async function boot() {
     if (mobileShell) { const host=document.createElement('div');document.body.appendChild(host);new mobileShell.default({target:host}) }
     return new App({ target })
   }
-  if (!window.go?.main?.App) {
+  const native = window.go?.main?.App
+  if (native?.ManagedServerConnection) {
+    const runtime = window.runtime
+    try {
+      const connection = await native.ManagedServerConnection()
+      if (connection.active) {
+        const { managedFetch } = await import('./lib/managedTransport.js')
+        window.praimateManagedHost={native,runtime}
+        return await mount('native-owner', {baseURL:connection.origin,fetchImpl:managedFetch(native,runtime,connection.origin)})
+      }
+    } catch(error) {
+      window.praimateRemote?.client.stop();delete window.praimateRemote;delete window.praimateManagedHost
+      window.go={main:{App:native}};window.runtime=runtime
+      const {default:Recovery}=await import('./lib/ManagedRecovery.svelte')
+      document.getElementById('boot-status')?.remove()
+      return new Recovery({target,props:{native,message:error.message}})
+    }
+  }
+  if (!native) {
     try {
       const response = await fetch('/v1/discovery')
       if(window.praimateMobile&&!response.ok){response.body?.cancel().catch(()=>{});throw new Error(`PrAImate Server is unavailable (HTTP ${response.status}). Retry or choose another server.`)}

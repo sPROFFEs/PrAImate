@@ -21,16 +21,20 @@ import (
 )
 
 type Config struct {
-	Listen          string
-	Token           string
-	Administrator   *AdministratorCredential `json:"-"`
-	TLSCert, TLSKey string
-	AllowedOrigins  []string
-	State           State
-	Registry        *Registry
-	Assets          http.Handler
-	Files           *Files
-	Upload          func(context.Context, string, io.Reader) (any, error)
+	SharedOperations *Operations     `json:"-"`
+	SharedDevices    *Devices        `json:"-"`
+	OperationContext context.Context `json:"-"`
+	Listen           string
+	Token            string
+	LocalOwnerToken  string                   `json:"-"`
+	Administrator    *AdministratorCredential `json:"-"`
+	TLSCert, TLSKey  string
+	AllowedOrigins   []string
+	State            State
+	Registry         *Registry
+	Assets           http.Handler
+	Files            *Files
+	Upload           func(context.Context, string, io.Reader) (any, error)
 }
 
 // AdministratorCredential carries only the in-memory verifier across listener
@@ -47,24 +51,26 @@ func (g *Gateway) AdministratorCredential() *AdministratorCredential {
 type Call func(context.Context, string, json.RawMessage) (any, error)
 
 type Gateway struct {
-	config       Config
-	tokenHash    [32]byte
-	call         Call
-	mu           sync.Mutex
-	clients      map[chan []byte]struct{}
-	server       *http.Server
-	closed       bool
-	calls        chan struct{}
-	done         chan struct{}
-	adminEnabled bool
-	devices      *Devices
-	operations   *Operations
-	cancel       context.CancelFunc
-	epoch        string
-	sequence     uint64
-	replay       []recordedEvent
-	replayBytes  int
-	publicOrigin string
+	config            Config
+	tokenHash         [32]byte
+	localOwnerHash    [32]byte
+	localOwnerEnabled bool
+	call              Call
+	mu                sync.Mutex
+	clients           map[chan []byte]struct{}
+	server            *http.Server
+	closed            bool
+	calls             chan struct{}
+	done              chan struct{}
+	adminEnabled      bool
+	devices           *Devices
+	operations        *Operations
+	cancel            context.CancelFunc
+	epoch             string
+	sequence          uint64
+	replay            []recordedEvent
+	replayBytes       int
+	publicOrigin      string
 }
 
 // SetPublicOrigin permits exactly the configured reverse-proxy origin without
@@ -95,23 +101,41 @@ func New(config Config, call Call) (*Gateway, error) {
 		hash, adminEnabled = config.Administrator.hash, config.Administrator.enabled
 	}
 	config.Token = ""
+	localOwnerHash := sha256.Sum256([]byte(config.LocalOwnerToken))
+	localOwnerEnabled := len(config.LocalOwnerToken) >= 32
+	config.LocalOwnerToken = ""
 	epoch, err := randomID(9)
 	if err != nil {
 		return nil, err
 	}
-	devices, err := NewDevices(config.State)
-	if err != nil {
-		return nil, err
+	devices := config.SharedDevices
+	if devices == nil {
+		devices, err = NewDevices(config.State)
+		if err != nil {
+			return nil, err
+		}
 	}
 	life, cancel := context.WithCancel(context.Background())
 	g := &Gateway{config: config, tokenHash: hash, adminEnabled: adminEnabled, devices: devices, cancel: cancel, epoch: epoch, call: call, clients: make(map[chan []byte]struct{}), calls: make(chan struct{}, 16), done: make(chan struct{})}
-	g.operations, err = NewOperations(life, config.State, g.dispatch)
-	if err != nil {
-		cancel()
-		return nil, err
+	g.localOwnerHash = localOwnerHash
+	g.localOwnerEnabled = localOwnerEnabled
+	if config.SharedOperations != nil {
+		g.operations = config.SharedOperations
+	} else {
+		operationContext := context.Context(life)
+		if config.OperationContext != nil {
+			operationContext = config.OperationContext
+		}
+		g.operations, err = NewOperations(operationContext, config.State, g.dispatch)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
 	}
 	return g, nil
 }
+
+func (g *Gateway) Operations() *Operations { return g.operations }
 
 // Start validates TLS before opening a socket. Loopback HTTP supports SSH/VPN
 // forwarding; an externally bound endpoint always requires explicit TLS.

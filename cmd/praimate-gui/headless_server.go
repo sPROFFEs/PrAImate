@@ -5,10 +5,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/sPROFFEs/PrAImate/internal/remote"
+	"github.com/sPROFFEs/PrAImate/internal/serverboot"
 	"golang.org/x/term"
 	"io"
 	"os"
@@ -17,11 +21,15 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/sPROFFEs/PrAImate/internal/store"
 )
 
 func editionCommand(args []string) (bool, int) {
+	if handled, code := startupAuthorizationCommand(args); handled {
+		return true, code
+	}
 	if len(args) == 0 || args[0] != "--server" {
 		return false, 0
 	}
@@ -43,6 +51,10 @@ func runHeadlessServer(parent context.Context, args []string, input io.Reader, o
 	publicURL := flags.String("public-url", "", "HTTPS hostname configured in Cloudflare Tunnel")
 	connectorTokenFile := flags.String("cloudflare-token-file", "", "Private file containing only the tunnel connector token (saved encrypted)")
 	connectorAction := flags.String("cloudflare-service", "", "Connector operation at startup: install, start, stop, restart, uninstall or status")
+	managed := flags.Bool("managed", false, "Run under the configured OS startup supervisor")
+	serviceCredential := flags.String("service-credential", "", "Private OS startup unlock credential")
+	startupConfig := flags.String("startup-config", "", "Managed startup profile configuration")
+	managedTunnel := flags.Bool("managed-tunnel", false, "Supervise the configured Cloudflare connector with this Server")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -53,6 +65,34 @@ func runHeadlessServer(parent context.Context, args []string, input io.Reader, o
 		fmt.Fprintln(stderr, "Unexpected server arguments")
 		return 2
 	}
+	if *startupConfig != "" {
+		config, err := serverboot.ReadConfiguration(*startupConfig)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if config.Database != *database || *serviceCredential != filepath.Join(config.Root, "unlock") || !*managed {
+			fmt.Fprintln(stderr, "Startup arguments do not match this profile")
+			return 2
+		}
+		if config.ProfileHome != "" {
+			_ = os.Setenv("PRAIMATE_HOME", config.ProfileHome)
+		}
+		for name, value := range config.Environment {
+			_ = os.Setenv(name, value)
+		}
+		log, err := serverboot.OpenLog(config)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		defer log.Close()
+		output = log
+		stderr = log
+	}
+	if *managed {
+		_ = os.Setenv("PRAIMATE_SERVER_SUPERVISED", "1")
+	}
 	if *connectorAction != "" && !map[string]bool{"install": true, "start": true, "stop": true, "restart": true, "uninstall": true, "status": true}[*connectorAction] {
 		fmt.Fprintln(stderr, "Unknown Cloudflare connector operation")
 		return 2
@@ -60,6 +100,18 @@ func runHeadlessServer(parent context.Context, args []string, input io.Reader, o
 	password := os.Getenv("PRAIMATE_DB_PASSWORD")
 	_ = os.Unsetenv("PRAIMATE_DB_PASSWORD")
 	_ = os.Unsetenv("PRAIMATE_DB_PASSWORD_FILE")
+	if *serviceCredential != "" {
+		if *passwordFile != "" || *passwordStdin || password != "" {
+			fmt.Fprintln(stderr, "Choose one database password input")
+			return 2
+		}
+		var err error
+		password, err = serverboot.ReadCredential(*serviceCredential)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
 	if *passwordFile != "" && *passwordStdin {
 		fmt.Fprintln(stderr, "Choose one database password input")
 		return 2
@@ -114,8 +166,13 @@ func runHeadlessServer(parent context.Context, args []string, input io.Reader, o
 	if *listen != "" {
 		a.edition.config.Listen = *listen
 	}
-	if a.edition.config.Listen == "" {
-		a.edition.config.Listen = "127.0.0.1:8844"
+	if *managed {
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			fmt.Fprintln(stderr, "Cannot create local service session")
+			return 1
+		}
+		a.edition.localToken = base64.RawURLEncoding.EncodeToString(raw)
 	}
 	if *cert != "" {
 		a.edition.config.TLSCert = *cert
@@ -142,7 +199,31 @@ func runHeadlessServer(parent context.Context, args []string, input io.Reader, o
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if err = a.edition.openOwner(path); err != nil {
+	if *managed {
+		deadline := time.NewTimer(30 * time.Second)
+		defer deadline.Stop()
+		for {
+			err = a.edition.openOwner(path)
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, remote.ErrProfileOwned) {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			select {
+			case <-parent.Done():
+				return 1
+			case <-deadline.C:
+				fmt.Fprintln(stderr, "The foreground app still owns the profile; close it before starting the background service")
+				return 1
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	} else {
+		err = a.edition.openOwner(path)
+	}
+	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -174,6 +255,27 @@ func runHeadlessServer(parent context.Context, args []string, input io.Reader, o
 	if a.edition.gateway == nil {
 		fmt.Fprintln(stderr, "Remote service was not started")
 		return 1
+	}
+	if *managed {
+		cleanup, err := a.writeManagedSession()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		defer cleanup()
+	}
+	if *managedTunnel {
+		manager, err := a.tunnelManager()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		stop, err := manager.StartManaged(a.ctx, stderr)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		defer stop()
 	}
 	if *publicURL != "" || *connectorTokenFile != "" {
 		status, err := a.CloudflareStatus()

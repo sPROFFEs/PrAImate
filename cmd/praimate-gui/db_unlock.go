@@ -82,13 +82,22 @@ func (a *App) ChangeDatabasePassword(currentPassword, newPassword, confirmation 
 	}
 
 	result := &DatabaseUnlockResult{Unlocked: true}
+	if err := a.edition.passwordChanged(a, newPassword); err != nil {
+		result.Warning = err.Error()
+	}
 	if remember {
 		if err := store.RememberPassword(a.dbPath, newPassword); err != nil {
 			_ = store.ForgetRememberedPassword(a.dbPath)
-			result.Warning = "Database password changed, but this system could not securely remember the new password: " + err.Error()
+			if result.Warning != "" {
+				result.Warning += " "
+			}
+			result.Warning += "Database password changed, but this system could not securely remember the new password: " + err.Error()
 		}
 	} else if err := store.ForgetRememberedPassword(a.dbPath); err != nil {
-		result.Warning = "Database password changed, but the old remembered credential could not be removed: " + err.Error()
+		if result.Warning != "" {
+			result.Warning += " "
+		}
+		result.Warning += "Database password changed, but the old remembered credential could not be removed: " + err.Error()
 	}
 	return result, nil
 }
@@ -107,12 +116,16 @@ func (a *App) unlockDatabase(password string, remember, initialize bool) (*Datab
 		st  *store.Store
 		err error
 	)
+	if err := a.edition.openOwner(a.dbPath); err != nil {
+		return nil, err
+	}
 	if initialize {
 		st, err = store.InitializeWithPassword(a.dbPath, password)
 	} else {
 		st, err = store.OpenWithPassword(a.dbPath, password)
 	}
 	if err != nil {
+		a.edition.releaseOwner()
 		return nil, err
 	}
 
@@ -122,6 +135,7 @@ func (a *App) unlockDatabase(password string, remember, initialize bool) (*Datab
 	}
 	if err := a.initializeUnlockedStore(ctx, st); err != nil {
 		_ = st.Close()
+		a.edition.releaseOwner()
 		return nil, fmt.Errorf("initialise PrAImate: %w", err)
 	}
 	a.initErr = ""

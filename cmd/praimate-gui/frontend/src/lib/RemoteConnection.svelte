@@ -42,7 +42,7 @@
       <button class="btn" on:click={stopServer}>Stop server</button>
       {#if supervised}<button class="btn" on:click={restartServer}>Restart server</button>{/if}
     {/if}
-    <button class="btn" on:click={() => remote.logout()}>{mobile ? 'Disconnect this device' : 'Disconnect this browser'}</button>
+    <button class="btn" on:click={() => remote.logout()}>{window.praimateManagedHost ? 'Close this window' : mobile ? 'Disconnect this device' : 'Disconnect this browser'}</button>
   </section>{/if}
 </aside>
 <style>

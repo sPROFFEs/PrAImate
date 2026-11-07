@@ -4,6 +4,7 @@
   import { appEdition, showConfirm as askConfirm } from '../lib/stores.js'
   import { canConfigureServer } from '../lib/editionNavigation.js'
   import CloudflareSettings from '../lib/CloudflareSettings.svelte'
+  import ServerStartup from '../lib/ServerStartup.svelte'
 
   const remote = !!window.praimateRemote
   $: allowed = canConfigureServer($appEdition, window.praimateRemote?.status?.identity?.role)
@@ -90,7 +91,7 @@
           {#if status.publicURL}<div class="address"><div><span class="muted">Public address · Cloudflare</span><code>{status.publicURL}</code></div><button class="btn sm" on:click={() => copy(status.publicURL)}>Copy</button></div>{/if}
           <p class="muted">{status.publicURL ? 'For remote devices, use the public address after starting your tunnel below.' : 'A loopback origin works only on this host. For your phone, configure a Cloudflare Tunnel below, an SSH/VPN forward, or a network listener with TLS.'}</p>
           {#if status.pending}<p class="pending">Saved settings differ from the active listener ({status.activeConfiguration?.listen}). Apply them when you are ready to reconnect devices.</p>{/if}
-        {:else}<p class="muted">Save your connection settings, start access, then create a pairing code. This page does not install a background Server process.</p>{/if}
+        {:else}<p class="muted">Save your connection settings, start access, then create a pairing code. Use System startup below to install the optional background service.</p>{/if}
         <div class="actions">
           {#if status.running}<button class="btn primary" disabled={!!busy || dirty} on:click={() => control('restart')}>Apply settings / restart</button><button class="btn" disabled={!!busy} on:click={() => control('stop')}>Stop access</button>
           {:else}<button class="btn primary" disabled={!!busy || dirty} on:click={() => control('start')}>Start remote access</button>{/if}
@@ -101,7 +102,8 @@
       <section class="card" aria-labelledby="connection-title">
         <h2 id="connection-title">Connection settings</h2>
         <p class="muted">Settings are saved in your encrypted database. Command-line flags and environment variables override them at application startup.</p>
-        <label class="check"><input type="checkbox" bind:checked={form.autoStart} disabled={!!busy} /><span>Start remote access automatically when this Server profile is opened and unlocked</span></label>
+        <label class="check"><input type="checkbox" bind:checked={form.autoStart} disabled={!!busy} /><span>Start remote access when the desktop app opens and unlocks this profile</span></label>
+        <p class="muted">System startup below independently controls the headless background service.</p>
         <label>Listen address and port<input bind:value={form.listen} placeholder="127.0.0.1:8844" disabled={!!busy} spellcheck="false" /></label>
         <p class="muted">Use 127.0.0.1:8844 for Cloudflare Tunnel. A network address such as 0.0.0.0:8844 requires the TLS certificate and key below.</p>
         <div class="fields"><label>TLS certificate file<input bind:value={form.tlsCert} placeholder="Absolute path on the Server host" disabled={!!busy} spellcheck="false" /></label><label>TLS private key file<input bind:value={form.tlsKey} placeholder="Absolute path on the Server host" disabled={!!busy} spellcheck="false" /></label></div>
@@ -110,6 +112,7 @@
         <div class="actions"><button class="btn primary" disabled={!!busy || !dirty} on:click={save}>Save Server settings</button>{#if dirty}<button class="btn" disabled={!!busy} on:click={() => populate(status.configuration)}>Discard edits</button><span class="muted">Unsaved changes</span>{/if}</div>
       </section>
 
+      <ServerStartup />
       <section class="card" aria-labelledby="devices-title">
         <h2 id="devices-title">Pairing and devices</h2><p class="muted">Pairing works with direct connections and tunnels. Each code is single use and expires after five minutes.</p>
         <div class="fields"><label>Device name<input bind:value={deviceName} maxlength="128" disabled={!!busy || !status.running} /></label><label>Access level<select bind:value={role} disabled={!!busy || !status.running}><option value="control">Chats, workers and terminals</option><option value="admin">Full administration</option><option value="viewer">View only</option></select></label></div>
