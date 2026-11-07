@@ -39,6 +39,9 @@ var assets embed.FS
 var appIcon []byte
 
 func main() {
+	if handled, code := editionCommand(os.Args[1:]); handled {
+		os.Exit(code)
+	}
 	if !supportedDesktopOS(runtime.GOOS) {
 		fmt.Fprintln(os.Stderr, "PrAImate supports Linux, Windows and macOS")
 		os.Exit(1)
@@ -124,9 +127,11 @@ func main() {
 		windowIcon = desktopWindowIcon(appIcon)
 	}
 	app := NewApp()
-	if runtime.GOOS=="linux"{runtime.LockOSThread()}
- prepareDesktopIdentity()
- prepareVoiceEnvironment()
+	if runtime.GOOS == "linux" {
+		runtime.LockOSThread()
+	}
+	prepareDesktopIdentity()
+	prepareVoiceEnvironment()
 
 	err := wails.Run(&options.App{
 		Title:     title,
@@ -140,7 +145,7 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 16, G: 18, B: 24, A: 255},
 		OnStartup: func(ctx context.Context) {
 			setDesktopIcon(appIcon)
- prepareVoiceCapture()
+			prepareVoiceCapture()
 			app.startup(ctx)
 		},
 		OnDomReady:    func(context.Context) { prepareVoiceCapture() },

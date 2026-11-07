@@ -58,7 +58,9 @@ type App struct {
 	watchers  *core.WatcherDaemon
 	schedules *core.ScheduleDaemon
 
-	terms *termManager
+	terms    *termManager
+	edition  editionServices
+	headless bool
 
 	// chatCancels maps chatID → cancel func for the in-flight streamed
 	// turn, so the Stop button can interrupt it. Guarded by chatCancelMu
@@ -130,6 +132,7 @@ type App struct {
 
 func NewApp() *App {
 	a := &App{
+		edition:             newEditionServices(),
 		terms:               newTermManager(),
 		chatCancels:         map[string]context.CancelFunc{},
 		chatCancelIDs:       map[string]uint64{},
@@ -149,6 +152,7 @@ func NewApp() *App {
 }
 
 func (a *App) emitUIEvent(name string, payload any) {
+	a.edition.publish(name, payload)
 	if a.emit != nil {
 		a.emit(a.ctx, name, payload)
 	} else {
@@ -160,6 +164,7 @@ func (a *App) emitUIEvent(name string, payload any) {
 // recorded, not fatal — the frontend shows a setup-error banner via
 // Health().
 func (a *App) startup(ctx context.Context) {
+	ctx = context.WithValue(ctx, eventOwnerKey{}, a)
 	a.ctx = ctx
 	if a.detachedClient != nil {
 		a.detachedClient.start(ctx, func(name string, payload any) {
@@ -218,6 +223,9 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) initializeUnlockedStore(ctx context.Context, st *store.Store) error {
+	if err := a.edition.openOwner(a.dbPath); err != nil {
+		return err
+	}
 	// Load the legacy workspaces root (best-effort) so existing on-disk
 	// chats remain available in the Code terminal. Without a config the
 	// workspace chats section stays empty.
@@ -240,7 +248,9 @@ func (a *App) initializeUnlockedStore(ctx context.Context, st *store.Store) erro
 	// Codex local routing is no longer supported. Remove only the
 	// ollama_remote blocks previously owned by PrAImate; unrelated Codex
 	// configuration is preserved by DisableCodex.
-	_, _ = ollama.DisableCodex()
+	if !a.headless {
+		_, _ = ollama.DisableCodex()
+	}
 	core.RegisterAllCLIAdapters()
 	// From here on, every backup commit snapshots the DB + shareable
 	// config, and every pull/merge/reset row-merges the remote's
@@ -256,10 +266,10 @@ func (a *App) initializeUnlockedStore(ctx context.Context, st *store.Store) erro
 		// Watchers and schedules run in the main desktop process. NOT in studio-window
 		// processes: the main window already runs them, and two daemons
 		// on one DB would double-fire every schedule.
-		watchers, _ := c.StartWatcherDaemon(context.Background(), core.WatcherDaemonOptions{
+		watchers, _ := c.StartWatcherDaemon(ctx, core.WatcherDaemonOptions{
 			WatcherDispatchOptions: core.WatcherDispatchOptions{CLI: "claude"},
 		})
-		schedules, _ := c.StartScheduleDaemon(context.Background(), core.ScheduleDaemonOptions{
+		schedules, _ := c.StartScheduleDaemon(ctx, core.ScheduleDaemonOptions{
 			ScheduleDispatchOptions: core.ScheduleDispatchOptions{CLI: "claude"},
 		})
 
@@ -277,36 +287,41 @@ func (a *App) initializeUnlockedStore(ctx context.Context, st *store.Store) erro
 	}
 	studio.SetDesktopWorkerManager(c, a.workers)
 	a.connectStudioAssistant()
-	studio.SetDesktopWindowHooks(c, &studio.DesktopWindowHooks{
-		Hide: func() {
-			a.studioWindowMu.Lock()
-			a.studioWindowHidden = true
-			a.studioWindowMu.Unlock()
-			wruntime.WindowHide(a.ctx)
-		},
-		Show: func() {
-			wruntime.WindowShow(a.ctx)
-			wruntime.WindowUnminimise(a.ctx)
-			a.studioWindowMu.Lock()
-			a.studioWindowHidden = false
-			a.studioWindowMu.Unlock()
-		},
-		IsHidden: func() bool {
-			a.studioWindowMu.Lock()
-			defer a.studioWindowMu.Unlock()
-			return a.studioWindowHidden
-		},
-	})
+	if !a.headless {
+		studio.SetDesktopWindowHooks(c, &studio.DesktopWindowHooks{
+			Hide: func() {
+				a.studioWindowMu.Lock()
+				a.studioWindowHidden = true
+				a.studioWindowMu.Unlock()
+				wruntime.WindowHide(a.ctx)
+			},
+			Show: func() {
+				wruntime.WindowShow(a.ctx)
+				wruntime.WindowUnminimise(a.ctx)
+				a.studioWindowMu.Lock()
+				a.studioWindowHidden = false
+				a.studioWindowMu.Unlock()
+			},
+			IsHidden: func() bool {
+				a.studioWindowMu.Lock()
+				defer a.studioWindowMu.Unlock()
+				return a.studioWindowHidden
+			},
+		})
+	}
 
 	if editorFolder != "" {
 		// Studio window: stream external file changes (the agent's
 		// edits) into the open tabs.
 		a.startEditorWatcher()
 	}
+	a.edition.start(a)
 	return nil
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	defer a.edition.releaseOwner()
+	a.edition.close()
 	a.workflowCancelMu.Lock()
 	for _, cancel := range a.workflowCancels {
 		cancel()
@@ -551,6 +566,7 @@ func (a *App) startTerminal(agentID, cli, model, cwd, localEndpoint, localModel 
 // WriteTerminal forwards a base64-encoded chunk of keystrokes to the
 // PTY. The frontend base64-encodes so arbitrary control bytes survive.
 func (a *App) WriteTerminal(id, b64 string) error {
+	a.edition.localTerminalInput(id)
 	if a.detachedClient != nil {
 		return a.detachedClient.terminalWrite(id, b64)
 	}
@@ -562,6 +578,9 @@ func (a *App) WriteTerminal(id, b64 string) error {
 }
 
 func (a *App) ResizeTerminal(id string, cols, rows int) error {
+	if a.edition.skipLocalTerminalResize(id) {
+		return nil
+	}
 	if a.detachedClient != nil {
 		return a.detachedClient.terminalResize(id, cols, rows)
 	}
@@ -578,6 +597,7 @@ func (a *App) GetTerminalSnapshot(id string) (TerminalSnapshot, error) {
 }
 
 func (a *App) CloseTerminal(id string) {
+	a.edition.localTerminalInput(id)
 	if a.detachedClient != nil {
 		_ = a.detachedClient.terminalClose(id)
 		return

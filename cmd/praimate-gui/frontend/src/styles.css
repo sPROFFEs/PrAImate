@@ -678,3 +678,12 @@ input, textarea, select { accent-color: var(--accent); }
     transition-duration: .01ms !important; scroll-behavior: auto !important;
   }
 }
+/* Recovery must work even when a lazy application bundle cannot be loaded. */
+.boot-recovery { width:min(480px,calc(100% - 32px));margin:10vh auto;padding:24px;background:var(--bg-panel);border:1px solid var(--border);border-radius:16px;overflow-wrap:anywhere; }
+.boot-recovery h1 { font-size:22px; }
+.boot-recovery p { color:var(--text-dim);line-height:1.6; }
+.boot-recovery button { margin:8px 8px 0 0; }
+.boot-status { min-height:100dvh;display:flex;align-items:center;justify-content:center;gap:12px;color:var(--text-dim);font-size:14px; }
+.boot-status span { width:18px;height:18px;border:2px solid var(--border-bright);border-top-color:var(--accent);border-radius:50%;animation:boot-spin 800ms linear infinite; }
+@keyframes boot-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce){.boot-status span{animation:none;}}

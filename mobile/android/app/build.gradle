@@ -1,0 +1,41 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.praimate.mobile'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'com.praimate.mobile'
+        minSdk 26
+        targetSdk 36
+        def appVersion=providers.gradleProperty('praimateVersion').getOrElse('1.2.27')
+        def parts=appVersion.tokenize('-')[0].tokenize('.').collect { it as int }
+        versionCode providers.gradleProperty('praimateVersionCode').map { it as int }.getOrElse(parts[0]*1000000+parts[1]*1000+parts[2])
+        versionName appVersion
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    buildFeatures { buildConfig true }
+    signingConfigs {
+        debug {
+            if (System.getenv('PRAIMATE_ANDROID_DEBUG_KEYSTORE')) storeFile file(System.getenv('PRAIMATE_ANDROID_DEBUG_KEYSTORE'))
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    buildTypes {
+        debug { applicationIdSuffix '.debug'; versionNameSuffix '-debug' }
+        release {
+            minifyEnabled false
+            // Supply a signing configuration in Android Studio or sign the
+            // unsigned release APK externally; private keys never live here.
+        }
+    }
+    testOptions { unitTests.returnDefaultValues = true }
+}
+
+dependencies {
+    implementation 'androidx.activity:activity:1.10.1'
+    implementation 'androidx.webkit:webkit:1.14.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20250517'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+}

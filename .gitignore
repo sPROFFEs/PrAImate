@@ -47,3 +47,11 @@ backup_main_to_branch.sh
 /cmd/praimate-cli/praimate-cli.exe
 /cmd/praimate-gui/praimate-cli
 /cmd/praimate-gui/praimate-cli.exe
+
+# Android build output and local SDK/signing material.
+/mobile/android/.gradle/
+/mobile/android/**/build/
+/mobile/android/local.properties
+/mobile/android/app/src/main/assets/web/
+*.jks
+*.keystore

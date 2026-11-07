@@ -229,6 +229,7 @@
   let sessionSkills = []
   let exited = false
   let termId = null
+  $: if(window.praimateMobile)window.dispatchEvent(new CustomEvent('praimate:mobile-terminal',{detail:{id:termId}}))
   let el            // xterm host div
   let xterm = null
   let renderer = null
@@ -407,7 +408,7 @@
     error = ''
     try {
       await api.detachSession('terminal', id, sessionLabel || cli || 'Terminal')
-      detachedTerms = new Set([...detachedTerms, id])
+      if (!window.praimateRemote) detachedTerms = new Set([...detachedTerms, id])
       teardown(false)
       cleanSetup = false
       started = false

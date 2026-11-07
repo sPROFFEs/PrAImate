@@ -30,8 +30,6 @@ import (
 	"sync"
 	"time"
 
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"github.com/sPROFFEs/PrAImate/internal/core"
 	"github.com/sPROFFEs/PrAImate/internal/studio"
 )
@@ -266,7 +264,7 @@ func (a *App) ensureApprovalBroker() (*approvalBroker, error) {
 		if strings.HasPrefix(req.ChatID, "assistant-") {
 			studio.PublishDesktopAssistant(a.core, "assistant.approval", req)
 		}
-		wruntime.EventsEmit(a.ctx, "praimate:approval", req)
+		appEvent(a.ctx, "praimate:approval", req)
 		if a.detached != nil {
 			a.detached.publish("chat", req.ChatID, "praimate:approval", req)
 			a.detached.publish("studio", req.ChatID, "praimate:approval", req)

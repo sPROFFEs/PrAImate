@@ -9,6 +9,7 @@
 #   scripts/build.sh linux-amd64           # one target
 #   scripts/build.sh --no-archive          # skip the zip/tar.gz step
 #   scripts/build.sh --version=1.0.1       # inject a specific version
+#   scripts/build.sh --edition=server     # optional remote-capable edition
 #   VERSION=1.0.2 scripts/build.sh         # same, via env var
 #
 # The version is stamped into the binary at link time via
@@ -34,19 +35,23 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.2.26}"
+VERSION="${VERSION:-1.2.27}"
 EXTRA_LDFLAGS="${LDFLAGS:--s -w}"  # strip symbols by default — tiny binaries
+EDITION="desktop"
 ARCHIVE=1
 WITH_CODE=0
 WITH_GRAPHIFY=0
+REUSE_SHARED=""
 TARGETS=()
 
 for arg in "$@"; do
   case "$arg" in
     --no-archive) ARCHIVE=0 ;;
+    --edition=*) EDITION="${arg#--edition=}" ;;
     --with-gui) ;; # compatibility no-op: GUI is now mandatory
     --with-code) WITH_CODE=1 ;;
     --with-graphify) WITH_GRAPHIFY=1 ;;
+    --reuse-shared=*) REUSE_SHARED="${arg#--reuse-shared=}" ;;
     --version=*) VERSION="${arg#--version=}" ;;
     -h|--help)
       sed -n '2,26p' "$0"
@@ -56,11 +61,17 @@ for arg in "$@"; do
   esac
 done
 
+case "$EDITION" in
+  desktop) DIST_ROOT="dist"; ASSET_PREFIX="praimate"; BUILD_TAGS="" ;;
+  server) DIST_ROOT="dist/server"; ASSET_PREFIX="praimate-server"; BUILD_TAGS="server" ;;
+  *) echo "unknown edition: $EDITION (use desktop or server)" >&2; exit 2 ;;
+esac
+
 # Combined linker flags: strip + version injection. The Go linker accepts
 # multiple -X entries inside one -ldflags string.
 LDFLAGS="$EXTRA_LDFLAGS -X github.com/sPROFFEs/PrAImate/internal/version.Current=$VERSION"
 
-echo "Building version $VERSION"
+echo "Building $EDITION edition version $VERSION"
 
 if [ ${#TARGETS[@]} -eq 0 ]; then
   case "$(go env GOOS)" in
@@ -76,7 +87,7 @@ fi
 
 NATIVE_TRIPLET="$(go env GOOS)-$(go env GOARCH)"
 
-mkdir -p dist
+mkdir -p "$DIST_ROOT"
 
 build_one() {
   local triplet="$1"
@@ -92,22 +103,33 @@ build_one() {
       ;;
   esac
 
-  local out="dist/$triplet"
+  local out="$DIST_ROOT/$triplet"
+  local archive_base="$ASSET_PREFIX-$triplet"
   mkdir -p "$out"
 
   echo "→ $triplet"
+  if [ -n "$REUSE_SHARED" ]; then
+    for shared in "wpc$ext" "praimate-cli$ext"; do
+      test -f "$REUSE_SHARED/$triplet/$shared" || { echo "Missing shared $shared for $triplet" >&2; return 2; }
+      cp "$REUSE_SHARED/$triplet/$shared" "$out/$shared"
+    done
+    for shared in "praimate-code$ext" "praimate-code-baseline$ext" "praimate-graphify$ext"; do
+      if [ -f "$REUSE_SHARED/$triplet/$shared" ]; then cp "$REUSE_SHARED/$triplet/$shared" "$out/$shared"; fi
+    done
+  else
+    GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+      go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$out/wpc$ext" ./cmd/wpc
+    GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+      go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$out/praimate-cli$ext" ./cmd/praimate-cli
+  fi
   GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
-    go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$out/wpc$ext" ./cmd/wpc
-  GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
-    go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$out/praimate$ext" ./cmd/praimate
-  GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
-    go build -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "$out/praimate-cli$ext" ./cmd/praimate-cli
-  cp "$out/praimate-cli$ext" "dist/praimate-cli-$triplet$ext"
+    go build -trimpath -buildvcs=false -tags "$BUILD_TAGS" -ldflags "$LDFLAGS" -o "$out/praimate$ext" ./cmd/praimate
+  cp "$out/praimate-cli$ext" "$DIST_ROOT/praimate-cli-$triplet$ext"
 
   # GUI: Linux must be built natively; Windows is pure-Go cross-buildable.
   if [ "$triplet" = "$NATIVE_TRIPLET" ]; then
     echo "  + praimate-gui (native)"
-    bash cmd/praimate-gui/build.sh
+    PRAIMATE_SKIP_NATIVE_CLI=1 PRAIMATE_EDITION="$EDITION" PRAIMATE_BUILD_LDFLAGS="$LDFLAGS" bash cmd/praimate-gui/build.sh
     cp "cmd/praimate-gui/praimate-gui$ext" "$out/praimate-gui$ext"
   elif [ "$goos" = "windows" ]; then
     echo "  + praimate-gui (windows cross)"
@@ -116,27 +138,29 @@ build_one() {
     fi
     ( cd cmd/praimate-gui && \
       GOOS=windows GOARCH="$goarch" CGO_ENABLED=0 \
-      go build -trimpath -buildvcs=false -tags desktop,production \
-        -ldflags "-s -w -H windowsgui" -o praimate-gui.exe . )
+      go build -trimpath -buildvcs=false -tags "desktop,production${BUILD_TAGS:+,$BUILD_TAGS}" \
+        -ldflags "$LDFLAGS -H windowsgui" -o praimate-gui.exe . )
     cp cmd/praimate-gui/praimate-gui.exe "$out/praimate-gui.exe"
   else
     echo "$triplet requires a native GUI build host; refusing a GUI-less archive" >&2
     return 2
   fi
 
+  printf '%s\n' "$EDITION" > "$out/praimate-edition"
+
   # PrAImate Code (rebranded OpenCode): native target only — it's a
   # Bun-compiled standalone that can't cross-compile from here. Needs
   # bun on PATH; skipped quietly if absent so a plain build still works.
-  if [ "$WITH_CODE" = "1" ] && [ "$triplet" = "$NATIVE_TRIPLET" ]; then
+  if [ "$WITH_CODE" = "1" ] && [ "$triplet" = "$NATIVE_TRIPLET" ] && [ -z "$REUSE_SHARED" ]; then
     if command -v bun >/dev/null 2>&1; then
       echo "  + praimate-code (native, via build-praimate-code.sh)"
       OUT="$out" bash scripts/build-praimate-code.sh
       # Copy for standalone release asset (names expected by tools.go)
-      cp "$out/praimate-code$ext" "dist/praimate-code-$triplet$ext"
+      cp "$out/praimate-code$ext" "$DIST_ROOT/praimate-code-$triplet$ext"
       if [ "$goarch" = "amd64" ]; then
         echo "  + praimate-code-baseline (native, via build-praimate-code.sh)"
         BASELINE=1 OUT="$out" bash scripts/build-praimate-code.sh
-        cp "$out/praimate-code-baseline$ext" "dist/praimate-code-$triplet-baseline$ext"
+        cp "$out/praimate-code-baseline$ext" "$DIST_ROOT/praimate-code-$triplet-baseline$ext"
       fi
     else
       echo "  (skipping praimate-code: bun not on PATH)" >&2
@@ -145,12 +169,12 @@ build_one() {
 
   # Bundled graphify: PyInstaller-frozen standalone, native target only
   # (can't cross-compile). Needs uv; skipped quietly otherwise.
-  if [ "$WITH_GRAPHIFY" = "1" ] && [ "$triplet" = "$NATIVE_TRIPLET" ]; then
+  if [ "$WITH_GRAPHIFY" = "1" ] && [ "$triplet" = "$NATIVE_TRIPLET" ] && [ -z "$REUSE_SHARED" ]; then
     if command -v uv >/dev/null 2>&1; then
       echo "  + praimate-graphify (native, via build-graphify.sh)"
       OUT="$out" bash scripts/build-graphify.sh
       # Copy for standalone release asset (names expected by tools.go)
-      cp "$out/praimate-graphify$ext" "dist/praimate-graphify-$triplet$ext"
+      cp "$out/praimate-graphify$ext" "$DIST_ROOT/praimate-graphify-$triplet$ext"
     else
       echo "  (skipping praimate-graphify: uv not on PATH)" >&2
     fi
@@ -167,6 +191,8 @@ build_one() {
   cp docs/ACTIVATION.md docs/TARGETS.md docs/SCHEMA.md docs/QUICKSTART.md \
     docs/GUIDE.md docs/AGENT_GUIDE.md docs/CLI_AGENT_API.md \
     docs/native-cli.md docs/WORKERS.md docs/KNOWLEDGE.md docs/assistant-voice.md docs/RELEASE-GITHUB.md "$out/docs/"
+  if [ "$EDITION" = server ]; then cp docs/REMOTE-SERVER.md docs/MOBILE-ANDROID.md "$out/docs/"; fi
+	if [ "$EDITION" = server ]; then cp -R scripts/server "$out/scripts-server"; fi
   mkdir -p "$out/docs/assets"
   cp docs/assets/monke-icon.png "$out/docs/assets/"
   mkdir -p "$out/examples"
@@ -191,20 +217,20 @@ build_one() {
         # found in archive"). Windows' native bsdtar produces correct
         # zips; git-bash's GNU tar does NOT (-a is silently wrong).
         if command -v zip >/dev/null 2>&1; then
-          rm -f "dist/praimate-$triplet.zip"
-          ( cd dist && zip -qr "praimate-$triplet.zip" "$triplet" )
+          rm -f "$DIST_ROOT/$archive_base.zip"
+          ( cd "$DIST_ROOT" && zip -qr "$archive_base.zip" "$triplet" )
         elif command -v 7z >/dev/null 2>&1; then
-          rm -f "dist/praimate-$triplet.zip"
-          ( cd dist && 7z a -tzip -r "praimate-$triplet.zip" "$triplet" >/dev/null )
+          rm -f "$DIST_ROOT/$archive_base.zip"
+          ( cd "$DIST_ROOT" && 7z a -tzip -r "$archive_base.zip" "$triplet" >/dev/null )
         elif python3 -c 'import zipfile' >/dev/null 2>&1; then
-          rm -f "dist/praimate-$triplet.zip"
-          ( cd dist && python3 -c "import zipfile, os; z = zipfile.ZipFile('praimate-$triplet.zip', 'w', zipfile.ZIP_DEFLATED); [z.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), '.')) for root, _, files in os.walk('$triplet') for file in files]; z.close()" )
+          rm -f "$DIST_ROOT/$archive_base.zip"
+          ( cd "$DIST_ROOT" && python3 -c "import zipfile, os; z = zipfile.ZipFile('$archive_base.zip', 'w', zipfile.ZIP_DEFLATED); [z.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), '.')) for root, _, files in os.walk('$triplet') for file in files]; z.close()" )
         elif [ -x "/c/Windows/System32/tar.exe" ]; then
-          ( cd dist && /c/Windows/System32/tar.exe \
+          ( cd "$DIST_ROOT" && /c/Windows/System32/tar.exe \
               --options zip:compression=deflate \
-              -a -cf "praimate-$triplet.zip" "$triplet" )
+              -a -cf "$archive_base.zip" "$triplet" )
         elif command -v tar >/dev/null 2>&1; then
-          ( cd dist && tar -czf "praimate-$triplet.tar.gz" "$triplet" )
+          ( cd "$DIST_ROOT" && tar -czf "$archive_base.tar.gz" "$triplet" )
           echo "  (no zip on PATH; built tar.gz instead)" >&2
         else
           echo "  (no zip or tar on PATH; skipping archive)" >&2
@@ -212,7 +238,7 @@ build_one() {
         ;;
       *)
         if command -v tar >/dev/null 2>&1; then
-          ( cd dist && tar -czf "praimate-$triplet.tar.gz" "$triplet" )
+          ( cd "$DIST_ROOT" && tar -czf "$archive_base.tar.gz" "$triplet" )
         else
           echo "  (no tar on PATH; skipping archive)" >&2
         fi

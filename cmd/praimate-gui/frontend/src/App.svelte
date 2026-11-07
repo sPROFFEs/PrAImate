@@ -188,12 +188,14 @@
   let availableUpdate = null
   let updatingApp = false
   let updateError = ''
+  let updateNotice = ''
 
   async function applyUpdate() {
     updatingApp = true
     updateError = ''
     try {
       await api.performUpdate()
+      if (availableUpdate?.edition === 'server') { updateNotice='Server update installed. Restart it after your running tasks finish.'; availableUpdate=null; updatingApp=false }
     } catch (e) {
       updateError = String(e)
       updatingApp = false
@@ -236,6 +238,7 @@
         })
         .catch(() => {})
     }
+    if (window.praimateRemote) window.dispatchEvent(new Event('praimate:app-ready'))
   }
 
   let zoomLevel = 1.0;
@@ -282,9 +285,16 @@
       return
     }
     cleanup.push(onApproval((request) => {
-      if (isWorkerRun(request.chatId) || request.chatId?.startsWith('assistant-')) workerApprovals = [...workerApprovals, request]
+      if ((isWorkerRun(request.chatId) || request.chatId?.startsWith('assistant-')) && !workerApprovals.some(item => item.id === request.id)) workerApprovals = [...workerApprovals, request]
     }))
     if (window.runtime?.EventsOn) {
+      if (window.praimateRemote) {
+        const restoreApprovals = async () => {
+          try { const activity = await api.remoteActivity(); workerApprovals = activity.approvals.filter(request => isWorkerRun(request.chatId) || request.chatId?.startsWith('assistant-')) } catch {}
+        }
+        cleanup.push(window.runtime.EventsOn('praimate:remote-resync', restoreApprovals))
+        restoreApprovals()
+      }
       cleanup.push(window.runtime.EventsOn('praimate:approval-resolved', request => { workerApprovals = workerApprovals.filter(item => item.id !== request.id) }))
       cleanup.push(window.runtime.EventsOn('assistant:config', config => assistantConfig.set(config)))
       cleanup.push(window.runtime.EventsOn('assistant:appearance', theme => setThemeMode(theme)))
@@ -427,6 +437,7 @@
   </nav>
 
   <main class="main">
+    {#if updateNotice}<div class="update-banner" role="status"><span>{updateNotice}</span><button class="btn sm" on:click={()=>updateNotice=''}>Dismiss</button></div>{/if}
     {#if availableUpdate}
       <div class="update-banner" role="alert">
         <div class="update-copy">
@@ -436,7 +447,7 @@
         <div class="update-actions">
           {#if updateError}<span class="update-err">{updateError}</span>{/if}
           <button class="btn sm primary" type="button" on:click={applyUpdate} disabled={updatingApp}>
-            {updatingApp ? 'Updating & restarting…' : 'Update & restart'}
+            {availableUpdate?.edition === 'server' ? (updatingApp ? 'Installing update…' : 'Install server update') : (updatingApp ? 'Updating & restarting…' : 'Update & restart')}
           </button>
           <button class="btn sm" type="button" aria-label="Dismiss update" on:click={() => (availableUpdate = null)} disabled={updatingApp}>
             ✕

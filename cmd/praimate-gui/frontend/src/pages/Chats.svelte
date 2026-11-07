@@ -24,6 +24,7 @@
   let error = ''
   let threadErrors = {}
   let selected = null
+  $: if(window.praimateMobile)window.dispatchEvent(new CustomEvent('praimate:mobile-selection',{detail:{page:'chats',id:selected?.ID || ''}}))
   let messages = []
   let draft = ''
   let sending = false
@@ -38,6 +39,26 @@
   let approvals = [] // pending mid-turn permission requests for this chat
   let detachedChats = new Set()
   let unsubDetached = () => {}
+  let serverEdition = !!window.praimateRemote
+  let ownTurnId = ''
+  let remoteUnsubs = []
+
+  async function syncRemoteThread() {
+    if (!serverEdition) return
+    const id = selected?.ID
+    try {
+      const activity = await api.remoteActivity()
+      if (!id || selected?.ID !== id) return
+      if (ownTurnId !== id) {
+        const history = await api.chatMessages(id)
+        if (selected?.ID !== id) return
+        messages = history || []
+        sending = activity.chats.includes(id)
+        if (!sending) stream = null
+      }
+      approvals = window.praimateRemote?.status.identity.role === 'viewer' ? [] : activity.approvals.filter(request => request.chatId === id)
+    } catch (e) { if (selected?.ID === id) error = String(e) }
+  }
   function isOpenCodeLikeCli(cli) { return cli === 'opencode' || cli === 'praimate-code' }
 
   function supportsNativeTerminalResume(cli) {
@@ -384,6 +405,7 @@
       if (selected?.ID !== chat.ID) return
       messages = history
       error = threadErrors[chat.ID] || history.at(-1)?.Meta?.error || ''
+      await syncRemoteThread()
       await scrollToBottom(true)
     } catch (e) {
       if (selected?.ID === chat.ID) error = String(e)
@@ -391,9 +413,9 @@
   }
 
   function back() {
-    // Deny anything still pending — leaving the chat must not strand
-    // the CLI waiting on an answer.
-    for (const ap of approvals) api.resolveApproval(ap.id, false, false).catch(() => {})
+    // Desktop-only windows fail closed on navigation. A server client leaves
+    // approvals available to other connected controllers and the broker timeout.
+    if (!serverEdition) for (const ap of approvals) api.resolveApproval(ap.id, false, false).catch(() => {})
     approvals = []
     error = ''
     stream = null
@@ -431,7 +453,8 @@
   }
 
   function handleStreamEvent(ev) {
-    if (!sending || !selected || ev.chatId !== selected.ID) return
+    if (!selected || ev.chatId !== selected.ID || (!sending && !serverEdition)) return
+    if (serverEdition && !sending) { sending = true; syncRemoteThread() }
     stream = applyChatStreamEvent(stream, ev)
     scrollToBottom()
   }
@@ -447,6 +470,7 @@
   }
 
   function handleApproval(req) {
+    if (window.praimateRemote?.status.identity.role === 'viewer') return
     if (isWorkerRun(req.chatId) || req.chatId?.startsWith('assistant-')) return // App owns worker approvals across pages.
     // The detached child is subscribed before DetachSession resolves. Do not
     // fail-close an approval that belongs to that active renderer.
@@ -454,10 +478,10 @@
     if (!selected || req.chatId !== selected.ID) {
       // Approval for a chat that isn't open — fail closed immediately
       // rather than letting it hang until the broker timeout.
-      api.resolveApproval(req.id, false, false).catch(() => {})
+      if (!serverEdition) api.resolveApproval(req.id, false, false).catch(() => {})
       return
     }
-    approvals = [...approvals, req]
+    if (!approvals.some(item => item.id === req.id)) approvals = [...approvals, req]
     scrollToBottom()
   }
 
@@ -471,6 +495,7 @@
     const text = compact ? override : draft.trim()
     if ((!text && attachments.length === 0) || sending || !selected) return
     const chatID = selected.ID
+    ownTurnId = chatID
     sending = true
     error = ''
     delete threadErrors[chatID]
@@ -515,7 +540,8 @@
       }
       if (!compact && selected?.ID === chatID) attachments = staged
     } finally {
-      sending = false
+      if (ownTurnId === chatID) ownTurnId = ''
+      if (!serverEdition || selected?.ID === chatID) sending = false
       if (selected?.ID === chatID) {
         stream = null
         approvals = [] // turn is over; anything unanswered was denied/cancelled
@@ -534,7 +560,7 @@
     error = ''
     try {
       await api.detachSession('chat', chat.ID, chat.Title || 'Chat')
-      detachedChats = new Set([...detachedChats, chat.ID])
+      if (!window.praimateRemote) detachedChats = new Set([...detachedChats, chat.ID])
       // Release only this renderer. The authoritative turn, cancel function,
       // and transcript stay in the main Go process.
       selected = null
@@ -617,10 +643,19 @@
   }
 
   onMount(async () => {
+    try { serverEdition = (await api.about()).edition === 'server' } catch {}
     unsubStream = onChatStream(handleStreamEvent)
     unsubApproval = onApproval(handleApproval)
     try { detachedChats = new Set(((await api.detachedWindows()) || []).filter((item) => item.kind === 'chat').map((item) => item.sessionId)) } catch {}
     if (window.runtime?.EventsOn) {
+      if (serverEdition) {
+        remoteUnsubs.push(window.runtime.EventsOn('praimate:remote-resync', () => { load(); syncRemoteThread() }))
+        remoteUnsubs.push(window.runtime.EventsOn('praimate:chat-finished', event => {
+          load()
+          if (event.chatId === selected?.ID) { if (event.error) error = event.error; syncRemoteThread() }
+        }))
+        remoteUnsubs.push(window.runtime.EventsOn('praimate:approval-resolved', request => { approvals = approvals.filter(item => item.id !== request.id) }))
+      }
       window.runtime.EventsOn('praimate:detached-windows', (items) => {
         detachedChats = new Set((items || []).filter((item) => item.kind === 'chat').map((item) => item.sessionId))
         // A detached window may have changed tools. Reattach from current DB
@@ -646,6 +681,7 @@
     unsubStream()
     unsubApproval()
     unsubDetached()
+    remoteUnsubs.forEach(unsubscribe => unsubscribe())
   })
 </script>
 

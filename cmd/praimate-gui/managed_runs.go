@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"unicode/utf8"
 
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
@@ -37,7 +35,7 @@ func (a *App) ResumeManagedRun(runID string) (*core.ManagedRun, error) {
 		a.managedCancelMu.Unlock()
 	}()
 	return c.ResumeManagedRun(ctx, runID, func(event core.ManagedRunEvent) {
-		wruntime.EventsEmit(a.ctx, "praimate:managed-run", event)
+		appEvent(a.ctx, "praimate:managed-run", event)
 	})
 }
 

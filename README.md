@@ -23,6 +23,12 @@ permissions, skills, MCP, context and encrypted sessions. See the
 [native CLI guide](docs/native-cli.md) for local models, routers, terminal
 commands and permission boundaries.
 
+The `main` branch remains desktop-only. The optional remote edition is developed
+on `server`; see [desktop/server installation and development](docs/REMOTE-SERVER.md)
+for edition flags, combined release assets, and current remote API limitations.
+The same branch includes the [Android client](docs/MOBILE-ANDROID.md), which
+connects to that server and keeps CLI/model execution on the host.
+
 ## Supported systems
 
 - Linux amd64 (release archive)

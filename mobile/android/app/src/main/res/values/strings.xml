@@ -1,0 +1,7 @@
+<resources>
+    <string name="update_downloading">Downloading and verifying APK…</string>
+    <string name="update_automatic">Check for updates when app opens</string>
+    <string name="access_address">Cloudflare Access · %1$s</string>
+    <string name="access_cancel">Cancel sign-in</string>
+    <string name="access_not_required">This endpoint did not return a Cloudflare Access sign-in session. Check that your Access application protects this server hostname, or connect directly without Access.</string>
+</resources>

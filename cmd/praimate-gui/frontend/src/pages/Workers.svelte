@@ -26,6 +26,7 @@
   let modelSuggestions = {}
   let runs = []
   let selected = $openWorkerId || ''
+  $: if(window.praimateMobile)window.dispatchEvent(new CustomEvent('praimate:mobile-selection',{detail:{page:'workers',id:selected}}))
   let snapshot = null
 	let approvals = []
   let task = ''

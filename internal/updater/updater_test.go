@@ -4,6 +4,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/sPROFFEs/PrAImate/internal/version"
 )
 
 func TestIsNewer(t *testing.T) {
@@ -30,11 +32,11 @@ func TestIsNewer(t *testing.T) {
 
 func TestAssetForHost(t *testing.T) {
 	rel := &Release{
-		TagName: "v0.2.0",
+		TagName: version.ReleaseTagPrefix + "0.2.0",
 		Assets: []Asset{
-			{Name: "praimate-0.2.0-linux-amd64.tar.gz", BrowserDownloadURL: "u1"},
-			{Name: "praimate-0.2.0-linux-arm64.tar.gz", BrowserDownloadURL: "u2"},
-			{Name: "praimate-0.2.0-windows-amd64.zip", BrowserDownloadURL: "u5"},
+			{Name: version.AssetPrefix + "-0.2.0-linux-amd64.tar.gz", BrowserDownloadURL: "u1"},
+			{Name: version.AssetPrefix + "-0.2.0-linux-arm64.tar.gz", BrowserDownloadURL: "u2"},
+			{Name: version.AssetPrefix + "-0.2.0-windows-amd64.zip", BrowserDownloadURL: "u5"},
 		},
 	}
 	a, err := AssetForHost(rel)
@@ -49,22 +51,22 @@ func TestAssetForHost(t *testing.T) {
 
 func TestAssetForPlatform_SupportsMacOSARM64(t *testing.T) {
 	rel := &Release{
-		TagName: "v0.2.0",
-		Assets:  []Asset{{Name: "praimate-darwin-arm64.tar.gz"}},
+		TagName: version.ReleaseTagPrefix + "0.2.0",
+		Assets:  []Asset{{Name: version.AssetPrefix + "-darwin-arm64.tar.gz"}},
 	}
 	a, err := assetForPlatform(rel, "darwin", "arm64")
 	if err != nil {
 		t.Fatalf("expected darwin-arm64 asset to resolve, got %v", err)
 	}
-	if a.Name != "praimate-darwin-arm64.tar.gz" {
+	if a.Name != version.AssetPrefix+"-darwin-arm64.tar.gz" {
 		t.Errorf("unexpected asset: %s", a.Name)
 	}
 }
 
 func TestAssetForPlatform_RejectsUnsupportedOS(t *testing.T) {
 	rel := &Release{
-		TagName: "v0.2.0",
-		Assets:  []Asset{{Name: "praimate-0.2.0-plan9-mips.tar.gz"}},
+		TagName: version.ReleaseTagPrefix + "0.2.0",
+		Assets:  []Asset{{Name: version.AssetPrefix + "-0.2.0-plan9-mips.tar.gz"}},
 	}
 	if _, err := assetForPlatform(rel, "plan9", "mips"); err == nil {
 		t.Fatal("plan9 must not resolve a release asset")
@@ -73,8 +75,8 @@ func TestAssetForPlatform_RejectsUnsupportedOS(t *testing.T) {
 
 func TestAssetForHost_NoMatch(t *testing.T) {
 	rel := &Release{
-		TagName: "v0.2.0",
-		Assets:  []Asset{{Name: "praimate-0.2.0-plan9-mips.tar.gz"}},
+		TagName: version.ReleaseTagPrefix + "0.2.0",
+		Assets:  []Asset{{Name: version.AssetPrefix + "-0.2.0-plan9-mips.tar.gz"}},
 	}
 	if _, err := AssetForHost(rel); err == nil {
 		t.Fatalf("expected error when no asset matches host")

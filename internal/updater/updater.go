@@ -28,11 +28,13 @@ import (
 
 // Release is the slice of the GitHub /releases/latest payload we need.
 type Release struct {
-	TagName string  `json:"tag_name"`
-	Name    string  `json:"name"`
-	HTMLURL string  `json:"html_url"`
-	Body    string  `json:"body"`
-	Assets  []Asset `json:"assets"`
+	TagName    string  `json:"tag_name"`
+	Name       string  `json:"name"`
+	HTMLURL    string  `json:"html_url"`
+	Body       string  `json:"body"`
+	Assets     []Asset `json:"assets"`
+	Draft      bool    `json:"draft"`
+	Prerelease bool    `json:"prerelease"`
 	// AssetsIncomplete means the API was unavailable and the web fallback
 	// could only infer the main archive, not enumerate standalone assets.
 	AssetsIncomplete bool `json:"-"`
@@ -51,6 +53,9 @@ var httpClient = &http.Client{Timeout: 60 * time.Second}
 // LatestURL is the GitHub API endpoint queried for the most recent
 // release of the configured repo.
 func LatestURL() string {
+	if version.Edition == "server" {
+		return "https://api.github.com/repos/" + version.Repo + "/releases?per_page=100"
+	}
 	return version.ReleaseLatestAPIURL
 }
 
@@ -70,12 +75,42 @@ func FetchLatest() (*Release, error) {
 		if err == nil {
 			defer resp.Body.Close()
 			if resp.StatusCode == 200 {
+				if version.Edition == "server" {
+					var releases []Release
+					if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&releases); err != nil {
+						return nil, fmt.Errorf("decode server releases: %w", err)
+					}
+					var latest *Release
+					for i := range releases {
+						r := &releases[i]
+						serverRelease := strings.HasPrefix(r.TagName, "server-v")
+						if strings.HasPrefix(r.TagName, "v") {
+							for _, asset := range r.Assets {
+								if strings.HasPrefix(asset.Name, "praimate-server-") && (strings.HasSuffix(asset.Name, ".tar.gz") || strings.HasSuffix(asset.Name, ".zip")) {
+									serverRelease = true
+									break
+								}
+							}
+						}
+						if !r.Draft && serverRelease &&
+							(latest == nil || IsNewer(r.TagName, latest.TagName)) {
+							latest = r
+						}
+					}
+					if latest == nil {
+						return nil, errors.New("no published PrAImate server release found; desktop releases cannot update this edition")
+					}
+					return latest, nil
+				}
 				var rel Release
-				if jerr := json.NewDecoder(resp.Body).Decode(&rel); jerr == nil && rel.TagName != "" {
+				if jerr := json.NewDecoder(resp.Body).Decode(&rel); jerr == nil && strings.HasPrefix(rel.TagName, "v") && !rel.Draft && !rel.Prerelease {
 					return &rel, nil
 				}
 			}
 		}
+	}
+	if version.Edition == "server" {
+		return nil, errors.New("unable to query PrAImate server releases; refusing desktop channel fallback")
 	}
 
 	// Fall back to web redirect on /releases/latest (immune to GitHub API rate limits / 403 Forbidden)
@@ -112,6 +147,9 @@ func fetchLatestWebFallback() (*Release, error) {
 	tag := strings.TrimSpace(loc[idx+len("/tag/"):])
 	if tag == "" {
 		return nil, errors.New("empty tag in release redirect")
+	}
+	if !strings.HasPrefix(tag, "v") {
+		return nil, errors.New("latest release does not belong to the desktop channel")
 	}
 	triplet := runtime.GOOS + "-" + runtime.GOARCH
 	ext := ".tar.gz"
@@ -152,6 +190,7 @@ func IsNewer(remoteTag, localVer string) bool {
 }
 
 func parseSemver(s string) [3]int {
+	s = strings.TrimPrefix(strings.TrimSpace(s), "server-")
 	s = strings.TrimPrefix(strings.TrimSpace(s), "v")
 	// Strip pre-release suffix ("-rc1", "-beta.2") before splitting.
 	if i := strings.IndexAny(s, "-+"); i >= 0 {
@@ -187,9 +226,11 @@ func assetForPlatform(rel *Release, goos, goarch string) (*Asset, error) {
 	if goos == "windows" {
 		wantExt = ".zip"
 	}
+	canonical := version.AssetPrefix + "-" + triplet + wantExt
+	legacy := version.AssetPrefix + "-" + strings.TrimPrefix(rel.TagName, version.ReleaseTagPrefix) + "-" + triplet + wantExt
 	for i := range rel.Assets {
 		a := &rel.Assets[i]
-		if strings.Contains(a.Name, triplet) && strings.HasSuffix(a.Name, wantExt) {
+		if a.Name == canonical || (rel.TagName != "" && a.Name == legacy) {
 			return a, nil
 		}
 	}

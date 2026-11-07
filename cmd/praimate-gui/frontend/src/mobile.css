@@ -1,0 +1,22 @@
+html.praimate-mobile, .praimate-mobile body { overscroll-behavior:none; }
+.praimate-mobile .shell { height:calc(var(--app-height,100dvh) - 48px);margin-top:48px; }
+.praimate-mobile .shell>.sidebar { display:none; }
+.praimate-mobile .main { padding:16px 12px 64px; }
+.praimate-mobile input,.praimate-mobile select,.praimate-mobile textarea { font-size:16px;max-width:100%; }
+.praimate-mobile .btn { min-height:40px;touch-action:manipulation; }
+.praimate-mobile .picker,.praimate-mobile .modal-content { max-width:calc(100vw - 24px)!important;max-height:calc(var(--app-height,100dvh) - 72px)!important; }
+.praimate-mobile .modal-backdrop,.praimate-mobile .picker-backdrop { padding:12px;padding-top:60px; }
+.praimate-mobile .backdrop,.praimate-mobile .modal-backdrop,.praimate-mobile .picker-backdrop,.praimate-mobile .dialog-backdrop { z-index:1200!important; }
+.praimate-mobile .tbl { display:block;overflow-x:auto; }
+.praimate-mobile .row { flex-wrap:wrap; }
+.praimate-mobile .composer { min-width:0; }
+.praimate-mobile .boot-screen { height:var(--app-height,100dvh); }
+.praimate-mobile .remote-login { min-height:var(--app-height,100dvh);padding:16px; }
+@media(max-width:700px){
+  .praimate-mobile .columns,.praimate-mobile .config-grid,.praimate-mobile .stats-grid,.praimate-mobile .metrics-grid { grid-template-columns:minmax(0,1fr)!important;min-width:0!important; }
+  .praimate-mobile h1 { font-size:22px; }
+  .praimate-mobile .card { padding:14px; }
+  .praimate-mobile .workers>.heading { flex-wrap:wrap;align-items:flex-start; }
+  .praimate-mobile .workers>.heading>button { flex-shrink:0;white-space:nowrap;min-height:40px; }
+}
+@media(prefers-reduced-motion:reduce){.praimate-mobile *{scroll-behavior:auto!important;}}

@@ -12,6 +12,8 @@
   import { onMount, onDestroy, tick } from 'svelte'
   import { get } from 'svelte/store'
   import { api, onChatStream, onApproval } from '../lib/api.js'
+  import { ownsApproval } from '../lib/approvalOwnership.js'
+  import { createRemoteChatSync } from '../lib/remoteChatSync.js'
   import { agentStudio } from '../lib/stores.js'
   import CodeEditor from '../lib/CodeEditor.svelte'
   import KnowledgeSettings from '../lib/KnowledgeSettings.svelte'
@@ -206,6 +208,14 @@
   let messages = []
   let draft = ''
   let sending = false
+  let ownTurn = false
+  let sharedApprovals = !!window.praimateRemote
+  const remoteUnsubs=[]
+  const remoteSync=window.praimateRemote?createRemoteChatSync({api,chatID:()=>helperChatId,ownsTurn:()=>ownTurn,role:()=>window.praimateRemote.status.identity.role,approvalIDs:()=>[helperChatId,managedRunBusy?selectedRun?.id:''],apply:next=>{
+    if(next.messages!==undefined)messages=next.messages
+    if(next.sending!==undefined){sending=next.sending;if(!sending)stream=null}
+    if(next.approvals!==undefined)approvals=next.approvals
+  },onError:e=>error=String(e)}):null
   let stream = null
   let approvals = []
   let threadEl
@@ -224,6 +234,8 @@
   // --- layout ---
   let leftOpen = true
   let chatOpen = true
+  const mobile = !!window.praimateMobile
+  let mobilePane = 'editor'
   $: gridCols = `${leftOpen ? '300px' : '34px'} 1fr ${chatOpen ? '360px' : '34px'}`
   let cursorInfo = { line: 1, col: 1, selLen: 0 }
   let ctx = null
@@ -512,6 +524,7 @@
       if (disposed) { await api.deleteChat(c.ID); return }
       helperChatId = c.ID
       helperCwd = c.WorkspacePath || helperCwd
+      if(remoteSync)await remoteSync.refresh()
       dismissError()
     } catch (e) {
       error = String(e)
@@ -752,7 +765,8 @@
 
   // --- helper chat ---
   function handleStreamEvent(ev) {
-    if (!sending || ev.chatId !== helperChatId) return
+    if (ev.chatId !== helperChatId || (!sending&&!remoteSync)) return
+    if(!sending){sending=true;remoteSync.refresh()}
     if (!stream) stream = { text: '', tools: [], reasoning: [], steps: [] }
     if (ev.type === 'text') stream.text += (ev.text || '')
     else if (ev.type === 'reasoning') stream.reasoning = (stream.reasoning || '') + (ev.text || ev.detail || '')
@@ -769,9 +783,8 @@
   }
   function handleApproval(req) {
     if (isWorkerRun(req.chatId) || req.chatId?.startsWith('assistant-')) return // App owns worker approvals across pages.
-    const isManagedResume = managedRunBusy && req.chatId === selectedRun?.id
-    if (req.chatId !== helperChatId && !isManagedResume) { api.resolveApproval(req.id, false, false).catch(() => {}); return }
-    approvals = [...approvals, req]
+    if(!ownsApproval(req,{chatIDs:[helperChatId,managedRunBusy?selectedRun?.id:''],remote:sharedApprovals,role:window.praimateRemote?.status.identity.role,resolve:api.resolveApproval}))return
+    if(!approvals.some(item=>item.id===req.id))approvals = [...approvals, req]
   }
   async function answerApproval(req, allow, always) {
     approvals = approvals.filter((a) => a.id !== req.id)
@@ -799,6 +812,7 @@
   }
   async function sendMsg(text) {
     if (!text || sending || !helperChatId) return
+    ownTurn = true
     sending = true; stream = null
     messages = [...messages, { Role: 'user', Content: text, TS: new Date().toISOString(), _pending: true }]
     await scrollChat()
@@ -837,6 +851,7 @@
       messages = messages.filter((m) => !m._pending)
       throw e
     } finally {
+      ownTurn = false
       sending = false; stream = null; approvals = []; await scrollChat()
     }
   }
@@ -893,6 +908,11 @@
     if (helperChatId) { try { await api.deleteChat(helperChatId) } catch {} }
     agentStudio.set(null)
   }
+  async function leaveMobileEditor() {
+    if (dirtyCount && !confirm('Leave the agent editor and discard unsaved changes?')) return false
+    await close()
+    return true
+  }
 
   function onWindowPointerDown(ev) {
     if (askSel) {
@@ -904,9 +924,16 @@
   }
 
   onMount(async () => {
+    if (mobile) window.praimateMobile.leaveEditor = leaveMobileEditor
+    if(!sharedApprovals)try{sharedApprovals=(await api.about()).edition==='server'}catch{}
     window.addEventListener('pointerdown', onWindowPointerDown, true)
     unsubStream = onChatStream(handleStreamEvent)
     unsubApproval = onApproval(handleApproval)
+    if(remoteSync){
+      remoteUnsubs.push(window.runtime.EventsOn('praimate:remote-resync',()=>remoteSync.refresh()))
+      remoteUnsubs.push(window.runtime.EventsOn('praimate:chat-finished',event=>{if(event.chatId===helperChatId)remoteSync.refresh()}))
+      remoteUnsubs.push(window.runtime.EventsOn('praimate:approval-resolved',event=>{approvals=approvals.filter(item=>item.id!==event.id);remoteSync.refresh()}))
+    }
     if (typeof window !== 'undefined' && window.runtime?.EventsOn) {
       unsubInstall = window.runtime.EventsOn('praimate:install', (ev) => {
         if (ev && ev.cli === 'graphify:' + agentId) ragLog = [...ragLog, ev.line]
@@ -945,7 +972,9 @@
     // would launch the CLI in /home/<user> with no agent.yaml on disk.
   })
   onDestroy(() => {
+    if (mobile && window.praimateMobile.leaveEditor === leaveMobileEditor) delete window.praimateMobile.leaveEditor
     disposed = true
+    remoteSync?.dispose();for(const unsubscribe of remoteUnsubs)unsubscribe()
     ++ragModelLoadSeq
     ++modelLoadSeq
     window.removeEventListener('pointerdown', onWindowPointerDown, true)
@@ -1136,7 +1165,8 @@
     </div>
   </div>
 {:else}
-<div class="astudio" style="grid-template-columns: {gridCols}">
+{#if mobile}<nav class="mobile-agent-tabs" aria-label="Agent studio panels">{#each [['files','Files & settings'],['editor','Editor'],['assistant','Assistant']] as [pane,label]}<button class="btn sm" class:primary={mobilePane===pane} on:click={()=>{mobilePane=pane;if(pane==='files')leftOpen=true;if(pane==='assistant')chatOpen=true}}>{label}</button>{/each}</nav>{/if}
+<div class="astudio" class:mobile-agent={mobile} class:mobile-agent-files={mobilePane==='files'} class:mobile-agent-editor={mobilePane==='editor'} class:mobile-agent-assistant={mobilePane==='assistant'} style="grid-template-columns: {gridCols}">
   <!-- LEFT -->
   {#if !leftOpen}
     <button class="rail" title="Show files" on:click={() => (leftOpen = true)}>▸<span class="rail-label">Files</span></button>
@@ -1147,7 +1177,7 @@
       <button class="xbtn" title="Refresh file tree" on:click={refreshLeftTree} disabled={treeLoading}>{treeLoading ? '…' : '↻'}</button>
       <button class="xbtn" title="Open knowledge folder in file manager" on:click={revealKnowledgeFolder}>🗂</button>
       <button class="xbtn" title="New file" on:click={newFilePrompt}>＋</button>
-      <button class="xbtn" title="Hide" on:click={() => (leftOpen = false)}>◂</button>
+      <button class="xbtn" title="Hide" on:click={() => {if(mobile)mobilePane='editor';else leftOpen=false}}>◂</button>
     </div>
 
     <!-- file tree: agent.yaml (definition, in the DB) + the knowledge/
@@ -1364,7 +1394,7 @@
   <aside class="chat">
     <div class="chat-head">
       <strong class="grow">Authoring assistant</strong>
-      <button class="xbtn" title="Hide" on:click={() => (chatOpen = false)}>▸</button>
+      <button class="xbtn" title="Hide" on:click={() => {if(mobile)mobilePane='editor';else chatOpen=false}}>▸</button>
     </div>
     <div class="row2" style="padding:0 2px 6px">
       <select class="field sm" style="max-width:130px" bind:value={helperCli} on:change={onHelperCli}>{#each clis as c}<option value={c.id} disabled={!c.available}>{c.id}{c.available ? '' : ' (n/a)'}</option>{/each}</select>
@@ -1426,6 +1456,11 @@
 {/if}
 
 <style>
+  .mobile-agent-tabs { position:fixed;top:48px;left:0;right:0;height:42px;display:flex;gap:8px;padding:4px 12px;background:var(--bg-panel);z-index:900;border-bottom:1px solid var(--border); }
+  .astudio.mobile-agent { display:block;margin-top:90px;height:calc(var(--app-height,100dvh) - 90px);padding:8px; }
+  .astudio.mobile-agent :global(.left),.astudio.mobile-agent :global(.center),.astudio.mobile-agent :global(.chat),.astudio.mobile-agent :global(.rail) { display:none; }
+  .astudio.mobile-agent.mobile-agent-files :global(.left),.astudio.mobile-agent.mobile-agent-editor :global(.center),.astudio.mobile-agent.mobile-agent-assistant :global(.chat) { display:flex;width:100%;height:100%;min-height:0;border:0; }
+  .astudio.mobile-agent.mobile-agent-files :global(.tree-act) { display:block;min-width:36px;min-height:36px; }
   .astudio { display: grid; grid-template-rows: minmax(0, 1fr); gap: 10px; height: 100vh; padding: 10px; box-sizing: border-box; overflow: hidden; background: var(--bg); }
   .rail { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-panel); color: var(--text-dim); cursor: pointer; font-size: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 10px; }
   .rail-label { writing-mode: vertical-rl; letter-spacing: 0.08em; }

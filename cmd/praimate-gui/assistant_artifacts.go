@@ -7,7 +7,6 @@ import (
 	"github.com/sPROFFEs/PrAImate/internal/artifacts"
 	"github.com/sPROFFEs/PrAImate/internal/core"
 	"github.com/sPROFFEs/PrAImate/internal/studio"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func (a *App) AssistantArtifactCatalog() (*core.ManagedArtifactCatalog, error) {
@@ -23,7 +22,7 @@ func (a *App) InstallAssistantArtifact(id string) (*artifacts.Installation, erro
 	return a.core.InstallManagedArtifact(context.Background(), id, func(p artifacts.Progress) {
 		studio.PublishDesktopAssistant(a.core, "assistant.artifact.progress", p)
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "assistant:artifact-progress", p)
+			appEvent(a.ctx, "assistant:artifact-progress", p)
 		}
 	})
 }

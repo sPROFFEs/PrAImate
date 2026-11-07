@@ -14,16 +14,19 @@ Keep these defaults aligned:
 
 The [release workflow](https://github.com/sPROFFEs/PrAImate/blob/main/.github/workflows/release.yml) runs on a pushed `v*`
 tag or manual dispatch. It builds Linux amd64, Windows amd64/arm64 and macOS
-Intel and Apple Silicon on separate native runners, merges their artifacts, generates
-`SHA256SUMS`, and creates or updates the matching GitHub release. A push to
-`main` alone does not publish a release.
+Intel and Apple Silicon on separate native runners. On the server branch, a v* tag
+builds both editions, reuses shared binaries and stages each standalone tool only
+once. Android is built once with a persistent preview signer. The workflow merges
+the artifacts, generates
+`SHA256SUMS`, and creates or updates the matching GitHub release. A branch push alone does not publish a release. New releases remain drafts until
+all assets have uploaded; any failed verification/build prevents publication.
 
 For example, after reviewing and committing the version and source changes:
 
 ```bash
-git tag -a v1.2.26 -m "PrAImate 1.2.26"
-git push origin main
-git push origin v1.2.26
+git tag -a v1.2.27 -m "PrAImate 1.2.27"
+git push origin server
+git push origin v1.2.27
 ```
 
 Tags use a `v` prefix in this workflow; the stamped application version does
@@ -40,7 +43,7 @@ On Linux amd64:
 
 ```bash
 PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH" \
-  bash scripts/build.sh --version=1.2.26 --with-code --with-graphify
+  bash scripts/build.sh --version=1.2.27 --with-code --with-graphify
 ```
 
 This builds Linux amd64 and cross-compiles the Windows GUI bundles. Optional
@@ -49,12 +52,12 @@ GUI cross-compilation does not produce those standalone Windows tools. Build
 Linux arm64 bundles on a native arm64 host. Build macOS on a Mac of the matching architecture:
 
 ```bash
-bash scripts/build.sh darwin-arm64 --version=1.2.26 --with-code --with-graphify
+bash scripts/build.sh darwin-arm64 --version=1.2.27 --with-code --with-graphify
 # On an Intel Mac:
-bash scripts/build.sh darwin-amd64 --version=1.2.26 --with-code --with-graphify
+bash scripts/build.sh darwin-amd64 --version=1.2.27 --with-code --with-graphify
 ```
 
-On Windows, `scripts/build.ps1 -Version 1.2.26` builds the Windows GUI bundles.
+On Windows, `scripts/build.ps1 -Version 1.2.27` builds the Windows GUI bundles.
 The automated workflow uses Bash and builds optional tools on native runners.
 Review the actual output: missing Bun or uv can skip optional assets, and an
 arm64 target on an amd64 Windows runner cannot build native Graphify.
@@ -115,3 +118,23 @@ the source commit in the release notes so the rebuilt binaries are traceable.
 After publication, inspect the release's assets and draft/prerelease status and
 check the installer/updater against the intended tag. Stable distribution
 requires a published release with the expected asset names.
+
+## Android preview and combined publication
+
+Run the combined workflow from the `server` branch. Main remains desktop-only.
+The Android job requires `ANDROID_PREVIEW_KEYSTORE_BASE64` in repository Actions
+secrets. Preserve the preview signer between builds; replacing it breaks Android
+updates. No private signing material belongs in Git or release assets. The
+published preview uses the same signing identity as the initial local test APKs.
+
+The Android job runs JVM tests, lint and APK signature verification, then publishes
+only `praimate-mobile-preview.apk`. Its version code is derived monotonically from
+the semantic version. `scripts/build-android.sh` takes VERSION from the environment
+or internal/version/version.go. Native installation, permission and real Access
+flows still require a working Android device.
+
+Shared standalone assets are staged from the Desktop build, once per platform.
+The Server package uses the same CLI/tools via --reuse-shared=dist. Archives are
+self-contained for existing installers; there are no separately named Server
+variants of shared standalone tools. The staging check rejects different CLI
+bytes between editions. Checksums exclude a previous SHA256SUMS on reruns.

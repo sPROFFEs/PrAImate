@@ -1,0 +1,22 @@
+# User service template. Configure credentials before enabling it.
+[Unit]
+Description=PrAImate remote server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+EnvironmentFile=-%h/.config/praimate/server.env
+Environment=PRAIMATE_SERVER_SUPERVISED=1
+LoadCredentialEncrypted=database-password:%h/.config/praimate/server-db-password.cred
+ExecStart=%h/.local/bin/praimate server --db-password-file ${CREDENTIALS_DIRECTORY}/database-password
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/sPROFFEs/PrAImate/internal/core"
 )
@@ -341,7 +340,7 @@ func (a *App) startEditorWatcher() {
 				if err != nil {
 					continue
 				}
-				wruntime.EventsEmit(a.ctx, "praimate:editor-fs", map[string]string{
+				appEvent(a.ctx, "praimate:editor-fs", map[string]string{
 					"path": filepath.ToSlash(rel),
 					"op":   ev.Op.String(),
 				})

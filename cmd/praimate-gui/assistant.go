@@ -18,7 +18,6 @@ import (
 	"github.com/sPROFFEs/PrAImate/internal/hosttls"
 	"github.com/sPROFFEs/PrAImate/internal/studio"
 	"github.com/sPROFFEs/PrAImate/internal/voice"
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const assistantConfigKey = "application_assistant_v1"
@@ -98,7 +97,7 @@ func (a *App) SaveAssistantConfig(body string) error {
 		}
 	}
 	if a.ctx != nil {
-		wruntime.EventsEmit(a.ctx, "assistant:config", config)
+		appEvent(a.ctx, "assistant:config", config)
 	}
 	studio.PublishDesktopAssistant(a.core, "assistant.config.changed", config)
 	return nil
@@ -158,7 +157,7 @@ func (a *App) ensureAssistant() (*assistant.Service, error) {
 	}, Emit: func(event assistant.Event) {
 		studio.PublishDesktopAssistant(a.core, "assistant.event", event)
 		if a.ctx != nil {
-			wruntime.EventsEmit(a.ctx, "assistant:event", event)
+			appEvent(a.ctx, "assistant:event", event)
 		}
 	}})
 	return a.assistantService, nil
@@ -449,7 +448,7 @@ func (a *App) TranscribeVoice(encoded, contextJSON string) (voice.Result, error)
 		}
 	}
 	if a.ctx != nil {
-		wruntime.EventsEmit(a.ctx, "voice:state", "transcribing")
+		appEvent(a.ctx, "voice:state", "transcribing")
 	}
 	return speech.Transcribe(ctx, voice.Config{Runtime: runtime.Path, Model: model.Path, Language: config.Voice.Language, Threads: config.Voice.Threads, KeepLoaded: config.Voice.KeepLoaded}, audio, vocabulary)
 }

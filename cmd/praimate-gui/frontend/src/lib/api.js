@@ -19,6 +19,10 @@ function call(method, ...args) {
 }
 
 export const api = {
+  cloudflareStatus: () => call('CloudflareStatus'),
+  saveCloudflareConfig: config => call('SaveCloudflareConfig', JSON.stringify(config)),
+  cloudflareService: action => call('CloudflareService', action),
+  serverPairing: (name, role) => call('ServerPairing', name, role),
   assistantConfig: () => call('AssistantConfig'),
   saveAssistantConfig: config => call('SaveAssistantConfig', JSON.stringify(config)),
   assistantSnapshot: () => call('AssistantSnapshot'),
@@ -89,6 +93,7 @@ export const api = {
   forgetDatabasePassword: () => call('ForgetDatabasePassword'),
   health: () => call('Health'),
   about: () => call('About'),
+  remoteActivity: () => call('RemoteActivity'),
   privacyNotice: () => call('PrivacyNotice'),
   acceptPrivacyNotice: () => call('AcceptPrivacyNotice'),
   firstRun: () => call('FirstRun'),

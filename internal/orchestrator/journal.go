@@ -8,6 +8,7 @@ import (
 )
 
 func (m *Manager) saveRunLocked(run *Run) error {
+	m.notifyLocked(run.ID)
 	run.UpdatedAt = time.Now().UTC()
 	run.ActivityVersion = 1
 	activity := make([]json.RawMessage, 0, len(run.pendingEvents))

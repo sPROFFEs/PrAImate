@@ -9,6 +9,8 @@
   // the agent's next turn reads what's on screen.
   import { onMount, onDestroy, tick } from 'svelte'
   import { api, onChatStream, onApproval } from '../lib/api.js'
+  import { ownsApproval } from '../lib/approvalOwnership.js'
+  import { createRemoteChatSync } from '../lib/remoteChatSync.js'
   import SkillBindingsEditor from '../lib/SkillBindingsEditor.svelte'
   import CodeEditor from '../lib/CodeEditor.svelte'
   import ContextMenu from '../lib/ContextMenu.svelte'
@@ -316,6 +318,10 @@
   async function saveAll() {
     for (const t of tabs) if (t.dirty) await flush(t)
   }
+  async function leaveMobileEditor() {
+    await saveAll()
+    return !tabs.some(tab=>tab.dirty) || confirm('Some files could not be saved. Leave Studio and discard unsaved changes?')
+  }
 
   function onEdit(t, content) {
     t.content = content
@@ -410,6 +416,8 @@
 
   let treeOpen = true
   let chatOpen = true
+  const mobile = !!window.praimateMobile
+  let mobilePane = 'editor'
   $: gridCols = `${treeOpen ? '220px' : '30px'} 1fr ${chatOpen ? '340px' : '30px'}`
 
   // --- toolbar + preview ---------------------------------------------------
@@ -547,6 +555,14 @@
   let messages = []
   let draft = ''
   let sending = false
+  let ownTurn = false
+  let sharedApprovals = !!window.praimateRemote
+  const remoteUnsubs=[]
+  const remoteSync=window.praimateRemote?createRemoteChatSync({api,chatID:()=>chatId,ownsTurn:()=>ownTurn,role:()=>window.praimateRemote.status.identity.role,apply:next=>{
+    if(next.messages!==undefined)messages=next.messages
+    if(next.sending!==undefined){sending=next.sending;if(!sending)stream=null}
+    if(next.approvals!==undefined)approvals=next.approvals
+  },onError:e=>error=String(e)}):null
   let stream = null
   let approvals = []
   let threadEl
@@ -557,10 +573,10 @@
     if (!chatId) return chat
     try {
       const [nextMessages, chats] = await Promise.all([
-        api.chatMessages(chatId),
+        remoteSync?remoteSync.refresh():api.chatMessages(chatId),
         api.listChats(),
       ])
-      messages = nextMessages || []
+      if(!remoteSync)messages = nextMessages || []
       chat = (chats || []).find((candidate) => candidate.ID === chatId) || chat
       await scrollToBottom()
     } catch (e) {
@@ -570,7 +586,8 @@
   }
 
   function handleStreamEvent(ev) {
-    if (!sending || ev.chatId !== chatId) return
+    if (ev.chatId !== chatId || (!sending&&!remoteSync)) return
+    if(!sending){sending=true;remoteSync.refresh()}
     if (!stream) stream = { text: '', tools: [], reasoning: [], steps: [] }
     if (ev.type === 'text') stream.text += (ev.text || '')
     else if (ev.type === 'reasoning') stream.reasoning = (stream.reasoning || '') + (ev.text || ev.detail || '')
@@ -588,11 +605,8 @@
   }
 
   function handleApproval(req) {
-    if (req.chatId !== chatId) {
-      api.resolveApproval(req.id, false, false).catch(() => {})
-      return
-    }
-    approvals = [...approvals, req]
+    if(!ownsApproval(req,{chatIDs:[chatId],remote:sharedApprovals,role:window.praimateRemote?.status.identity.role,resolve:api.resolveApproval}))return
+    if(!approvals.some(item=>item.id===req.id))approvals = [...approvals, req]
   }
 
   async function answerApproval(req, allow, always) {
@@ -609,9 +623,15 @@
 
   async function sendText(text) {
     if (!text || sending) return
-    // Flush every dirty tab first so the agent reads what's on screen.
-    for (const t of tabs) if (t.dirty) await flush(t)
     sending = true
+    ownTurn = true
+    // Flush every dirty tab first so the agent reads what's on screen.
+    for (const t of tabs) if (t.dirty && !await flush(t)) {
+      sending = false
+      ownTurn = false
+      if (!draft) draft = text
+      return
+    }
     stream = null
     error = ''
     const focused = active ? `\n\n[The user is looking at: ${active} — open files: ${tabs.map((t) => t.path).join(', ')}]` : ''
@@ -634,6 +654,7 @@
       error = String(e)
       messages = messages.filter((m) => !m._pending)
     } finally {
+      ownTurn = false
       sending = false
       stream = null
       approvals = []
@@ -753,12 +774,19 @@
   let unsubResync = () => {}
   let unsubConnected = () => {}
   onMount(async () => {
+    if(mobile)window.praimateMobile.leaveEditor=leaveMobileEditor
+    if(!sharedApprovals)try{sharedApprovals=(await api.about()).edition==='server'}catch{}
     // Studio runs as a brokered child process. Signal readiness before any
     // project scan or chat hydration so the main window does not time out
     // while a large workspace is being indexed.
     window.addEventListener('pointerdown', onWindowPointerDown, true)
     unsubStream = onChatStream(handleStreamEvent)
     unsubApproval = onApproval(handleApproval)
+    if(remoteSync){
+      remoteUnsubs.push(window.runtime.EventsOn('praimate:remote-resync',()=>remoteSync.refresh()))
+      remoteUnsubs.push(window.runtime.EventsOn('praimate:chat-finished',event=>{if(event.chatId===chatId)remoteSync.refresh()}))
+      remoteUnsubs.push(window.runtime.EventsOn('praimate:approval-resolved',event=>{approvals=approvals.filter(item=>item.id!==event.id);remoteSync.refresh()}))
+    }
     if (typeof window !== 'undefined' && window.runtime?.EventsOn) {
       unsubFs = window.runtime.EventsOn('praimate:editor-fs', onFsEvent)
       const resync = () => { loadTree(); loadChat() }
@@ -784,7 +812,9 @@
     if (first) await open(first)
   })
   onDestroy(() => {
+    if(mobile&&window.praimateMobile.leaveEditor===leaveMobileEditor)delete window.praimateMobile.leaveEditor
     disposed = true
+    remoteSync?.dispose();for(const unsubscribe of remoteUnsubs)unsubscribe()
     ++workspaceRevision
     for (const tab of tabs) {
       clearTimeout(tab.flushTimer)
@@ -844,13 +874,14 @@
   </div>
 {/if}
 
-<div class="studio" style="grid-template-columns: {gridCols}">
+{#if mobile}<nav class="mobile-studio-tabs" aria-label="Studio panels">{#each [['files','Files'],['editor','Editor'],['chat','Chat']] as [pane,label]}<button class="btn sm" class:primary={mobilePane===pane} on:click={()=>{mobilePane=pane;if(pane==='files')treeOpen=true;if(pane==='chat')chatOpen=true}}>{label}</button>{/each}</nav>{/if}
+<div class="studio" class:mobile-studio={mobile} class:mobile-files={mobilePane==='files'} class:mobile-editor={mobilePane==='editor'} class:mobile-chat={mobilePane==='chat'} style="grid-template-columns: {gridCols}">
   {#if !treeOpen}
     <button class="rail" title="Show files" on:click={() => (treeOpen = true)}>▸<span class="rail-label">Files</span></button>
   {:else}
   <aside class="tree">
     <div class="tree-head">
-      <button class="btn sm" title="Hide files" on:click={() => (treeOpen = false)}>◂</button>
+      <button class="btn sm" title="Hide files" on:click={() => {if(mobile)mobilePane='editor';else treeOpen=false}}>◂</button>
       <span class="grow mono" title={folder}>{folder.split(/[\\/]/).pop()}</span>
       <button class="btn sm" on:click={loadTree} disabled={treeLoading} title="Refresh file tree">{treeLoading ? '…' : '↻'}</button>
       <button class="btn sm" on:click={revealFolder} title="Open folder in file manager">🗂</button>
@@ -884,7 +915,7 @@
             title={`${n.path} — right-click for options`}>
             <span class="file-icon">📄</span> <span class="file-name">{n.name}</span>
           </button>
-          <button class="tree-act danger-hover" title="Delete file" on:click={() => deleteFile(n.path)}>✕</button>
+          <button class="tree-act danger-hover" title="Delete file" aria-label={`Delete ${n.name}`} on:click={() => deleteFile(n.path)}>✕</button>
         </div>
       {/if}
     {/each}
@@ -978,7 +1009,7 @@
         </span>
       {/if}
       <button type="button" class="btn sm" title="Edit session CLI and model" on:click|stopPropagation={openConfig}>⚙</button>
-      <button class="btn sm" title="Hide chat" on:click={() => (chatOpen = false)}>▸</button>
+      <button class="btn sm" title="Hide chat" on:click={() => {if(mobile)mobilePane='editor';else chatOpen=false}}>▸</button>
     </div>
     <div class="thread" bind:this={threadEl} on:scroll={onThreadScroll}>
       {#each messages as m}
@@ -1174,6 +1205,12 @@
      buildAskDom() and the :global(.ask-menu) styles. -->
 
 <style>
+  .mobile-studio-tabs { position:fixed;top:48px;left:0;right:0;height:42px;display:flex;gap:8px;padding:4px 12px;background:var(--bg-panel);z-index:900;border-bottom:1px solid var(--border); }
+  .studio.mobile-studio { display:block; margin-top:90px;height:calc(var(--app-height,100dvh) - 90px);padding:8px; }
+  .studio.mobile-studio :global(.tree),.studio.mobile-studio :global(.editor-col),.studio.mobile-studio :global(.chatpane),.studio.mobile-studio :global(.rail) { display:none; }
+  .mobile-studio.mobile-files :global(.tree),.mobile-studio.mobile-editor :global(.editor-col),.mobile-studio.mobile-chat :global(.chatpane) { display:flex;width:100%;height:100%;min-height:0;border:0; }
+  .studio.mobile-studio.mobile-files :global(.tree) { display:block; }
+  .studio.mobile-studio.mobile-files :global(.tree-act) { display:block;min-width:36px;min-height:36px; }
   .error-banner { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
   .error-close { background: transparent; border: 0; color: currentColor; cursor: pointer; font-size: 18px; line-height: 1; padding: 0 2px; }
   .studio {

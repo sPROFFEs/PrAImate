@@ -89,12 +89,13 @@ type Turn struct {
 }
 
 type Manager struct {
-	core    *core.Core
-	ctx     context.Context
-	mu      sync.Mutex
-	runs    map[string]*Run
-	loadErr error
-	closed  bool
+	core        *core.Core
+	ctx         context.Context
+	mu          sync.Mutex
+	runs        map[string]*Run
+	loadErr     error
+	closed      bool
+	subscribers map[chan string]struct{}
 }
 
 func NewManager(c *core.Core, ctx context.Context) *Manager {
@@ -428,6 +429,7 @@ func (m *Manager) execute(ctx context.Context, cancel context.CancelFunc, id str
 			m.mu.Lock()
 			if run := m.runs[id]; run != nil {
 				recordWorkerActivity(run, event)
+				m.notifyLocked(id)
 				if checkpointActivity(run, event) {
 					if err := m.saveRunLocked(run); err != nil {
 						cancel()

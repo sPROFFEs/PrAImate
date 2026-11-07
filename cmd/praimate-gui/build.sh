@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-(cd frontend && npm install && npm run build)
+if [ "${PRAIMATE_FRONTEND_READY:-0}" != 1 ]; then (cd frontend && npm ci && npm run build); fi
 
 # Wails REQUIRES the `desktop` + `production` build tags — without them
 # the binary compiles but panics at startup ("Wails applications will
@@ -15,6 +15,11 @@ cd "$(dirname "$0")"
 # the modern webkit (webkit2gtk-4.1) via webkit2_41; Windows ignores
 # that tag. macOS uses the native Apple frameworks.
 TAGS="desktop,production"
+case "${PRAIMATE_EDITION:-desktop}" in
+  desktop) ;;
+  server) TAGS="$TAGS,server" ;;
+  *) echo "invalid PRAIMATE_EDITION (use desktop or server)" >&2; exit 2 ;;
+esac
 case "$(uname -s)" in
   Linux) TAGS="$TAGS,webkit2_41" ;;
   Darwin) ;;
@@ -33,13 +38,15 @@ esac
 # Name the output praimate-gui.exe on Windows (Go does NOT auto-append
 # .exe when -o is given) and hide the console via -H windowsgui.
 EXT=""
-LDFLAGS='-s -w'
+LDFLAGS="${PRAIMATE_BUILD_LDFLAGS:--s -w}"
 case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*) EXT=".exe"; LDFLAGS='-s -w -H windowsgui' ;;
-  Darwin) LDFLAGS='-s -w -extldflags "-framework UniformTypeIdentifiers"' ;;
+  MINGW*|MSYS*|CYGWIN*) EXT=".exe"; LDFLAGS="$LDFLAGS -H windowsgui" ;;
+  Darwin) LDFLAGS="$LDFLAGS -extldflags \"-framework UniformTypeIdentifiers\"" ;;
 esac
 
 go build -trimpath -buildvcs=false -tags "$TAGS" -ldflags "$LDFLAGS" -o "praimate-gui$EXT" .
 # The terminal frontend shares this core but is a console executable on Windows.
-(cd ../.. && go build -trimpath -buildvcs=false -ldflags '-s -w' -o "cmd/praimate-gui/praimate-cli$EXT" ./cmd/praimate-cli)
+if [ "${PRAIMATE_SKIP_NATIVE_CLI:-0}" != 1 ]; then
+  (cd ../.. && go build -trimpath -buildvcs=false -ldflags "${PRAIMATE_BUILD_LDFLAGS:--s -w}" -o "cmd/praimate-gui/praimate-cli$EXT" ./cmd/praimate-cli)
+fi
 echo "built ./praimate-gui$EXT"

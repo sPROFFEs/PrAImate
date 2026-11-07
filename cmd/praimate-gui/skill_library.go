@@ -16,6 +16,14 @@ import (
 
 // OpenSkillInStudio extracts the skill files into an editable workspace folder and opens Studio.
 func (a *App) OpenSkillInStudio(ref, digest string) (string, error) {
+	workDir, err := a.prepareSkillWorkspace(ref, digest)
+	if err != nil {
+		return "", err
+	}
+	return a.OpenEditorWindow(workDir, "", "claude", "", "", "", "", "")
+}
+
+func (a *App) prepareSkillWorkspace(ref, digest string) (string, error) {
 	if a.detachedClient != nil {
 		return "", errors.New("open from main window")
 	}
@@ -59,11 +67,19 @@ func (a *App) OpenSkillInStudio(ref, digest string) (string, error) {
 		})
 	}
 
-	return a.OpenEditorWindow(workDir, "", "claude", "", "", "", "", "")
+	return workDir, nil
 }
 
 // CreateSkillInStudio creates a fresh skill template in skills-workspace and opens Studio.
 func (a *App) CreateSkillInStudio(name string) (string, error) {
+	workDir, err := a.prepareNewSkillWorkspace(name)
+	if err != nil {
+		return "", err
+	}
+	return a.OpenEditorWindow(workDir, "", "claude", "", "", "", "", "")
+}
+
+func (a *App) prepareNewSkillWorkspace(name string) (string, error) {
 	if a.detachedClient != nil {
 		return "", errors.New("open from main window")
 	}
@@ -107,7 +123,7 @@ func (a *App) CreateSkillInStudio(name string) (string, error) {
 		}
 	}
 
-	return a.OpenEditorWindow(workDir, "", "claude", "", "", "", "", "")
+	return workDir, nil
 }
 
 func (a *App) ExportSkillPackageV2(ref, digest string) (string, error) {

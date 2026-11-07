@@ -12,8 +12,6 @@ import (
 	"sync"
 	"time"
 
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"github.com/sPROFFEs/PrAImate/internal/core"
 )
 
@@ -94,7 +92,7 @@ func (a *App) SendChatStream(chatID, message string, attachments []string) (*cor
 	}
 
 	emitImmediate := func(streamEvent ChatStreamEvent) {
-		wruntime.EventsEmit(a.ctx, "praimate:chat-stream", streamEvent)
+		a.emitUIEvent("praimate:chat-stream", streamEvent)
 		if a.detached != nil {
 			a.detached.publish("chat", chatID, "praimate:chat-stream", streamEvent)
 			a.detached.publish("studio", chatID, "praimate:chat-stream", streamEvent)
@@ -118,11 +116,12 @@ func (a *App) SendChatStream(chatID, message string, attachments []string) (*cor
 	turn, streamErr := c.ContinueChatStream(ctx, chatID, message, chat.WorkspacePath, systemPrompt, attachments, onEvent)
 	coalescer.Flush()
 	cleanup()
+	finished := ChatFinishedEvent{ChatID: chatID}
+	if streamErr != nil {
+		finished.Error = streamErr.Error()
+	}
+	a.emitUIEvent("praimate:chat-finished", finished)
 	if a.detached != nil {
-		finished := ChatFinishedEvent{ChatID: chatID}
-		if streamErr != nil {
-			finished.Error = streamErr.Error()
-		}
 		a.detached.publish("chat", chatID, "praimate:chat-finished", finished)
 		a.detached.publish("studio", chatID, "praimate:chat-finished", finished)
 	}

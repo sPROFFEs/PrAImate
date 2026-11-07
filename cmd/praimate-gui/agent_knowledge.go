@@ -57,7 +57,7 @@ type requirementsProgressWriter struct {
 
 func (w *requirementsProgressWriter) Write(p []byte) (int, error) {
 	n, err := w.tail.Write(p)
-	wruntime.EventsEmit(w.ctx, "praimate:requirements", RequirementsProgressEvent{
+	appEvent(w.ctx, "praimate:requirements", RequirementsProgressEvent{
 		AgentID: w.agentID,
 		State:   "output",
 		Text:    string(p),
@@ -363,7 +363,7 @@ func (a *App) DeleteAgentKnowledgeFile(id, rel string) ([]string, error) {
 // the agent's managed directory and records its metadata in agent.yaml. The
 // script is not executed here or on import; execution always needs Run.
 func (a *App) PickAgentRequirementsScript(id, targetOS, instructions string) (*core.Agent, error) {
-	c, err := a.requireCore()
+	_, err := a.requireCore()
 	if err != nil {
 		return nil, err
 	}
@@ -372,6 +372,14 @@ func (a *App) PickAgentRequirementsScript(id, targetOS, instructions string) (*c
 		Filters: []wruntime.FileFilter{{DisplayName: "Scripts", Pattern: "*.sh;*.ps1;*.cmd;*.bat"}, {DisplayName: "All files", Pattern: "*.*"}},
 	})
 	if err != nil || path == "" {
+		return nil, err
+	}
+	return a.setRequirementsScriptFile(id, path, targetOS, instructions)
+}
+
+func (a *App) setRequirementsScriptFile(id, path, targetOS, instructions string) (*core.Agent, error) {
+	c, err := a.requireCore()
+	if err != nil {
 		return nil, err
 	}
 	info, err := os.Stat(path)
@@ -438,7 +446,7 @@ func (a *App) RunAgentRequirements(id string) (*RequirementsRunResult, error) {
 	cleanupElevation := func() {}
 	pkexec, pkexecErr := exec.LookPath("pkexec")
 	realSudo, sudoErr := exec.LookPath("sudo")
-	if runtime.GOOS == "linux" && pkexecErr == nil && sudoErr == nil {
+	if !a.headless && runtime.GOOS == "linux" && pkexecErr == nil && sudoErr == nil {
 		sudoDir, cleanup, wrapErr := prepareSudoPopupWrapper(pkexec, realSudo)
 		if wrapErr != nil {
 			return nil, wrapErr
@@ -463,7 +471,7 @@ func (a *App) RunAgentRequirements(id string) (*RequirementsRunResult, error) {
 	output := &requirementsProgressWriter{ctx: a.ctx, agentID: id}
 	cmd.Stdout = output
 	cmd.Stderr = output
-	wruntime.EventsEmit(a.ctx, "praimate:requirements", RequirementsProgressEvent{
+	appEvent(a.ctx, "praimate:requirements", RequirementsProgressEvent{
 		AgentID: id,
 		State:   "started",
 		At:      time.Now().UnixMilli(),
@@ -476,7 +484,7 @@ func (a *App) RunAgentRequirements(id string) (*RequirementsRunResult, error) {
 			state = "canceled"
 			result.Error = "requirements script canceled"
 		}
-		wruntime.EventsEmit(a.ctx, "praimate:requirements", RequirementsProgressEvent{
+		appEvent(a.ctx, "praimate:requirements", RequirementsProgressEvent{
 			AgentID: id,
 			State:   state,
 			At:      time.Now().UnixMilli(),
@@ -485,7 +493,7 @@ func (a *App) RunAgentRequirements(id string) (*RequirementsRunResult, error) {
 	}
 	result.Success = true
 	result.Output = output.String()
-	wruntime.EventsEmit(a.ctx, "praimate:requirements", RequirementsProgressEvent{
+	appEvent(a.ctx, "praimate:requirements", RequirementsProgressEvent{
 		AgentID: id,
 		State:   "finished",
 		At:      time.Now().UnixMilli(),

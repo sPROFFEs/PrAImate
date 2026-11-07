@@ -298,7 +298,7 @@ func (d *detachedCoordinator) openWithFolder(kind, sessionID, title, folder stri
 		w.doneOnce.Do(func() { close(w.done) })
 		d.remove(windowID)
 		if d.app.ctx != nil {
-			wailsruntime.EventsEmit(d.app.ctx, "praimate:detached-windows", d.list())
+			appEvent(d.app.ctx, "praimate:detached-windows", d.list())
 		}
 	}()
 
@@ -306,7 +306,7 @@ func (d *detachedCoordinator) openWithFolder(kind, sessionID, title, folder stri
 	defer timer.Stop()
 	select {
 	case <-w.ready:
-		wailsruntime.EventsEmit(d.app.ctx, "praimate:detached-windows", d.list())
+		appEvent(d.app.ctx, "praimate:detached-windows", d.list())
 		return nil
 	case <-w.done:
 		return errors.New("detached window exited before it became ready")
@@ -352,10 +352,10 @@ func (d *detachedCoordinator) openExternal(kind, sessionID, title string, cmd *e
 		w.doneOnce.Do(func() { close(w.done) })
 		d.remove(id)
 		if d.app.ctx != nil {
-			wailsruntime.EventsEmit(d.app.ctx, "praimate:detached-windows", d.list())
+			appEvent(d.app.ctx, "praimate:detached-windows", d.list())
 		}
 	}()
-	wailsruntime.EventsEmit(d.app.ctx, "praimate:detached-windows", d.list())
+	appEvent(d.app.ctx, "praimate:detached-windows", d.list())
 	return nil
 }
 
@@ -556,7 +556,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	if len(windows) == 0 {
 		return false
 	}
-	wailsruntime.EventsEmit(ctx, "praimate:close-blocked", map[string]any{
+	appEvent(ctx, "praimate:close-blocked", map[string]any{
 		"count": len(windows), "windows": windows,
 	})
 	return true

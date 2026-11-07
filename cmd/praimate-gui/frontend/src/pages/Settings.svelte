@@ -3,6 +3,7 @@
   import { onMount, onDestroy, tick } from 'svelte'
   import { api } from '../lib/api.js'
   import AssistantSettings from '../lib/AssistantSettings.svelte'
+  import CloudflareSettings from '../lib/CloudflareSettings.svelte'
   import { focusDialog } from '../lib/focusDialog.js'
   import { showToast } from '../lib/stores.js'
   import {
@@ -23,6 +24,7 @@
   let updateInfo = null
   let checkingUpdate = false
   let updatingApp = false
+  let updateNotice = ''
   async function checkUpdate() {
     checkingUpdate = true
     try {
@@ -39,6 +41,7 @@
     error = ''
     try {
       await api.performUpdate()
+      if (updateInfo?.edition === 'server') { updateNotice='Update installed. Restart the server after your running tasks finish.'; updatingApp=false }
     } catch (e) {
       error = String(e)
       updatingApp = false
@@ -418,8 +421,10 @@
 {#if error}<div class="banner">{error}</div>{/if}
 
 <AssistantSettings />
+<CloudflareSettings />
 
 <h1 style="font-size:16px">Updates</h1>
+{#if updateNotice}<p class="subtitle" role="status">{updateNotice}</p>{/if}
 <div class="card">
   <div class="row">
     <div class="grow">
@@ -438,7 +443,7 @@
     </div>
     {#if updateInfo?.hasUpdate}
       <button class="btn primary" on:click={applyUpdate} disabled={updatingApp}>
-        {updatingApp ? 'Updating & restarting…' : 'Update & restart'}
+        {updateInfo?.edition === 'server' ? (updatingApp ? 'Installing update…' : 'Install server update') : (updatingApp ? 'Updating & restarting…' : 'Update & restart')}
       </button>
     {/if}
     <button class="btn" on:click={checkUpdate} disabled={checkingUpdate || updatingApp}>{checkingUpdate ? 'Checking…' : 'Check for updates'}</button>

@@ -6,6 +6,7 @@
 #   .\scripts\build.ps1 -Targets windows-amd64     # one target
 #   .\scripts\build.ps1 -NoArchive                 # skip zip step
 #   .\scripts\build.ps1 -Version 0.2.0             # inject a specific version
+#   .\scripts\build.ps1 -Edition Server             # optional remote-capable edition
 #
 # The version is stamped into the binary at link time via
 # `-X .../internal/version.Current=$Version`, so `praimate -version` and
@@ -21,12 +22,21 @@ param(
         "windows-amd64",
         "windows-arm64"
     ),
-    [string] $Version = "1.2.26",
+    [string] $Version = "1.2.27",
+    [ValidateSet("Desktop", "Server")]
+    [string] $Edition = "Desktop",
     [string] $LdFlags = "-s -w",
     [switch] $NoArchive
 )
 
 $ErrorActionPreference = "Stop"
+$Edition = $Edition.ToLowerInvariant()
+$BuildTags = if ($Edition -eq "server") { "server" } else { "" }
+$RootBuildArgs = @()
+if ($BuildTags) { $RootBuildArgs = @("-tags", $BuildTags) }
+$GuiBuildTags = if ($BuildTags) { "desktop,production,server" } else { "desktop,production" }
+$DistRoot = if ($Edition -eq "server") { "dist/server" } else { "dist" }
+$AssetPrefix = if ($Edition -eq "server") { "praimate-server" } else { "praimate" }
 
 # Combine strip flags + version injection into one -ldflags string. The
 # Go linker accepts multiple -X entries inside it.
@@ -47,7 +57,7 @@ function Build-One($triplet) {
     $ext = ""
     if ($goos -eq "windows") { $ext = ".exe" }
 
-    $out = Join-Path "dist" $triplet
+    $out = Join-Path $DistRoot $triplet
     if (-not (Test-Path $out)) { New-Item -ItemType Directory -Path $out | Out-Null }
 
     Write-Host "→ $triplet"
@@ -60,8 +70,8 @@ function Build-One($triplet) {
     if ($LASTEXITCODE -ne 0) { throw "wpc build failed for $triplet" }
     & go build -trimpath -ldflags $FullLdFlags -o (Join-Path $out "praimate-cli$ext") "./cmd/praimate-cli"
     if ($LASTEXITCODE -ne 0) { throw "praimate-cli build failed for $triplet" }
-    Copy-Item -Force (Join-Path $out "praimate-cli$ext") "dist/praimate-cli-$triplet$ext"
-    & go build -trimpath -ldflags $FullLdFlags -o (Join-Path $out "praimate$ext") "./cmd/praimate"
+    Copy-Item -Force (Join-Path $out "praimate-cli$ext") (Join-Path $DistRoot "praimate-cli-$triplet$ext")
+    & go build -trimpath @RootBuildArgs -ldflags $FullLdFlags -o (Join-Path $out "praimate$ext") "./cmd/praimate"
     if ($LASTEXITCODE -ne 0) { throw "praimate build failed for $triplet" }
 
     if (-not (Test-Path "cmd/praimate-gui/frontend/dist/index.html")) {
@@ -75,17 +85,21 @@ function Build-One($triplet) {
     }
     Push-Location "cmd/praimate-gui"
     try {
-        & go build -trimpath -tags "desktop,production" `
-            -ldflags "-s -w -H windowsgui" -o "praimate-gui.exe" "."
+        & go build -trimpath -tags $GuiBuildTags `
+            -ldflags "$FullLdFlags -H windowsgui" -o "praimate-gui.exe" "."
         if ($LASTEXITCODE -ne 0) { throw "praimate-gui build failed for $triplet" }
     } finally { Pop-Location }
     Copy-Item -Force "cmd/praimate-gui/praimate-gui.exe" (Join-Path $out "praimate-gui.exe")
+
+    [IO.File]::WriteAllText((Join-Path (Resolve-Path $out) "praimate-edition"), "$Edition`n", [Text.UTF8Encoding]::new($false))
 
     # Bundle samples + docs so the binary is self-sufficient at first run.
     Copy-Item -Recurse -Force "samples" (Join-Path $out "samples")
     $docsOut = Join-Path $out "docs"
     if (-not (Test-Path $docsOut)) { New-Item -ItemType Directory -Path $docsOut | Out-Null }
     Copy-Item "docs/ACTIVATION.md","docs/TARGETS.md","docs/SCHEMA.md","docs/QUICKSTART.md","docs/GUIDE.md","docs/AGENT_GUIDE.md","docs/CLI_AGENT_API.md","docs/native-cli.md","docs/WORKERS.md","docs/KNOWLEDGE.md","docs/assistant-voice.md","docs/RELEASE-GITHUB.md" $docsOut
+    if ($Edition -eq "server") { Copy-Item "docs/REMOTE-SERVER.md" $docsOut }
+	if ($Edition -eq "server") { Copy-Item -Recurse -Force "scripts/server" (Join-Path $out "scripts-server") }
     $docAssetsOut = Join-Path $docsOut "assets"
     if (-not (Test-Path $docAssetsOut)) { New-Item -ItemType Directory -Path $docAssetsOut | Out-Null }
     Copy-Item "docs/assets/monke-icon.png" $docAssetsOut
@@ -102,9 +116,9 @@ function Build-One($triplet) {
     Copy-Item "scripts/install.sh","scripts/install.ps1" $scriptsOut
 
     if (-not $NoArchive) {
-        $archiveBase = "praimate-$triplet"
+        $archiveBase = "$AssetPrefix-$triplet"
         if ($goos -eq "windows") {
-            $zip = Join-Path "dist" "$archiveBase.zip"
+            $zip = Join-Path $DistRoot "$archiveBase.zip"
             if (Test-Path $zip) { Remove-Item $zip }
             # IMPORTANT: Compress-Archive AND
             # [IO.Compression.ZipFile]::CreateFromDirectory both write
@@ -125,7 +139,7 @@ function Build-One($triplet) {
             # System.IO.Compression.FileSystem carries ZipFile.
             Add-Type -AssemblyName System.IO.Compression
             Add-Type -AssemblyName System.IO.Compression.FileSystem
-            $distAbs = (Resolve-Path "dist").Path
+            $distAbs = (Resolve-Path $DistRoot).Path
             $zipAbs = Join-Path $distAbs "$archiveBase.zip"
             $srcAbs = (Resolve-Path $out).Path
             $srcParent = Split-Path $srcAbs -Parent
@@ -150,7 +164,7 @@ function Build-One($triplet) {
         } else {
             # tar -czf — works on Windows 10+ (bsdtar bundled in System32).
             $tgz = "$archiveBase.tar.gz"
-            Push-Location "dist"
+            Push-Location $DistRoot
             try {
                 & tar -czf $tgz $triplet
                 if ($LASTEXITCODE -ne 0) { throw "tar failed for $triplet" }

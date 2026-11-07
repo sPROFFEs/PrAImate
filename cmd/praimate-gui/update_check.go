@@ -19,6 +19,7 @@ type UpdateInfo struct {
 	Latest    string `json:"latest"`
 	HasUpdate bool   `json:"hasUpdate"`
 	URL       string `json:"url"`
+	Edition   string `json:"edition"`
 }
 
 // CheckUpdate fetches the latest release and compares versions.
@@ -32,6 +33,7 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 		Latest:    rel.TagName,
 		HasUpdate: updater.IsNewer(rel.TagName, version.Current),
 		URL:       rel.HTMLURL,
+		Edition:   version.Edition,
 	}, nil
 }
 
@@ -53,6 +55,12 @@ func (a *App) PerformUpdate() error {
 	}
 	if err := updater.Apply(asset, nil); err != nil {
 		return err
+	}
+	// A server owns active jobs and the profile lease. Leave it running until
+	// an explicit, graceful restart; spawning a second owner would fail and
+	// stdin/environment database credentials cannot safely be replayed here.
+	if version.Edition == "server" {
+		return nil
 	}
 
 	exePath, err := os.Executable()

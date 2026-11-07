@@ -146,6 +146,7 @@ func (m *Manager) recordDAGEvent(id string, event Event) {
 		return
 	}
 	recordWorkerActivity(run, event)
+	m.notifyLocked(id)
 	if checkpointActivity(run, event) {
 		if err := m.saveDAGLocked(run); err != nil && run.cancel != nil {
 			run.cancel()

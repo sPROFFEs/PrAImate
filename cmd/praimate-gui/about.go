@@ -12,6 +12,7 @@ import (
 type AboutInfo struct {
 	Name              string `json:"name"`
 	Version           string `json:"version"`
+	Edition           string `json:"edition"`
 	OS                string `json:"os"`
 	Arch              string `json:"arch"`
 	DBPath            string `json:"dbPath,omitempty"`
@@ -24,6 +25,7 @@ func (a *App) About() AboutInfo {
 	info := AboutInfo{
 		Name:              version.Name,
 		Version:           version.Current,
+		Edition:           version.Edition,
 		OS:                runtime.GOOS,
 		Arch:              runtime.GOARCH,
 		DatabaseEncrypted: a.st != nil,

@@ -32,6 +32,9 @@ var (
 )
 
 func run(args []string) int {
+	if len(args) > 0 && args[0] == "server" {
+		return runRemoteServer(args[1:])
+	}
 	if len(args) > 0 && args[0] == "workers" {
 		return runWorkers(args[1:])
 	}
@@ -103,6 +106,9 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, version.Banner)
 		fmt.Fprintf(os.Stderr, "\nUsage: praimate [command] [options]\n\n")
 		fmt.Fprintln(os.Stderr, "Commands:")
+		if version.Edition == "server" {
+			fmt.Fprintln(os.Stderr, "  server [options]           Run the authenticated remote server without a display")
+		}
 		fmt.Fprintln(os.Stderr, "  (none)                     Launch desktop application (default)")
 		fmt.Fprintln(os.Stderr, "  studio [path]              Launch managed Code-OSS PrAImate Studio")
 		fmt.Fprintln(os.Stderr, "  code [args...]             Launch managed PrAImate Code CLI")
@@ -144,6 +150,9 @@ func run(args []string) int {
 	if *versionFlag {
 		fmt.Println(version.Banner)
 		fmt.Printf("\n%s %s %s/%s\n", version.Name, version.Current, runtime.GOOS, runtime.GOARCH)
+		if version.Edition != "desktop" {
+			fmt.Printf("Edition: %s\n", version.Edition)
+		}
 		return 0
 	}
 	if !supportedOS(runtime.GOOS) {

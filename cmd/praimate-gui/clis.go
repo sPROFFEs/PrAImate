@@ -12,8 +12,6 @@ import (
 	"sync"
 	"time"
 
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"github.com/sPROFFEs/PrAImate/internal/installer"
 	"github.com/sPROFFEs/PrAImate/internal/launcher"
 	"github.com/sPROFFEs/PrAImate/internal/studio"
@@ -87,7 +85,7 @@ type installLogWriter struct {
 
 func (w installLogWriter) Write(p []byte) (int, error) {
 	for _, line := range strings.Split(strings.TrimRight(string(p), "\n"), "\n") {
-		wruntime.EventsEmit(w.ctx, "praimate:install", map[string]string{"cli": w.cli, "line": line})
+		appEvent(w.ctx, "praimate:install", map[string]string{"cli": w.cli, "line": line})
 	}
 	return len(p), nil
 }

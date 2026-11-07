@@ -128,19 +128,21 @@
       {#if state.statusError}
         <p class="card-sub">The editor status is unavailable. Retry the check above before opening a project.</p>
       {:else if state.status}
-        <p class="card-sub">{state.status.state === 'not_installed' ? 'Use an installed VS Code or VSCodium editor, or set up the managed editor.' : 'Maintain the editor and its PrAImate integration.'}</p>
+        <p class="card-sub">{state.status.remote ? 'The browser editor connects to your server workspace and CLI. A native editor installation is not required.' : state.status.state === 'not_installed' ? 'Use an installed VS Code or VSCodium editor, or set up the managed editor.' : 'Maintain the editor and its PrAImate integration.'}</p>
         <dl class="environment-facts">
           <div><dt>Editor</dt><dd>{state.status.binaryPath ? studioProjectName(state.status.binaryPath) : 'Not detected'}</dd></div>
           <div><dt>PrAImate</dt><dd>{state.status.version || '—'}</dd></div>
-          <div><dt>Extension</dt><dd>{state.status.state === 'installed' ? 'Installed and current' : 'Setup or refresh needed'}</dd></div>
+          <div><dt>{state.status.remote ? 'Connection' : 'Extension'}</dt><dd>{state.status.remote ? 'Authenticated server session' : state.status.state === 'installed' ? 'Installed and current' : 'Setup or refresh needed'}</dd></div>
           <div><dt>Backend</dt><dd>{state.status.backendRunning ? 'Active' : 'Starts when opened'}</dd></div>
         </dl>
         <div class="toolbar">
-          {#if state.status.state === 'not_installed'}
-            <button class="btn" disabled={busy || state.loadingStatus} on:click={() => maintain('install')}>Set up editor</button>
-          {:else}
-            <button class="btn" disabled={busy || state.loadingStatus} on:click={() => maintain('update')}>Update integration</button>
-            <button class="btn" disabled={busy || state.loadingStatus} on:click={() => maintain('repair')}>Repair</button>
+          {#if !state.status.remote}
+            {#if state.status.state === 'not_installed'}
+              <button class="btn" disabled={busy || state.loadingStatus} on:click={() => maintain('install')}>Set up editor</button>
+            {:else}
+              <button class="btn" disabled={busy || state.loadingStatus} on:click={() => maintain('update')}>Update integration</button>
+              <button class="btn" disabled={busy || state.loadingStatus} on:click={() => maintain('repair')}>Repair</button>
+            {/if}
           {/if}
           <button class="btn" disabled={busy} on:click={() => activePage.set('clis')}>CLI &amp; Tools</button>
         </div>
