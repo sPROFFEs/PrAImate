@@ -229,6 +229,9 @@ the `server` branch triggers it; it can also be dispatched with a version and
 existing release tag. It replaces only the preview APK and Android metadata,
 updates the APK checksum in `SHA256SUMS`, and preserves all host assets and their
 checksum entries. The original host release tag and version stay in place.
+The full release workflow also uses `mobile/android/VERSION` and records that
+version in its notes. Bump this file whenever publishing changes to the packaged
+Android client, even when a Desktop/Server release is being prepared alongside it.
 
 Updates are downloaded to private app cache, bounded to 64 MiB, and checked
 against SHA-256, the installed package name, a newer Android version code and

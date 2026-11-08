@@ -200,19 +200,20 @@ jobs:
           PY
       - name: Build and verify Android
         env:
-          REQUESTED_VERSION: ${{ inputs.version }}
-          REQUESTED_EDITION: ${{ inputs.edition }}
           PRAIMATE_ANDROID_DEBUG_KEYSTORE: ${{ runner.temp }}/praimate-preview.keystore
         run: |
           sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
           (cd cmd/praimate-gui/frontend && npm ci)
-          VERSION="$(bash scripts/release-metadata.sh | sed -n 's/^VERSION=//p')" bash scripts/build-android.sh
+          VERSION="$(cat mobile/android/VERSION)" bash scripts/build-android.sh
           cp dist/android/praimate-mobile-debug.apk dist/android/praimate-mobile-preview.apk
+          printf '<!-- praimate-android-version:%s -->\n' "$(cat mobile/android/VERSION)" > dist/android/ANDROID-VERSION
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose dist/android/praimate-mobile-preview.apk
       - uses: actions/upload-artifact@v4
         with:
           name: artifacts-android
-          path: dist/android/praimate-mobile-preview.apk
+          path: |
+            dist/android/praimate-mobile-preview.apk
+            dist/android/ANDROID-VERSION
           if-no-files-found: error
 
   release:
@@ -243,6 +244,19 @@ jobs:
         run: |
           python3 ../scripts/release-checksums.py
 
+      - name: Record the independent Android version
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          marker = Path('release-dist/ANDROID-VERSION').read_text().strip()
+          match = re.fullmatch(r'<!-- praimate-android-version:([0-9]+\.[0-9]+\.[0-9]+) -->', marker)
+          if not match:
+              raise SystemExit('Missing or invalid Android version metadata')
+          notes = Path('docs/RELEASE-NOTES.md').read_text().rstrip()
+          Path('release-notes.md').write_text(notes + '\n\n' + marker + '\nAndroid client version: **' + match[1] + '**.\n')
+          PY
+
       - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -264,9 +278,9 @@ jobs:
             gh release create "$TAG" --draft \
               --target "$GITHUB_SHA" \
               --title "PrAImate $TAG" \
-              --notes-file docs/RELEASE-NOTES.md
+              --notes-file release-notes.md
           fi
           gh release upload "$TAG" release-dist/* --clobber
           if [ "${{ inputs.draft }}" != true ]; then
-            gh release edit "$TAG" --draft=false $PRERELEASE_FLAG $LATEST_FLAG
+            gh release edit "$TAG" --draft=false $PRERELEASE_FLAG $LATEST_FLAG --notes-file release-notes.md
           fi
