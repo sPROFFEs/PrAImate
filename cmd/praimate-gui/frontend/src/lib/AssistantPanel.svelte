@@ -4,7 +4,13 @@
   import { activePage, openChatId, agentStudio, openWorkerId } from './stores.js'
   import { assistantConfig, assistantTranscript } from './voiceInput.js'
   import VoiceButton from './VoiceButton.svelte'
+  import { focusDialog } from './focusDialog.js'
   const dispatch = createEventDispatcher()
+  function mobileFocus(node){return window.praimateMobile ? focusDialog(node,{onClose:()=>dispatch('close')}) : {}}
+  function navigate(page,route={}){
+    if(window.praimateMobile){window.dispatchEvent(new CustomEvent('praimate:mobile-navigate',{detail:{page,route}}));dispatch('close')}
+    else {if(route.worker)openWorkerId.set(route.worker);activePage.set(page)}
+  }
   let state = { messages: [], activity: [] }, draft = '', busy = false, error = '', phase = '', field, log
   let unsubscribe = () => {}, transcriptUnsub = () => {}, destroyed = false, delegated = [], poll = null
   async function snapshot() { const result = await api.assistantSnapshot(); if (destroyed) return; state = result; await tick(); if (log) log.scrollTop = log.scrollHeight; await refreshDelegated() }
@@ -27,16 +33,16 @@
   }
   function transcript(event) { draft = [draft,event.detail.text].filter(Boolean).join(' '); if (event.detail.autoSend) send() }
 </script>
-<aside class="assistant-panel" aria-label="PrAImate assistant">
-  <header><div><strong>PrAImate Assistant</strong><small>{$assistantConfig?.model_id === 'existing' ? $assistantConfig.model : $assistantConfig?.model_id || 'Local application assistant'}</small></div><button class="btn sm" title="Assistant settings" on:click={() => activePage.set('settings')}>Settings</button><button class="btn sm" aria-label="Close assistant" on:click={() => dispatch('close')}>×</button></header>
+<aside class="assistant-panel" aria-label="PrAImate assistant" role={window.praimateMobile ? 'dialog' : undefined} aria-modal={window.praimateMobile ? 'true' : undefined} use:mobileFocus>
+  <header><div><strong>PrAImate Assistant</strong><small>{$assistantConfig?.model_id === 'existing' ? $assistantConfig.model : $assistantConfig?.model_id || 'Local application assistant'}</small></div><button class="btn sm" title="Assistant settings" on:click={() => navigate('settings')}>Settings</button><button class="btn sm" aria-label="Close assistant" on:click={() => dispatch('close')}>×</button></header>
   {#if !$assistantConfig?.enabled}
-    <div class="empty"><h3>Your application assistant</h3><p>Choose a local model and enable Assistant in Settings. Voice input can be enabled separately.</p><button class="btn primary" on:click={() => activePage.set('settings')}>Configure Assistant & Voice</button></div>
+    <div class="empty"><h3>Your application assistant</h3><p>Choose a local model and enable Assistant in Settings. Voice input can be enabled separately.</p><button class="btn primary" on:click={() => navigate('settings')}>Configure Assistant & Voice</button></div>
   {:else}
     <div class="messages" bind:this={log} aria-live="polite">
       {#each state.messages || [] as message}<article class:user={message.role === 'user'}><small>{message.role === 'user' ? 'You' : 'Assistant'}</small><p>{message.text}</p></article>{:else}<div class="empty"><h3>What would you like to do?</h3><p>Find a conversation, inspect your workers, manage MCP servers or delegate a task.</p></div>{/each}
     </div>
     {#if state.task}<details><summary>Task · {state.task.status}{busy ? ' · '+phase : ''}</summary>{#each state.task.steps || [] as step}<p class="step">{step.action} · {step.status}{step.run_id ? ' · '+step.run_id : ''}</p>{#if step.detail}<p class="step">{step.detail}</p>{/if}{/each}</details>{/if}
-    {#each delegated as run}<div class="delegated"><strong>Worker · {run.status}</strong><p>{run.title}</p>{#if run.result}<p>{run.result.slice(0,400)}</p>{/if}<button class="btn sm" on:click={() => { openWorkerId.set(run.id); activePage.set('workers') }}>Open execution</button></div>{/each}
+    {#each delegated as run}<div class="delegated"><strong>Worker · {run.status}</strong><p>{run.title}</p>{#if run.result}<p>{run.result.slice(0,400)}</p>{/if}<button class="btn sm" on:click={() => navigate('workers',{worker:run.id})}>Open execution</button></div>{/each}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
   {/if}
     <form data-voice-composer on:submit|preventDefault={send}>

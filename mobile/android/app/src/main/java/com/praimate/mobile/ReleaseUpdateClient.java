@@ -14,11 +14,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class ReleaseUpdateClient {
     public static final long APK_LIMIT=64L*1024*1024;
     public static final class Info {
-        public final String tag,asset,url,sha256;
+        public final String tag,version,asset,url,sha256;
         public final long size;
-        Info(String tag,String asset,String sha256,long size){this.tag=tag;this.asset=asset;this.url=UpdatePolicy.releaseURL(tag,asset);this.sha256=sha256;this.size=size;}
-        public JSONObject json()throws Exception{return new JSONObject().put("tag",tag).put("asset",asset).put("sha256",sha256).put("size",size);}
-        public static Info fromJSON(JSONObject value)throws Exception{return new Info(value.getString("tag"),value.getString("asset"),value.getString("sha256"),value.getLong("size"));}
+        Info(String tag,String asset,String sha256,long size){this(tag,tag,asset,sha256,size);}
+        Info(String tag,String version,String asset,String sha256,long size){this.tag=tag;this.version=version;this.asset=asset;this.url=UpdatePolicy.releaseURL(tag,asset);this.sha256=sha256;this.size=size;}
+        public JSONObject json()throws Exception{return new JSONObject().put("tag",tag).put("version",version).put("asset",asset).put("sha256",sha256).put("size",size);}
+        public static Info fromJSON(JSONObject value)throws Exception{return new Info(value.getString("tag"),value.optString("version",value.getString("tag")),value.getString("asset"),value.getString("sha256"),value.getLong("size"));}
     }
     public interface Progress {void update(long bytes,long total);}
     private final String installed,asset;
@@ -30,13 +31,14 @@ public final class ReleaseUpdateClient {
         for(int i=0;i<releases.length();i++){
             JSONObject r=releases.getJSONObject(i);String tag=r.optString("tag_name");
             if(r.optBoolean("draft")||(!preview&&r.optBoolean("prerelease")))continue;
-            try{if(!UpdatePolicy.newer(tag,installed))continue;}catch(IllegalArgumentException invalid){continue;}
+            String version;
+            try{version=UpdatePolicy.androidVersion(tag,r.optString("body"));if(!UpdatePolicy.newer(version,installed))continue;}catch(IllegalArgumentException invalid){continue;}
             JSONArray assets=r.optJSONArray("assets");if(assets==null)continue;
             for(int j=0;j<assets.length();j++){
                 JSONObject a=assets.getJSONObject(j);if(!asset.equals(a.optString("name")))continue;
                 long size=a.optLong("size",-1);if(size<=0||size>APK_LIMIT)continue;
                 String digest=a.optString("digest","");digest=digest.matches("sha256:[a-fA-F0-9]{64}")?digest.substring(7).toLowerCase(java.util.Locale.ROOT):"";
-                Info candidate=new Info(tag,asset,digest,size);if(best==null||UpdatePolicy.newer(tag,best.tag))best=candidate;
+                Info candidate=new Info(tag,version,asset,digest,size);if(best==null||UpdatePolicy.newer(version,best.version))best=candidate;
             }
         }
         return best;
@@ -46,11 +48,13 @@ public final class ReleaseUpdateClient {
         try{info=select(read(UpdatePolicy.API,8*1024*1024));}
         catch(Exception apiUnavailable){
             // One HTTPS fallback, without HTML parsing or aggressive retries.
-            String tag=latestWebTag();if(!UpdatePolicy.newer(tag,installed))return null;
+            String tag=latestWebTag(),metadata="";
+            try{metadata=read(UpdatePolicy.releaseURL(tag,"ANDROID-VERSION"),4096);}catch(FileNotFoundException legacyRelease){/* Older releases use the tag version. */}
+            String version=UpdatePolicy.androidVersion(tag,metadata);if(!UpdatePolicy.newer(version,installed))return null;
             String digest=UpdatePolicy.checksum(read(UpdatePolicy.releaseURL(tag,"SHA256SUMS"),1024*1024),asset);
-            return new Info(tag,asset,digest,-1);
+            return new Info(tag,version,asset,digest,-1);
         }
-        if(info!=null&&info.sha256.isEmpty())info=new Info(info.tag,asset,UpdatePolicy.checksum(read(UpdatePolicy.releaseURL(info.tag,"SHA256SUMS"),1024*1024),asset),info.size);
+        if(info!=null&&info.sha256.isEmpty())info=new Info(info.tag,info.version,asset,UpdatePolicy.checksum(read(UpdatePolicy.releaseURL(info.tag,"SHA256SUMS"),1024*1024),asset),info.size);
         return info;
     }
     private HttpURLConnection request(String address,String method,boolean redirects)throws Exception{
@@ -74,7 +78,7 @@ public final class ReleaseUpdateClient {
     }
     private String read(String address,int limit)throws Exception{
         HttpURLConnection c=request(address,"GET",true);
-        try{if(c.getResponseCode()!=200)throw new IOException("GitHub update request returned HTTP "+c.getResponseCode());
+        try{if(c.getResponseCode()==404)throw new FileNotFoundException("GitHub update metadata was not found");if(c.getResponseCode()!=200)throw new IOException("GitHub update request returned HTTP "+c.getResponseCode());
             try(InputStream input=c.getInputStream();ByteArrayOutputStream output=new ByteArrayOutputStream()){byte[] buffer=new byte[8192];int n;while((n=input.read(buffer))!=-1){if(output.size()+n>limit)throw new IOException("GitHub update metadata exceeds the limit");output.write(buffer,0,n);}return output.toString("UTF-8");}
         }finally{c.disconnect();}
     }

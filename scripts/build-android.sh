@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 VARIANT=Debug
-APP_VERSION="${VERSION:-$(sed -n 's/^var Current = "\([^"]*\)"/\1/p' internal/version/version.go)}"
+APP_VERSION="${VERSION:-$(cat mobile/android/VERSION)}"
 for arg in "$@"; do
   case "$arg" in
     --release) VARIANT=Release ;;

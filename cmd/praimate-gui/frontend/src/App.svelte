@@ -127,9 +127,11 @@
   let pageComponent = null
   let requestedPage = ''
   let pageLoadToken = 0
+  let mainContent
 	let pageLoadError = ''
   async function loadPage(id) {
     if (requestedPage === id && pageComponent) return
+    if (window.praimateMobile) mainContent?.scrollTo({top:0,left:0})
     requestedPage = id
     pageLoadError = ''
     pageComponent = null
@@ -273,6 +275,11 @@
   }
 
   onMount(async () => {
+    window.addEventListener('praimate:open-assistant', openAssistant)
+    cleanup.push(()=>window.removeEventListener('praimate:open-assistant', openAssistant))
+    const closeMobileAssistant=()=>assistantOpen=false
+    window.addEventListener('praimate:close-assistant',closeMobileAssistant)
+    cleanup.push(()=>window.removeEventListener('praimate:close-assistant',closeMobileAssistant))
     window.addEventListener('keydown', handleKeydown)
     window.addEventListener('keyup', globalVoiceKeyup)
     window.addEventListener('blur', globalVoiceBlur)
@@ -441,7 +448,7 @@
     </div>
   </nav>
 
-  <main class="main">
+  <main class="main" data-page={$activePage} bind:this={mainContent}>
     {#if updateNotice}<div class="update-banner" role="status"><span>{updateNotice}</span><button class="btn sm" on:click={()=>updateNotice=''}>Dismiss</button></div>{/if}
     {#if availableUpdate}
       <div class="update-banner" role="alert">

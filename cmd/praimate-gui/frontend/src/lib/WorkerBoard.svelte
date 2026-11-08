@@ -7,20 +7,23 @@
   const dispatch = createEventDispatcher()
   let query = ''
   let backend = ''
+  let mobileColumn = ''
   $: backends = [...new Set(items.map(item => item.route.cli || 'Local'))]
   $: visible = items.filter(item => (!backend || (item.route.cli || 'Local') === backend) && `${item.title} ${item.description} ${item.route.cli} ${item.route.model}`.toLowerCase().includes(query.toLowerCase()))
+  $: mobileSelection = mobileColumn || ['working','attention','queued','done'].find(id => visible.some(item => item.column === id)) || 'all'
 </script>
 
-<section class="board" aria-label="Worker task board">
+<section class="board" class:mobile-all={mobileSelection === 'all'} aria-label="Worker task board">
   <div class="board-tools">
     <div><strong>Tasks & agents</strong><span>{visible.length} assignments</span></div>
     <label><span class="sr-only">Search tasks and models</span><input type="search" bind:value={query} placeholder="Search tasks, CLI or model…" /></label>
     <label><span class="sr-only">Filter by CLI</span><select bind:value={backend}><option value="">All backends</option>{#each backends as cli}<option value={cli}>{cli}</option>{/each}</select></label>
+    <label class="mobile-task-filter"><span class="sr-only">Task group</span><select aria-label="Task group" value={mobileSelection} on:change={event=>mobileColumn=event.currentTarget.value}><option value="all">All task groups</option>{#each workerColumns as column}<option value={column.id}>{column.label} ({visible.filter(item=>item.column===column.id).length})</option>{/each}</select></label>
   </div>
   <div class="columns">
     {#each workerColumns as column}
       {@const cards = visible.filter(item => item.column === column.id)}
-      <section class="column" class:attention={column.id === 'attention'} class:working={column.id === 'working'} class:done={column.id === 'done'} aria-label={column.label}>
+      <section class="column" class:mobile-hidden={mobileSelection !== 'all' && mobileSelection !== column.id} class:attention={column.id === 'attention'} class:working={column.id === 'working'} class:done={column.id === 'done'} aria-label={column.label}>
         <header><span class="glyph">{column.icon}</span><h3>{column.label}</h3><span class="count">{cards.length}</span></header>
         <div class="cards">
           {#each cards as item (item.id)}
@@ -40,6 +43,7 @@
 </section>
 
 <style>
+  .mobile-task-filter{display:none}
   .board{min-width:0;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-panel);overflow:hidden}
   .board-tools{display:flex;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
   .board-tools>div{display:flex;align-items:center;gap:10px;margin-right:auto}.board-tools strong{font-size:13px}.board-tools span{font-size:11px;color:var(--text-dim)}

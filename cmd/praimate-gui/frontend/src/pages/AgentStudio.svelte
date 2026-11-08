@@ -1,4 +1,5 @@
 <script>
+  import { shouldSendMessage } from '../lib/composerKeyboard.js'
   import { isWorkerRun } from '../lib/workerActivity.js'
   import VoiceButton from '../lib/VoiceButton.svelte'
   // Agent authoring studio — an IDE-like view for creating/editing agents.
@@ -857,7 +858,7 @@
   }
   function onKey(e) {
     if (e.isComposing || e.keyCode === 229) return
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+    if (shouldSendMessage(e, !!window.praimateMobile)) { e.preventDefault(); send() }
   }
   async function stopChat() { try { await api.cancelChatTurn(helperChatId) } catch {} }
   async function applyHelperConfig() {
@@ -1165,7 +1166,7 @@
     </div>
   </div>
 {:else}
-{#if mobile}<nav class="mobile-agent-tabs" aria-label="Agent studio panels">{#each [['files','Files & settings'],['editor','Editor'],['assistant','Assistant']] as [pane,label]}<button class="btn sm" class:primary={mobilePane===pane} on:click={()=>{mobilePane=pane;if(pane==='files')leftOpen=true;if(pane==='assistant')chatOpen=true}}>{label}</button>{/each}</nav>{/if}
+{#if mobile}<nav class="mobile-agent-tabs" aria-label="Agent studio panels">{#each [['files','Files'],['editor','Editor'],['assistant','Assistant']] as [pane,label]}<button class="btn sm" class:primary={mobilePane===pane} on:click={()=>{mobilePane=pane;if(pane==='files')leftOpen=true;if(pane==='assistant')chatOpen=true}}>{label}</button>{/each}</nav>{/if}
 <div class="astudio" class:mobile-agent={mobile} class:mobile-agent-files={mobilePane==='files'} class:mobile-agent-editor={mobilePane==='editor'} class:mobile-agent-assistant={mobilePane==='assistant'} style="grid-template-columns: {gridCols}">
   <!-- LEFT -->
   {#if !leftOpen}
@@ -1396,12 +1397,12 @@
       <strong class="grow">Authoring assistant</strong>
       <button class="xbtn" title="Hide" on:click={() => {if(mobile)mobilePane='editor';else chatOpen=false}}>▸</button>
     </div>
-    <div class="row2" style="padding:0 2px 6px">
+    <div class="row2 helper-route" style="padding:0 2px 6px">
       <select class="field sm" style="max-width:130px" bind:value={helperCli} on:change={onHelperCli}>{#each clis as c}<option value={c.id} disabled={!c.available}>{c.id}{c.available ? '' : ' (n/a)'}</option>{/each}</select>
       <input class="field sm mono grow" list="helper-models" placeholder={helperModelSupported ? (modelLoading ? 'loading models…' : 'model (blank = default)') : 'no model flag'} bind:value={helperModel} on:change={applyHelperConfig} disabled={!helperModelSupported} />
       <datalist id="helper-models">{#each modelSuggestions as m}<option value={m}></option>{/each}</datalist>
     </div>
-    <div class="row2" style="padding:0 2px 6px">
+    <div class="row2 helper-folder" style="padding:0 2px 6px">
       <input class="field sm mono grow" value={helperCwd} title={helperCwd} placeholder="assistant working folder" readonly />
       <button class="btn sm" title="Choose the folder where praimate-code reads and writes ./agent.yaml" on:click={chooseHelperCwd}>Folder…</button>
     </div>

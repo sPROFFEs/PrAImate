@@ -15,6 +15,14 @@ public final class UpdatePolicy {
         long[] a=version(remote),b=version(installed);
         for(int i=0;i<3;i++){if(a[i]!=b[i])return a[i]>b[i];}return false;
     }
+    public static String androidVersion(String tag,String notes){
+        // A release can retain its host binaries while publishing a newer APK.
+        Matcher marker=Pattern.compile("<!-- praimate-android-version:([0-9]+\\.[0-9]+\\.[0-9]+) -->").matcher(notes==null?"":notes);
+        if(!marker.find())return tag;
+        String candidate=marker.group(1);
+        if(marker.find())throw new IllegalArgumentException("Ambiguous Android release version");
+        version(tag);version(candidate);return candidate;
+    }
     private static long[] version(String value){
         Matcher m=VERSION.matcher(value==null?"":value);if(!m.matches())throw new IllegalArgumentException("Invalid release version");
         return new long[]{Long.parseLong(m.group(1)),Long.parseLong(m.group(2)),Long.parseLong(m.group(3))};

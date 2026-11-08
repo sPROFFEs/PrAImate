@@ -114,8 +114,27 @@ cannot restore a credential that the user has forgotten.
 
 ## Mobile interface
 
-The navigation drawer preserves desktop's sections, names, icons and theme
-settings. Chats, worker runs and configuration use the shared application views.
+The native server chooser uses the same dark palette and monkey icon as the
+application. Saved servers show their address and pairing status, with a separate
+options button for certificates, Access sign-in and device credentials. The
+connection form and saved servers sit side by side on wider screens and stack on
+phones. Forms remain scrollable while the keyboard is open.
+
+The bottom navigation provides Dashboard, Chats, Code and Workers; **More** opens
+the remaining sections, saved sessions, theme and server controls. The header
+menu remains available in landscape and while the keyboard is open, when the
+bottom navigation hides to leave more space for the current task. Tap the monkey
+in the header to open the application Assistant. Its settings and worker links
+respect the editor's unsaved-change checks.
+
+Chats, worker runs and configuration use the shared application views with
+mobile layouts and touch controls. Conversations keep the message field visible
+above the keyboard and scroll their transcript independently. On mobile, Enter
+inserts a newline; use **Send** or Ctrl/Cmd+Enter to send. Chat settings contain
+the CLI, model and tool controls. Worker chats have a saved-run selector and a
+task-group filter instead of squeezing four task columns onto a phone. Long
+tables, code blocks and tab strips scroll within their own section.
+
 Studio and agent authoring switch between files, editor and assistant panels
 instead of shrinking three desktop columns onto a phone. Project windows open
 as separate Android activities; Back returns to the previous workspace. Terminal
@@ -195,6 +214,21 @@ server. No PrAImate token, Access cookie or GitHub account token is sent. The
 client selects releases containing its own APK type, so Desktop-only releases
 do not become incompatible Android updates. An HTTPS release redirect and
 checksum manifest provide a fallback when the API is unavailable.
+
+Android has an independent version in `mobile/android/VERSION`. The Android
+1.3.4 APK is published on the existing **v1.3.3** release; Desktop, Server and
+shared CLI binaries remain unchanged. Install this update manually once from the
+link above if using Android 1.3.3 or earlier. Those clients compare only the host
+release tag. Android 1.3.4 and later also read the Android version in the release
+notes, with `ANDROID-VERSION` as the HTTPS fallback, so later APK-only updates
+appear in the normal update check.
+
+The **Android update** workflow builds, tests, lints and verifies the APK with
+the persistent preview signer. Pushing a change to `mobile/android/VERSION` on
+the `server` branch triggers it; it can also be dispatched with a version and
+existing release tag. It replaces only the preview APK and Android metadata,
+updates the APK checksum in `SHA256SUMS`, and preserves all host assets and their
+checksum entries. The original host release tag and version stay in place.
 
 Updates are downloaded to private app cache, bounded to 64 MiB, and checked
 against SHA-256, the installed package name, a newer Android version code and

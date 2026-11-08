@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte'
+  import { focusDialog } from './focusDialog.js'
   const remote = window.praimateRemote
   const mobile = window.praimateMobile
   let monitoring = !!mobile?.monitoring
@@ -18,10 +19,11 @@
   async function takeControl(){try{await remote.client.call('terminals.claim',[terminal,true]);error='';terminal=''}catch(e){error=e.message}}
   onMount(() => { const status=event=>monitoring=!!event.detail.monitoring;window.addEventListener('praimate:mobile-status',status);remote.client.call('server.capabilities',[]).then(result=>supervised=!!result.supervised).catch(()=>{}); const offConnection=window.runtime.EventsOn('praimate:remote-connection', state => { connected=state.connected; error=state.error || '' });const offWarning=window.runtime.EventsOn('praimate:remote-warning',warning=>{error=warning.message;terminal=warning.terminal||'';if(!mobile||!terminal)open=true});return()=>{offConnection();offWarning();window.removeEventListener('praimate:mobile-status',status)} })
 </script>
-<aside class:offline={!connected}>
-  <button class="connection" on:click={() => {open=!open;if(open)refresh()}} aria-expanded={open}><span class="dot"></span>{connected ? mobile ? 'Connected' : 'Server connected' : 'Reconnecting…'}</button>
-  {#if open}<section>
-    <strong>Remote connection</strong><p>{remote.status.identity.role} · {mobile?.serverURL || location.host}</p>
+{#if open && mobile}<button class="connection-shade" aria-label="Close connection details" on:click={()=>open=false}></button>{/if}
+<aside class="remote-connection" class:offline={!connected} class:open>
+  <button class="connection" on:click={() => {open=!open;if(open){if(mobile)window.dispatchEvent(new Event('praimate:close-assistant'));refresh()}}} aria-expanded={open}><span class="dot"></span>{connected ? mobile ? 'Connected' : 'Server connected' : 'Reconnecting…'}</button>
+  {#if open}<section role="dialog" aria-label="Remote connection" aria-modal={mobile ? 'true' : undefined} use:focusDialog={{onClose:()=>open=false}}>
+    <header><strong>Remote connection</strong><button class="btn sm" aria-label="Close connection details" on:click={()=>open=false}>Close</button></header><p>{remote.status.identity.role} · {mobile?.serverURL || location.host}</p>
     {#if mobile}<button class="btn" on:click={monitor}>{monitoring ? 'Stop background monitoring' : 'Monitor in background'}</button><button class="btn" on:click={()=>mobile.signInAccess().catch(e=>error=e.message)}>Cloudflare Access sign-in</button><p>Server tasks continue when this app closes. Android may limit background monitoring.</p>{/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if mobile}<button class="btn" on:click={()=>mobile.checkUpdates().catch(e=>error=e.message)}>Check Android app updates</button>{/if}
@@ -46,5 +48,10 @@
   </section>{/if}
 </aside>
 <style>
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px}.connection-shade{position:fixed;inset:0;border:0;background:var(--overlay);z-index:1290}
+  :global(.praimate-mobile) aside.open{z-index:1300}
+  :global(.praimate-mobile) aside{top:calc(var(--app-top,0px) + 6px);right:8px}
+  :global(.praimate-mobile) .connection{min-height:44px;max-width:108px;justify-content:center}
+  :global(.praimate-mobile) section{position:fixed;top:calc(var(--app-top,0px) + 62px);left:8px;right:8px;width:auto;margin:0;max-height:calc(var(--app-height,100dvh) - 74px);padding:16px}
   aside{position:fixed;right:12px;top:8px;z-index:1000;font-size:11px}.connection{display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:18px;border:1px solid var(--border);background:var(--bg-panel,#25282e);color:var(--text,#eee);cursor:pointer;box-shadow:0 2px 10px #0002}.dot{width:6px;height:6px;border-radius:50%;background:var(--ok,#73d7a1)}.offline .dot{background:var(--warn,#e3b264)}section{margin-top:8px;width:min(340px,85vw);max-height:calc(100dvh - 80px);overflow:auto;padding:18px;display:grid;gap:12px;border:1px solid var(--border);border-radius:14px;background:var(--bg-panel,#25282e);color:var(--text,#eee);box-shadow:0 12px 40px #0004}p{margin:0;overflow-wrap:anywhere;color:var(--text-dim)}label{display:grid;gap:5px}.code{font-size:26px;letter-spacing:4px;color:var(--accent);text-align:center}.error{color:var(--err)}.devices,.operations{max-height:220px;overflow:auto}.devices>div{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)}.operations>div{padding:7px 0;overflow-wrap:anywhere}details[open]{display:grid;gap:10px}summary{cursor:pointer}small{display:block;color:var(--text-dim)}input,select{box-sizing:border-box;max-width:100%;font:inherit;padding:7px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:7px}
 </style>

@@ -158,6 +158,7 @@
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 
   <div class="chat-layout">
+    {#if runs.length}<label class="mobile-saved-runs">Worker chat<select value={selected} on:change={event=>selectRun(event.currentTarget.value)}>{#each runs as run}<option value={run.id}>{run.title || run.task || run.id} · {run.status}</option>{/each}</select></label>{/if}
     <nav class="chat-list" aria-label="Saved worker chats">
       {#if !runs.length}<p class="empty">No worker chats yet. Create one to get started.</p>{/if}
       {#each runs as run}
@@ -221,6 +222,7 @@
 </section>
 
 <style>
+  .mobile-saved-runs{display:none}
   .workers { padding: 0; height: 100%; overflow: auto; background: var(--bg); color: var(--text); }
   .heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
   h1 { margin:0 0 4px; } p { margin: 4px 0 14px; }

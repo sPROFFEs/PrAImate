@@ -1,4 +1,5 @@
 <script>
+  import { shouldSendMessage } from '../lib/composerKeyboard.js'
   import ModelRefresh from '../lib/ModelRefresh.svelte'
   // Document studio window (plan §14-P1) — rendered INSTEAD of the main
   // app when this process was spawned with `-editor <folder>`. Left:
@@ -668,7 +669,7 @@
 
   function onKey(e) {
     if (e.isComposing || e.keyCode === 229) return
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+    if (shouldSendMessage(e, !!window.praimateMobile)) { e.preventDefault(); send() }
   }
 
   let userScrolledUp = false

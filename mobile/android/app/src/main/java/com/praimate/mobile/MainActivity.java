@@ -135,33 +135,16 @@ public final class MainActivity extends androidx.activity.ComponentActivity impl
 
     private void servers(){
         probeGeneration++;closeWeb();profileID="";
-        ScrollView scroll=new ScrollView(this);scroll.setBackgroundColor(Color.rgb(23,25,29));
-        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(24),dp(24),dp(24),dp(24));scroll.addView(form);
-        android.widget.ImageView brand=new android.widget.ImageView(this);brand.setImageResource(R.mipmap.ic_launcher);brand.setContentDescription("PrAImate");LinearLayout.LayoutParams brandSize=new LinearLayout.LayoutParams(dp(76),dp(76));brandSize.bottomMargin=dp(12);form.addView(brand,brandSize);
-        form.addView(text("PrAImate",30));form.addView(text("Your workspace, wherever you are",17));
-        form.addView(text("Connect to a PrAImate Server. Models, files and running tasks stay on that server.",14));
-        try{
-            JSONArray profiles=vault.profiles();
-            for(int i=0;i<profiles.length();i++){
-                JSONObject profile=profiles.getJSONObject(i);String id=profile.getString("id");
-                Button entry=button(profile.getString("name")+"\n"+profile.getString("url")+(profile.getBoolean("paired")?" · paired":" · pairing required"),()->probe(id));
-                entry.setGravity(android.view.Gravity.START|android.view.Gravity.CENTER_VERTICAL);entry.setPadding(dp(16),dp(14),dp(16),dp(14));entry.setTextColor(Color.rgb(230,234,242));
-                android.graphics.drawable.GradientDrawable surface=new android.graphics.drawable.GradientDrawable();surface.setColor(Color.rgb(32,35,41));surface.setCornerRadius(dp(14));surface.setStroke(dp(1),Color.rgb(53,58,67));entry.setBackground(surface);
-                LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);LinearLayout.LayoutParams card=new LinearLayout.LayoutParams(-1,-2);card.topMargin=dp(10);row.setLayoutParams(card);
-                row.addView(entry,new LinearLayout.LayoutParams(0,-2,1));Button options=button("⋮",()->profileOptions(id));options.setContentDescription("Server options");row.addView(options,new LinearLayout.LayoutParams(dp(46),-1));
-                entry.setOnLongClickListener(view->{profileOptions(id);return true;});form.addView(row);
-            }
-        }catch(Exception error){form.addView(text("Encrypted profiles could not be opened. Restore access to this device's Keystore before reconnecting.",14));}
-        form.addView(text("Add a server",20));
-        EditText name=new EditText(this);name.setHint("Server name");name.setTextColor(Color.WHITE);name.setHintTextColor(Color.LTGRAY);name.setSingleLine(true);form.addView(name);
-        EditText url=new EditText(this);url.setHint("https://praimate.example.com:8844");url.setTextColor(Color.WHITE);url.setHintTextColor(Color.LTGRAY);url.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);url.setSingleLine(true);form.addView(url);
-        form.addView(button("Save and connect",()->{
-            try{String normalized=Endpoint.normalize(url.getText().toString(),BuildConfig.DEBUG);String id=vault.add(name.getText().toString(),normalized);probe(id);}catch(Exception error){showError(error);}
-        }));
-        form.addView(text("Long-press a saved server to import its private CA/certificate, manage trust or remove the device credential. Pairing uses the one-use code from the server console or an administrator.",13));
-        form.addView(text("App updates · "+BuildConfig.VERSION_NAME,18));form.addView(button("Check for app updates",()->updates.check(false)));
-        android.widget.CheckBox automatic=new android.widget.CheckBox(this);automatic.setText(R.string.update_automatic);automatic.setTextColor(Color.LTGRAY);automatic.setChecked(updates.automatic());automatic.setOnCheckedChangeListener((view,checked)->updates.automatic(checked));form.addView(automatic);
-        setContentView(scroll);inset(scroll);
+        JSONArray profiles=new JSONArray();String profileError="";
+        try{profiles=vault.profiles();}catch(Exception error){profileError="Encrypted profiles could not be opened. Restore access to this device's Keystore before reconnecting.";}
+        ServerHomeView home=new ServerHomeView(this,profiles,profileError,BuildConfig.VERSION_NAME,updates.automatic(),new ServerHomeView.Actions(){
+            public void connect(String id){probe(id);}
+            public void options(String id){profileOptions(id);}
+            public void save(String name,String address)throws Exception{String normalized=Endpoint.normalize(address,BuildConfig.DEBUG);probe(vault.add(name,normalized));}
+            public void checkUpdates(){updates.check(false);}
+            public void automaticUpdates(boolean enabled){updates.automatic(enabled);}
+        });
+        setContentView(home);inset(home);
     }
 
     private void probe(String id){
@@ -204,7 +187,8 @@ public final class MainActivity extends androidx.activity.ComponentActivity impl
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(20),0,dp(20),0);
         EditText name=new EditText(this);name.setSingleLine(true);name.setHint("Server name");name.setText(profile.getString("name"));form.addView(name);
         EditText address=new EditText(this);address.setSingleLine(true);address.setHint("HTTPS server origin");address.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);address.setText(profile.getString("url"));form.addView(address);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Edit server").setMessage("Changing the address clears its pairing, certificate exception and last view. Pair with the new server before using it.").setView(form).setNegativeButton("Cancel",null).setPositiveButton("Save",null).create();
+        ScrollView fields=new ScrollView(this);fields.addView(form);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Edit server").setMessage("Changing the address clears its pairing, certificate exception and last view. Pair with the new server before using it.").setView(fields).setNegativeButton("Cancel",null).setPositiveButton("Save",null).create();
         dialog.setOnShowListener(unused->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view->{
             try{boolean changed=vault.update(id,name.getText().toString(),address.getText().toString());if(changed)invalidateProfile(id);dialog.dismiss();servers();}catch(Exception error){address.setError(NativeBridge.publicMessage(error));}
         }));dialog.show();

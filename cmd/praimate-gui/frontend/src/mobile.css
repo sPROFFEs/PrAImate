@@ -1,25 +1,142 @@
-html.praimate-mobile, .praimate-mobile body { overscroll-behavior:none; }
-.praimate-mobile .shell { height:calc(var(--app-height,100dvh) - 48px);margin-top:48px; }
+/* Android uses the same components as Desktop, with its own viewport and
+   interaction layout. Native window insets already reserve system bars. */
+html.praimate-mobile { --mobile-toolbar-height:56px;--mobile-nav-height:64px;--mobile-terminal-inset:0px; }
+html.praimate-mobile,.praimate-mobile body { width:100%;height:var(--app-height,100dvh);overflow:hidden;overscroll-behavior:none; }
+.praimate-mobile #app { height:100%;min-width:0; }
+.praimate-mobile .shell { position:fixed;top:calc(var(--app-top,0px) + var(--mobile-toolbar-height));left:0;right:0;width:100%;height:calc(var(--app-height,100dvh) - var(--mobile-toolbar-height) - var(--mobile-nav-height));margin:0;min-height:0; }
 .praimate-mobile .shell>.sidebar { display:none; }
-.praimate-mobile .main { padding:16px 12px calc(16px + var(--mobile-terminal-inset,48px)); }
-.praimate-mobile .main .code-live { display:flex;flex-direction:column;height:max(180px,calc(var(--app-height,100dvh) - 80px - var(--mobile-terminal-inset,48px))); }
-.praimate-mobile .main .code-live>.row { flex-shrink:0; }
-.praimate-mobile .main .code-live .termhost { flex:1;min-height:80px;height:auto; }
-.praimate-mobile input,.praimate-mobile select,.praimate-mobile textarea { font-size:16px;max-width:100%; }
-.praimate-mobile .btn { min-height:40px;touch-action:manipulation; }
-.praimate-mobile .picker,.praimate-mobile .modal-content { max-width:calc(100vw - 24px)!important;max-height:calc(var(--app-height,100dvh) - 72px)!important; }
-.praimate-mobile .modal-backdrop,.praimate-mobile .picker-backdrop { padding:12px;padding-top:60px; }
-.praimate-mobile .backdrop,.praimate-mobile .modal-backdrop,.praimate-mobile .picker-backdrop,.praimate-mobile .dialog-backdrop { z-index:1200!important; }
-.praimate-mobile .tbl { display:block;overflow-x:auto; }
-.praimate-mobile .row { flex-wrap:wrap; }
-.praimate-mobile .composer { min-width:0; }
+.praimate-mobile .main { width:100%;min-width:0;min-height:0;padding:14px 12px 18px;overflow:auto;overscroll-behavior:contain;scroll-padding-block:12px; }
+.praimate-mobile .main>* { min-width:0;max-width:100%; }
+.praimate-mobile .main :is(.dashboard,.server-page,.workers) { width:100%;max-width:none; }
+html.praimate-mobile #app .main>.workers{height:auto;overflow:visible}
+.praimate-mobile :is(h1,h2,h3,.card-title,.card-sub,.subtitle,.banner,.notice,.error,.muted) { overflow-wrap:anywhere; }
+.praimate-mobile h1 { font-size:23px;line-height:1.25; }
+.praimate-mobile .subtitle { font-size:13px;line-height:1.55; }
+.praimate-mobile :is(input,select,textarea) { min-width:0;max-width:100%;font-size:16px; }
+html.praimate-mobile #app :is(input,select,textarea) { font-size:16px; }
+html.praimate-mobile #app button { min-height:44px;min-width:44px; }
+html.praimate-mobile #app .swatch-row{flex-wrap:wrap;min-width:0;max-width:100%}
+.praimate-mobile :is(input,select,textarea).field { max-width:100%!important; }
+.praimate-mobile .field:not([type=checkbox]):not([type=radio]) { width:100%;min-height:44px; }
+.praimate-mobile :is(button,.btn) { touch-action:manipulation; }
+.praimate-mobile .btn { min-height:44px;padding:10px 12px;white-space:normal; }
+.praimate-mobile .btn.sm { min-height:44px; }
+.praimate-mobile :is(.row,.actions,.toolbar,.heading,.device,.project-actions,.chat-heading) { flex-wrap:wrap; }
+.praimate-mobile .row>.grow { min-width:0;flex-basis:160px; }
+.praimate-mobile :is(.card,.panel) { min-width:0; }
+.praimate-mobile .card { padding:14px; }
+.praimate-mobile .pill { max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;white-space:nowrap; }
+.praimate-mobile :is(.tbl,.markdown table) { display:block;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain; }
+.praimate-mobile :is(pre,.markdown pre) { max-width:100%;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--border-bright) var(--bg); }
+.praimate-mobile :is(.markdown img,.att-img) { max-width:100%;height:auto; }
+.praimate-mobile :is(.markdown,.msg,.tool-feed) { min-width:0;overflow-wrap:anywhere; }
+.praimate-mobile :is(.main,.thread,.timeline,.mobile-navigation,.picker){scrollbar-color:var(--border-bright) var(--bg-panel);scrollbar-width:thin}
+.praimate-mobile :is(.tabs,.tabbar,.host-tabs) { max-width:100%;overflow-x:auto;overscroll-behavior-x:contain; }
 .praimate-mobile .boot-screen { height:var(--app-height,100dvh); }
-.praimate-mobile .remote-login { min-height:var(--app-height,100dvh);padding:16px; }
-@media(max-width:700px){
-  .praimate-mobile .columns,.praimate-mobile .config-grid,.praimate-mobile .stats-grid,.praimate-mobile .metrics-grid { grid-template-columns:minmax(0,1fr)!important;min-width:0!important; }
-  .praimate-mobile h1 { font-size:22px; }
-  .praimate-mobile .card { padding:14px; }
-  .praimate-mobile .workers>.heading { flex-wrap:wrap;align-items:flex-start; }
-  .praimate-mobile .workers>.heading>button { flex-shrink:0;white-space:nowrap;min-height:40px; }
+.praimate-mobile .remote-login { height:var(--app-height,100dvh);min-height:0;overflow-y:auto;padding:20px 16px; }
+
+/* Conversations own the remaining height; only their transcript scrolls. */
+.praimate-mobile .main[data-page=chats]:has(.chat-view) { display:flex;flex-direction:column;overflow:hidden;padding-bottom:8px; }
+.praimate-mobile .chat-view { display:flex;flex-direction:column;flex:1;min-height:0;gap:10px; }
+.praimate-mobile .chat-view>.row { flex-shrink:0;margin-bottom:0!important;gap:6px; }
+.praimate-mobile .chat-view>.row>.grow { flex-basis:calc(100% - 110px);font-size:13px; }
+.praimate-mobile .chat-toolbar { display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start; }
+.praimate-mobile .chat-toolbar .grow>strong { display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.4; }
+.praimate-mobile .chat-view>.thread { flex:1;min-height:64px;height:auto;margin:0;padding:12px 10px;overscroll-behavior:contain; }
+.praimate-mobile .composer { min-width:0;flex-shrink:0;flex-wrap:wrap;gap:6px; }
+html.praimate-mobile :is(.main,.mobile-studio,.mobile-agent) .composer>textarea { order:-1;flex:1 0 100%;width:100%;max-height:min(180px,30dvh);scrollbar-width:thin; }
+.praimate-mobile .composer>button:last-child { margin-left:auto; }
+.praimate-mobile .composer-action span { display:none; }
+.praimate-mobile .composer-action { min-width:44px; }
+.praimate-mobile .att-row { max-width:100%;overflow-x:auto;flex-shrink:0; }
+
+/* Code fills the viewport above its measured terminal input dock. */
+.praimate-mobile .main[data-page=code]:has(.code-live) { display:flex;flex-direction:column;overflow:hidden;padding:8px 8px var(--mobile-terminal-inset); }
+.praimate-mobile .main[data-page=code]:has(.code-live)>:is(h1,.subtitle) { display:none; }
+.praimate-mobile .main .code-live { display:flex;flex:1;flex-direction:column;min-height:0;height:auto;gap:8px; }
+.praimate-mobile .code-live>.row { flex-shrink:0;gap:6px; }
+.praimate-mobile .code-live>.row>.grow { flex-basis:160px; }
+.praimate-mobile .main .code-live .termhost { flex:1;min-height:60px;height:auto;margin:0;padding:4px; }
+
+/* Editors use explicit panels rather than squeezed desktop columns. */
+html.praimate-mobile #app :is(.mobile-studio-tabs,.mobile-agent-tabs) { top:calc(var(--app-top,0px) + var(--mobile-toolbar-height));height:48px;padding:2px 8px;gap:6px;overflow-x:auto; }
+html.praimate-mobile #app :is(.mobile-studio-tabs,.mobile-agent-tabs) .btn { flex:1;white-space:nowrap;min-height:44px; }
+html.praimate-mobile #app :is(.studio.mobile-studio,.astudio.mobile-agent) { position:fixed;top:calc(var(--app-top,0px) + var(--mobile-toolbar-height) + 48px);left:0;right:0;width:100%;height:calc(var(--app-height,100dvh) - var(--mobile-toolbar-height) - 48px);margin:0;padding:8px;min-height:0; }
+.praimate-mobile :is(.editor-col,.center,.chatpane,.chat) { min-width:0; }
+.praimate-mobile :is(.chat-head,.center-head,.statusbar) { flex-wrap:wrap; }
+.praimate-mobile :is(.tree-item-wrap,.tree-row) { min-height:40px; }
+.praimate-mobile :is(.tree-act,.tab-x) { min-width:36px;min-height:40px; }
+html.praimate-mobile #app .mobile-agent .helper-route { display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);flex-shrink:0; }
+html.praimate-mobile #app .mobile-agent .helper-folder { display:grid;grid-template-columns:minmax(0,1fr) auto;flex-shrink:0; }
+html.praimate-mobile #app :is(.mobile-studio .tabrow,.mobile-studio .editor-col>.toolbar,.mobile-agent .center-head) { flex-wrap:nowrap;flex-shrink:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:var(--border-bright) var(--bg-panel); }
+html.praimate-mobile #app :is(.mobile-studio .tabrow,.mobile-agent .center-head)>.tabbar { flex:1 0 160px; }
+html.praimate-mobile #app :is(.mobile-studio .toolbar,.mobile-agent .center-head)>button { flex-shrink:0; }
+html.praimate-mobile .board .mobile-task-filter{display:block}
+html.praimate-mobile .board .columns{grid-template-columns:minmax(0,1fr);overflow:visible}
+html.praimate-mobile .board .column.mobile-hidden{display:none}
+html.praimate-mobile .board .cards{max-height:none;overflow:visible;scrollbar-gutter:auto}
+.praimate-mobile .board-tools>label{flex:1 1 140px;min-width:0}
+.praimate-mobile .board-tools :is(input,select){width:100%}
+html.praimate-mobile #app .monitor{grid-template-columns:minmax(0,1fr)}
+html.praimate-mobile #app .console{min-width:0;overflow:hidden}
+html.praimate-mobile #app .console-tabs{max-width:100%;min-width:0;overflow-x:auto;overscroll-behavior-x:contain}
+html.praimate-mobile #app .console-tabs button{flex-shrink:0}
+html.praimate-mobile #app .failed-task{flex-wrap:wrap}
+html.praimate-mobile #app .failed-task>.buttons{width:100%;min-width:0}
+
+/* Dialogs follow the visual viewport, including when the keyboard is open. */
+.praimate-mobile :is(.modal-backdrop,.picker-backdrop,.dialog-backdrop,.terminal-picker-backdrop,.name-overlay) { top:var(--app-top,0px);bottom:auto;height:var(--app-height,100dvh);padding:12px;z-index:1200!important; }
+.praimate-mobile :is(.modal-content,.picker,.terminal-picker,.name-card,.dialog) { width:100%;max-width:calc(100vw - 24px)!important;max-height:calc(var(--app-height,100dvh) - 24px)!important;overflow-y:auto;overscroll-behavior:contain; }
+.praimate-mobile .backdrop:has([role=dialog]) { top:var(--app-top,0px);bottom:auto;height:var(--app-height,100dvh);padding:12px;z-index:1200; }
+.praimate-mobile :is(.settings,.create-dialog,.delete-dialog)[role=dialog] { width:100%;max-width:calc(100vw - 24px);max-height:calc(var(--app-height,100dvh) - 24px);overflow-y:auto; }
+.praimate-mobile :is(.picker-head,.picker-foot) { flex-wrap:wrap;gap:8px; }
+.praimate-mobile :is(.picker-foot,.modal-actions) { position:sticky;bottom:0;background:var(--bg-panel);padding-block:10px; }
+html.praimate-mobile #app .assistant-panel { top:calc(var(--app-top,0px) + var(--mobile-toolbar-height) + 8px);bottom:auto;right:8px;left:8px;width:auto;height:calc(var(--app-height,100dvh) - var(--mobile-toolbar-height) - 16px);max-height:none;z-index:1100; }
+
+@media(max-width:760px){
+  html.praimate-mobile #app .dashboard-heading{flex-direction:column;align-items:stretch;gap:12px;margin-bottom:18px}
+  html.praimate-mobile #app .dashboard-heading>div{width:100%;min-width:0}
+  html.praimate-mobile #app .dashboard-heading h1{font-size:25px;line-height:1.25}
+  html.praimate-mobile #app .dashboard .toolbar{justify-content:space-between;min-width:0}
+  html.praimate-mobile #app .dashboard .month-picker{min-width:0;flex:1}
+  html.praimate-mobile #app .dashboard .month-picker input{width:100%;min-width:0}
+  .praimate-mobile :is(.columns,.config-grid,.stats-grid,.metrics-grid,.charts,.rankings,.profiles,.library-tools,.skill-grid,.run-columns,.models-checklist,.setup-options,.cap-grid,.preset-grid,.mcp-grid) { grid-template-columns:minmax(0,1fr)!important;min-width:0!important; }
+  .praimate-mobile .dashboard .metrics { grid-template-columns:repeat(2,minmax(0,1fr));gap:8px; }
+  .praimate-mobile .dashboard .metric { padding:14px 12px; }
+  .praimate-mobile .dashboard .metric strong { font-size:27px; }
+  .praimate-mobile .dashboard :is(.toolbar,.overview-band,.panel-heading) { flex-wrap:wrap; }
+  .praimate-mobile .storage-path { grid-template-columns:minmax(0,1fr);gap:3px; }
+  .praimate-mobile .workers>.heading { align-items:flex-start;gap:10px; }
+  .praimate-mobile .workers>.heading>button { flex-shrink:0; }
+  .praimate-mobile .workers .chat-layout { display:block;min-height:0; }
+  .praimate-mobile .workers .chat-list { display:none; }
+  .praimate-mobile .workers .mobile-saved-runs { display:grid;gap:6px;margin-bottom:14px;font-size:12px;color:var(--text-dim); }
+  .praimate-mobile .workers .chat-heading h2 { font-size:17px; }
+  .praimate-mobile .board .columns { overflow:visible; }
+  .praimate-mobile .board .column { min-width:0; }
+  .praimate-mobile .run-config,.praimate-mobile .execution-window { padding:12px; }
+  .praimate-mobile .monitor .composer textarea { width:100%; }
+  .praimate-mobile .main :is(.edit-stack,.agent-editor) { height:auto;min-height:280px; }
 }
+@media(max-width:380px){html.praimate-mobile #app .dashboard .metrics{grid-template-columns:minmax(0,1fr)}}
+@media(min-width:761px){.praimate-mobile .main{padding:18px 20px}html.praimate-mobile .main .profiles{grid-template-columns:repeat(2,minmax(0,1fr))}html.praimate-mobile .board.mobile-all .columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(prefers-reduced-motion:reduce){.praimate-mobile *{scroll-behavior:auto!important;}}
+
+@media(max-height:500px){.praimate-mobile .main{padding-top:8px;padding-bottom:8px}.praimate-mobile .chat-toolbar .pill{display:none}}
+@media(max-height:500px){
+  html.praimate-mobile.mobile-keyboard #app :is(.mobile-studio-tabs,.mobile-agent-tabs){display:none}
+  html.praimate-mobile.mobile-keyboard #app :is(.studio.mobile-studio,.astudio.mobile-agent){top:calc(var(--app-top,0px) + var(--mobile-toolbar-height));height:calc(var(--app-height,100dvh) - var(--mobile-toolbar-height))}
+  html.praimate-mobile.mobile-keyboard #app .mobile-agent .chat:has(.composer textarea:focus) :is(.chat-head,.helper-route,.helper-folder){display:none}
+  html.praimate-mobile.mobile-keyboard #app .mobile-studio .chatpane:has(.composer textarea:focus) .chat-head{display:none}
+}
+@media(max-height:360px){
+  .praimate-mobile.mobile-keyboard .main{padding:4px 10px}
+  .praimate-mobile.mobile-keyboard .chat-toolbar{display:none}
+  .praimate-mobile.mobile-keyboard .chat-view{gap:4px}
+  .praimate-mobile.mobile-keyboard .chat-view>.thread{min-height:0;padding:4px}
+  .praimate-mobile.mobile-keyboard .chat-view>.banner{max-height:32px;overflow:auto}
+  .praimate-mobile.mobile-keyboard .composer>textarea{min-height:44px;height:44px}
+  html.praimate-mobile.mobile-keyboard #app .code-live>.row{display:none}
+  html.praimate-mobile.mobile-keyboard #app .code-live .termhost{min-height:0}
+  html.praimate-mobile.mobile-keyboard #app :is(.mobile-studio .editor-col>.toolbar,.mobile-studio .statusbar,.mobile-agent .statusbar){display:none}
+}

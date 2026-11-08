@@ -1,4 +1,5 @@
 <script>
+  import { shouldSendMessage } from '../lib/composerKeyboard.js'
   import ModelRefresh from '../lib/ModelRefresh.svelte'
   import { isWorkerRun } from '../lib/workerActivity.js'
   import VoiceButton from '../lib/VoiceButton.svelte'
@@ -580,8 +581,8 @@
     // Enter may be part of an IME composition (accented/non-Latin input), not
     // an intent to send the message.
     if (e.isComposing || e.keyCode === 229) return
-    // Enter sends; Shift+Enter inserts a newline.
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Mobile Enter inserts a newline; desktop Enter and Ctrl/Cmd+Enter send.
+    if (shouldSendMessage(e, !!window.praimateMobile)) {
       e.preventDefault()
       send()
     }
@@ -818,13 +819,14 @@
 {/if}
 
 {#if selected}
-  <div class="row" style="margin-bottom: 12px">
+  <section class="chat-view" aria-label="Conversation">
+  <div class="row chat-toolbar" style="margin-bottom: 12px">
     <button class="btn" on:click={back}>← Chats</button>
     <div class="grow">
       <strong>{selected.Title}</strong>
       {#if selected.AgentID}<span class="pill">Agent: {agentName(selected)}</span>{/if}
       <span class="pill">{selected.CLIAgent}</span>
-      {#if selected.Settings?.model}<span class="pill">{selected.Settings.model}</span>{/if}
+      {#if selected.Settings?.model}<span class="pill" title={selected.Settings.model}>{selected.Settings.model}</span>{/if}
       {#if selected.ExitKind}<span class="pill" class:ok={selected.ExitKind === 'completed'}>{selected.ExitKind}</span>{/if}
       {#if selected.Settings?.skill_runtime}
         {@const runtime = selected.Settings.skill_runtime}
@@ -834,9 +836,9 @@
         </span>
       {/if}
     </div>
-    <ChatTools cli={selected.CLIAgent} value={toolsLevel} on:change={event => setTools(event.detail)} />
-    <button class="btn" on:click={() => openConfig(selected)} title="Change the CLI / model / tools behind this chat">⚙ Edit</button>
-    <button class="btn danger" on:click={() => remove(selected)}>Delete</button>
+    {#if !window.praimateMobile}<ChatTools cli={selected.CLIAgent} value={toolsLevel} on:change={event => setTools(event.detail)} />{/if}
+    <button class="btn" on:click={() => openConfig(selected)} title="Change the CLI / model / tools behind this chat">{window.praimateMobile ? 'Settings' : '⚙ Edit'}</button>
+    {#if !window.praimateMobile}<button class="btn danger" on:click={() => remove(selected)}>Delete</button>{/if}
   </div>
 
   {#if error}<div class="banner">{error}</div>{/if}
@@ -930,7 +932,7 @@
     <textarea
       class="field"
       rows="2"
-      placeholder="Message the agent…  (Enter sends · Shift+Enter newline · !cmd runs a shell command in the chat folder)"
+      placeholder={window.praimateMobile ? 'Message…' : 'Message the agent…  (Enter sends · Shift+Enter newline · !cmd runs a shell command in the chat folder)'}
       bind:value={draft}
       on:keydown={onKey}
       disabled={sending}></textarea>
@@ -943,6 +945,7 @@
       <button class="btn primary" on:click={send} disabled={!draft.trim() && attachments.length === 0}>Send</button>
     {/if}
   </div>
+  </section>
 {:else}
   <div class="row" style="margin-bottom: 4px">
     <h1 class="grow" style="margin:0">Chats</h1>

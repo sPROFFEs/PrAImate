@@ -1,0 +1,152 @@
+name: Android update
+
+on:
+  push:
+    branches: [server]
+    paths: ['mobile/android/VERSION']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Android version (blank uses mobile/android/VERSION)'
+        type: string
+        required: false
+      release_tag:
+        description: 'Existing host release (blank uses the latest published release)'
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-update
+  cancel-in-progress: false
+
+jobs:
+  android:
+    name: Build and publish Android only
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Validate publication and retain existing release metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$RELEASE_TAG" ]]; then RELEASE_TAG="$(gh release view --json tagName --jq .tagName)"; fi
+          [[ "$RELEASE_TAG" =~ ^(server-)?v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          VERSION="${REQUESTED_VERSION:-$(cat mobile/android/VERSION)}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+          mkdir -p previous android-update
+          gh release view "$RELEASE_TAG" --json tagName,body,isDraft,assets > previous/release.json
+          gh release download "$RELEASE_TAG" --pattern praimate-mobile-preview.apk --pattern SHA256SUMS --dir previous
+          (cd previous && sha256sum --ignore-missing --check SHA256SUMS)
+          python3 scripts/android-update-metadata_test.py
+          python3 scripts/android-update-metadata.py --release previous/release.json --checksums previous/SHA256SUMS --apk previous/praimate-mobile-preview.apk --version "$VERSION" --source "$GITHUB_SHA" --output android-update
+      - name: Verify mobile frontend
+        working-directory: cmd/praimate-gui/frontend
+        run: |
+          npm ci
+          npm run test:mobile
+          npm run test:remote
+          npm run test:studio
+          npm run test:terminal
+          npm run test:settings-ui
+          npm run test:surfaces
+      - name: Prepare persistent preview signer
+        env:
+          ANDROID_PREVIEW_KEYSTORE_BASE64: ${{ secrets.ANDROID_PREVIEW_KEYSTORE_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          raw = os.environ.get('ANDROID_PREVIEW_KEYSTORE_BASE64', '')
+          if not raw:
+              raise SystemExit('Configure ANDROID_PREVIEW_KEYSTORE_BASE64 before publishing an Android update')
+          target = Path(os.environ['RUNNER_TEMP']) / 'praimate-preview.keystore'
+          target.write_bytes(base64.b64decode(raw, validate=True))
+          target.chmod(0o600)
+          PY
+      - name: Build and verify compatible Android update
+        env:
+          PRAIMATE_ANDROID_DEBUG_KEYSTORE: ${{ runner.temp }}/praimate-preview.keystore
+        run: |
+          set -euo pipefail
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+          bash scripts/build-android.sh
+          cp dist/android/praimate-mobile-debug.apk android-update/praimate-mobile-preview.apk
+          SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$SIGNER" verify --print-certs previous/praimate-mobile-preview.apk | sed -n '/^Signer #[0-9]* certificate SHA-256 digest:/p' > previous/signer.txt
+          "$SIGNER" verify --print-certs android-update/praimate-mobile-preview.apk | sed -n '/^Signer #[0-9]* certificate SHA-256 digest:/p' > android-update/signer.txt
+          test -s previous/signer.txt
+          diff -u previous/signer.txt android-update/signer.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging previous/praimate-mobile-preview.apk > previous/package.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging android-update/praimate-mobile-preview.apk > android-update/package.txt
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          def package(path):
+              return dict(re.findall(r"(\w+)='([^']*)'", Path(path).read_text().splitlines()[0]))
+          old, new = package('previous/package.txt'), package('android-update/package.txt')
+          assert old['name'] == new['name'] == 'com.praimate.mobile.debug'
+          assert new['versionName'] == os.environ['VERSION'] + '-debug'
+          assert int(new['versionCode']) > int(old['versionCode'])
+          PY
+          python3 scripts/android-update-metadata.py --release previous/release.json --checksums previous/SHA256SUMS --apk android-update/praimate-mobile-preview.apk --version "$VERSION" --source "$GITHUB_SHA" --output android-update
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-update
+          path: |
+            android-update/praimate-mobile-preview.apk
+            android-update/SHA256SUMS
+            android-update/ANDROID-VERSION
+            android-update/notes.md
+          if-no-files-found: error
+      - name: Replace only Android assets and update release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json tagName,body,isDraft,assets > previous/current.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          def stable(path):
+              release = json.loads(Path(path).read_text())
+              for asset in release['assets']:
+                  asset.pop('downloadCount', None)
+              return release
+          if stable('previous/release.json') != stable('previous/current.json'):
+              raise SystemExit('The release changed during this build; inspect it before publishing')
+          PY
+          gh release upload "$RELEASE_TAG" android-update/praimate-mobile-preview.apk android-update/ANDROID-VERSION android-update/SHA256SUMS --clobber
+          gh release edit "$RELEASE_TAG" --notes-file android-update/notes.md
+          gh release view "$RELEASE_TAG" --json assets > android-update/published.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          ignored = {'praimate-mobile-preview.apk', 'SHA256SUMS', 'ANDROID-VERSION'}
+          def unchanged(path):
+              return {a['name']: {k: v for k, v in a.items() if k != 'downloadCount'} for a in json.loads(Path(path).read_text())['assets'] if a['name'] not in ignored}
+          if unchanged('previous/release.json') != unchanged('android-update/published.json'):
+              raise SystemExit('Unexpected change to a non-Android release asset')
+          PY
+          echo "Published Android $VERSION to $RELEASE_TAG; host binaries retained." >> "$GITHUB_STEP_SUMMARY"
