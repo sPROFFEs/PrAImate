@@ -64,6 +64,66 @@ func TestInstallDoesNotStartServerAndCredentialIsPrivate(t *testing.T) {
 		t.Fatal("credential leaked through status")
 	}
 }
+
+func TestInvalidLinuxUnitIsNotReportedReadyAtBoot(t *testing.T) {
+	for _, state := range []string{"bad-setting", "error"} {
+		t.Run(state, func(t *testing.T) {
+			m := managerFixture(t)
+			if err := m.Install(context.Background(), "fixture-database-password", "", false); err != nil {
+				t.Fatal(err)
+			}
+			run := m.run
+			m.run = func(ctx context.Context, args []string) (string, error) {
+				if args[0] == "systemctl" {
+					return "LoadState=" + state + "\nActiveState=inactive\nUnitFileState=enabled\n", nil
+				}
+				return run(ctx, args)
+			}
+			status, err := m.Status(context.Background())
+			if err != nil || status.BootReady || status.Running || !status.Enabled || status.Error == "" {
+				t.Fatalf("invalid unit appears ready to start: %+v %v", status, err)
+			}
+		})
+	}
+}
+
+func TestStartupRecordsCustomManagerRootsAndResolvesNodeSymlinks(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux manager fixture")
+	}
+	root := t.TempDir()
+	stable := filepath.Join(root, "node-versions", "v24.1.0", "installation", "bin")
+	shell := filepath.Join(root, "fnm_multishells", "terminal", "bin")
+	for _, dir := range []string{stable, shell} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(stable, "node"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(stable, "node"), filepath.Join(shell, "node")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shell+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("NVM_DIR", filepath.Join(root, "custom-nvm"))
+	t.Setenv("FNM_DIR", root)
+	t.Setenv("FNM_MULTISHELL_PATH", filepath.Dir(shell))
+	m := managerFixture(t)
+	if err := m.Install(context.Background(), "fixture-database-password", "", false); err != nil {
+		t.Fatal(err)
+	}
+	c, err := ReadConfiguration(filepath.Join(m.c.Root, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Environment["NVM_DIR"] != filepath.Join(root, "custom-nvm") || c.Environment["FNM_DIR"] != root || c.Environment["PRAIMATE_NODE_BIN"] != stable {
+		t.Fatalf("stable runtime paths were lost: %+v", c.Environment)
+	}
+	if c.Environment["FNM_MULTISHELL_PATH"] != "" {
+		t.Fatal("startup depends on a temporary terminal directory")
+	}
+}
 func TestRemovalRevokesCredentialButKeepsLogsAndOtherServices(t *testing.T) {
 	m := managerFixture(t)
 	if err := m.Install(context.Background(), "fixture-database-password", "", false); err != nil {

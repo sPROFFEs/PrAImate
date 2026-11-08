@@ -637,15 +637,15 @@ func EnsurePnpmReady(ctx context.Context, w io.Writer) ([]string, error) {
 // (pnpm not installed, pnpm setup not run) and injects PNPM_HOME + PATH
 // into the install command's env. That makes `pnpm add -g …` work
 // end-to-end without a shell restart.
-// RunOptions are the per-invocation knobs for Run. Today only InstallNode
-// is meaningful — the opt-in toggle on the install screen sets it.
-// Other potential knobs (force re-install, skip prereq checks, etc.) can
-// land here later without churning the signature again.
+// RunOptions are the per-invocation knobs for Run.
 type RunOptions struct {
 	// InstallNode opts the user into the Windows winget-based Node
 	// install. Only honored when (a) we're on Windows and (b) the
 	// method has node in Prereqs and node isn't already on PATH.
 	InstallNode bool
+	// ExistingBinary identifies the CLI being updated/reinstalled. Global npm
+	// methods use its Node installation instead of updating another prefix.
+	ExistingBinary string
 }
 
 // Run executes m with default options. Equivalent to RunWithOptions with
@@ -748,6 +748,7 @@ func RunWithOptions(ctx context.Context, m Method, opts RunOptions, stdout, stde
 			}
 		}
 	}
+	alignNpmTarget(cmd, m, opts.ExistingBinary, stdout)
 	return cmd.Run()
 }
 

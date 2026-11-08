@@ -26,7 +26,7 @@ type Configuration struct {
 	Environment map[string]string `json:"environment,omitempty"`
 }
 
-var profileEnvironment = []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"}
+var profileEnvironment = []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "NVM_DIR", "FNM_DIR", "NVM_HOME", "NVM_SYMLINK", "PRAIMATE_NODE_BIN"}
 
 func (c Configuration) Name() string {
 	return fmt.Sprintf("praimate-server-%x", sha256.Sum256([]byte(c.Database)))[:36]
@@ -119,7 +119,10 @@ func makePlan(platform string, c Configuration, configHome string) (plan, error)
 		for _, arg := range args {
 			quoted = append(quoted, systemdQuote(arg))
 		}
-		return plan{Path: filepath.Join(configHome, "systemd", "user", name+".service"), Content: "[Unit]\nDescription=PrAImate Server\nAfter=network-online.target\n\n[Service]\nType=simple\nWorkingDirectory=" + systemdQuote(c.Home) + "\nExecStart=" + strings.Join(quoted, " ") + "\nRestart=on-failure\nRestartSec=5\nKillSignal=SIGINT\nKillMode=mixed\nTimeoutStopSec=30\nUMask=0077\n\n[Install]\nWantedBy=default.target\n"}, nil
+		// WorkingDirectory is one path, not an ExecStart argument list: quotes
+		// become literal path characters. Only escape systemd specifiers here.
+		workingDirectory := strings.ReplaceAll(c.Home, "%", "%%")
+		return plan{Path: filepath.Join(configHome, "systemd", "user", name+".service"), Content: "[Unit]\nDescription=PrAImate Server\nAfter=network-online.target\n\n[Service]\nType=simple\nWorkingDirectory=" + workingDirectory + "\nExecStart=" + strings.Join(quoted, " ") + "\nRestart=on-failure\nRestartSec=5\nKillSignal=SIGINT\nKillMode=mixed\nTimeoutStopSec=30\nUMask=0077\n\n[Install]\nWantedBy=default.target\n"}, nil
 	case "darwin":
 		list := ""
 		for _, arg := range args {

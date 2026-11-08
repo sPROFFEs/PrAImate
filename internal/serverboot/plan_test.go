@@ -1,9 +1,15 @@
 package serverboot
 
 import (
+	"context"
 	"encoding/xml"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func example() Configuration {
@@ -23,6 +29,46 @@ func TestLinuxStartsAtBootWithSavedProfileAndNoSecretInUnit(t *testing.T) {
 	}
 	if strings.Contains(p.Content, "PASSWORD=") || strings.Contains(p.Content, "--listen") {
 		t.Fatal("unit overrides saved settings or contains a password")
+	}
+}
+
+func TestLinuxUnitPassesSystemdVerification(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd unit verification requires Linux")
+	}
+	analyze, err := exec.LookPath("systemd-analyze")
+	if err != nil {
+		t.Skip("systemd-analyze is not installed")
+	}
+	root := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	for _, home := range []string{"home", "home with spaces % and $"} {
+		t.Run(home, func(t *testing.T) {
+			c := example()
+			c.Home = filepath.Join(root, home)
+			if err := os.MkdirAll(c.Home, 0700); err != nil {
+				t.Fatal(err)
+			}
+			c.Binary, err = os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := makePlan("linux", c, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(root, c.Name()+".service")
+			if err := os.WriteFile(path, []byte(p.Content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			output, err := exec.CommandContext(ctx, analyze, "--user", "--man=no", "verify", path).CombinedOutput()
+			if err != nil {
+				t.Fatalf("systemd rejected the generated unit: %v\n%s", err, output)
+			}
+		})
 	}
 }
 
@@ -70,6 +116,20 @@ func TestPlansRejectInjectedAndRelativeConfiguration(t *testing.T) {
 		change(&c)
 		if _, err := makePlan("linux", c, "/tmp"); err == nil {
 			t.Fatal("unsafe configuration accepted")
+		}
+	}
+}
+
+func TestStartupPreservesStableNodeManagerRootsOnly(t *testing.T) {
+	c := example()
+	c.Environment = map[string]string{"NVM_DIR": "/custom/nvm", "FNM_DIR": "/custom/fnm"}
+	if _, err := makePlan("linux", c, "/tmp"); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"FNM_MULTISHELL_PATH", "NVM_BIN", "PATH", "NODE_OPTIONS"} {
+		c.Environment = map[string]string{key: "/temporary/per-terminal/path"}
+		if _, err := makePlan("linux", c, "/tmp"); err == nil {
+			t.Fatalf("startup captured unstable or executable configuration: %s", key)
 		}
 	}
 }

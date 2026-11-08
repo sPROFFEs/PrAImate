@@ -160,6 +160,18 @@ func DetectAgents(ctx context.Context) []Agent {
 	return agents
 }
 
+// DetectAgent probes just the selected CLI, using the same candidate resolution
+// as the catalogue. Installers can update that exact binary without probing
+// unrelated CLIs or confusing a broken PATH entry with a working fallback.
+func DetectAgent(ctx context.Context, id AgentID) Agent {
+	for _, agent := range KnownAgents() {
+		if agent.ID == id {
+			return detectAgent(ctx, agent)
+		}
+	}
+	return Agent{ID: id}
+}
+
 func detectAgent(ctx context.Context, agent Agent) Agent {
 	candidates := candidatePaths(agent.ID, agent.Binary)
 	var lastErr error

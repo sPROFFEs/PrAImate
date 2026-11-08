@@ -101,7 +101,13 @@ func (a *App) InstallCLI(cli, methodID string) error {
 			w := installLogWriter{ctx: a.ctx, cli: cli}
 			ctx, cancel := context.WithTimeout(a.ctx, 15*time.Minute)
 			defer cancel()
-			err := installer.RunWithOptions(ctx, m, installer.RunOptions{InstallNode: true}, w, w)
+			existingBinary := ""
+			if m.ID == "npm" && m.ManagedPrefix == "" {
+				if detected := launcher.DetectAgent(ctx, launcher.AgentID(cli)); detected.Available {
+					existingBinary = detected.Binary
+				}
+			}
+			err := installer.RunWithOptions(ctx, m, installer.RunOptions{InstallNode: true, ExistingBinary: existingBinary}, w, w)
 			refreshManagedPaths()
 			return err
 		}

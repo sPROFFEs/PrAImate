@@ -64,10 +64,13 @@ func (m *Manager) nativeStatus(ctx context.Context, c Configuration) (enabled, r
 				values[key] = value
 			}
 		}
-		if values["LoadState"] == "not-found" {
-			return false, false, false, "", errors.New("Startup configuration is present but its systemd unit is missing; install it again")
-		}
 		enabled = values["UnitFileState"] == "enabled"
+		if values["LoadState"] == "not-found" {
+			return enabled, false, false, "", errors.New("Startup configuration is present but its systemd unit is missing; install it again")
+		}
+		if values["LoadState"] != "loaded" {
+			return enabled, false, false, "", fmt.Errorf("Startup unit could not be loaded (state %s). Update startup configuration and inspect the user service logs", values["LoadState"])
+		}
 		running = values["ActiveState"] == "active" || values["ActiveState"] == "activating"
 		linger, e := m.run(ctx, []string{"loginctl", "show-user", c.UID, "--property=Linger", "--value"})
 		ready = enabled && e == nil && strings.TrimSpace(linger) == "yes"

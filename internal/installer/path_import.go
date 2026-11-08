@@ -35,8 +35,11 @@ func ImportUserBinDirs() {
 	if err != nil || home == "" {
 		return
 	}
-	dirs := candidateUserBinDirs(home)
-	prependIfPresent(dirs)
+	// Capture the active manager runtime before generic fallback directories
+	// can move a system Node ahead of the user's selected installation.
+	nodeDirs := userNodeBinDirs(home)
+	prependIfPresent(candidateUserBinDirs(home))
+	promoteNodeBinDirs(nodeDirs)
 }
 
 // ImportManagedAgentsToPath prepends the executable directories for agents
@@ -108,14 +111,6 @@ func candidateUserBinDirs(home string) []string {
 			"/opt/homebrew/sbin",
 			"/usr/local/bin",
 		}
-		nvmDir := filepath.Join(home, ".nvm", "versions", "node")
-		if entries, err := os.ReadDir(nvmDir); err == nil {
-			for _, e := range entries {
-				if e.IsDir() {
-					dirs = append(dirs, filepath.Join(nvmDir, e.Name(), "bin"))
-				}
-			}
-		}
 		return dirs
 	default:
 		dirs := []string{
@@ -140,14 +135,6 @@ func candidateUserBinDirs(home string) []string {
 			"/usr/local/sbin",
 			"/usr/bin",
 			"/bin",
-		}
-		nvmDir := filepath.Join(home, ".nvm", "versions", "node")
-		if entries, err := os.ReadDir(nvmDir); err == nil {
-			for _, e := range entries {
-				if e.IsDir() {
-					dirs = append(dirs, filepath.Join(nvmDir, e.Name(), "bin"))
-				}
-			}
 		}
 		return dirs
 	}

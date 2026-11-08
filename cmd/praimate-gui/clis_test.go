@@ -97,6 +97,59 @@ func TestListCLIBackendsRefreshesUserPATHBeforeDetection(t *testing.T) {
 	t.Fatal("Codex missing from CLI catalogue")
 }
 
+func TestListCLIBackendsFindsUserNodeManagersInServiceEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX executable fixtures")
+	}
+	for _, manager := range []string{"nvm", "fnm"} {
+		t.Run(manager, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("PRAIMATE_HOME", filepath.Join(home, "praimate"))
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+			t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+			for _, key := range []string{"NVM_DIR", "NVM_BIN", "FNM_DIR", "FNM_MULTISHELL_PATH", "NVM_HOME", "NVM_SYMLINK", "PRAIMATE_NODE_BIN"} {
+				t.Setenv(key, "")
+			}
+			bin := filepath.Join(home, ".config", "nvm", "versions", "node", "v24.1.0", "bin")
+			if manager == "fnm" {
+				bin = filepath.Join(home, ".local", "share", "fnm", "node-versions", "v24.1.0", "installation", "bin")
+			}
+			if err := os.MkdirAll(bin, 0755); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"node", "npm", "codex"} {
+				if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\necho fixture-cli 9.9.9\n"), 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			system := filepath.Join(home, "system-bin")
+			if err := os.MkdirAll(system, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(system, "codex"), []byte("#!/bin/sh\necho fixture-cli 1.0.0\n"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", system+string(os.PathListSeparator)+"/usr/bin:/bin")
+			a := NewApp()
+			a.ctx = context.Background()
+			backends, err := a.ListCLIBackends()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, backend := range backends {
+				if backend.ID == "codex" {
+					if !backend.Installed || backend.Binary != filepath.Join(bin, "codex") || backend.Version != "fixture-cli 9.9.9" {
+						t.Fatalf("service detected another Codex: %+v", backend)
+					}
+					return
+				}
+			}
+			t.Fatal("Codex is missing from backends")
+		})
+	}
+}
+
 func TestListCLIsDetectsManagedOpenClaude(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PRAIMATE_HOME", filepath.Join(home, "praimate"))

@@ -68,6 +68,11 @@ func New(database string) (*Manager, error) {
 			}
 		}
 	}
+	if node, err := exec.LookPath("node"); err == nil {
+		if stable, err := filepath.EvalSymlinks(node); err == nil && filepath.IsAbs(stable) {
+			c.Environment["PRAIMATE_NODE_BIN"] = filepath.Dir(stable)
+		}
+	}
 	if c.ProfileHome != "" {
 		c.ProfileHome, err = filepath.Abs(c.ProfileHome)
 		if err != nil {
