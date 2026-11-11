@@ -1,37 +1,45 @@
-# PrAImate 1.3.3
+# PrAImate 1.3.4
 
-**[Install Desktop, Server or Android](https://github.com/sPROFFEs/PrAImate/blob/v1.3.3/docs/INSTALLATION.md)**.
+**[Install Desktop, Server or Android](https://github.com/sPROFFEs/PrAImate/blob/v1.3.4/docs/INSTALLATION.md)**.
 
-This release fixes Linux Server startup and CLI discovery/updates when running
-without an interactive shell.
+This combined release fixes edition changes during updates and includes the
+reviewed Workers, Studio and Documents fixes. Desktop and Server are **1.3.4**;
+the signed Android preview is **1.3.5**, newer than the previous APK-only update.
 
-- Generate a valid systemd `WorkingDirectory` value. Version 1.3.2 incorrectly
-  quoted the whole path, causing systemd to reject the unit as `bad-setting`.
-- Report invalid or unloaded systemd units as needing attention instead of
-  showing them ready to start at boot. Add real `systemd-analyze` validation.
-- Discover stable NVM/FNM installations, including XDG and custom locations.
-  Preserve an active manager runtime, honor default version aliases and sort
-  installed versions numerically when a fallback is needed.
-- Save the selected stable Node directory and custom manager roots in startup
-  configuration, without persisting temporary FNM multishell links or sourcing
-  shell configuration files.
-- Bind global npm updates/reinstalls to the detected CLI's own Node and prefix.
-  Updating a CLI in one Node installation no longer silently targets another.
-  The installer does not elevate to modify root-owned packages.
-- Exercise CLI discovery and installer regressions in the release workflow.
+- Select the exact Desktop or Server archive for the current platform. Validate
+  its internal edition marker and the installation's marker before replacing any
+  executable. Legacy unmarked archives are Desktop-only.
+- Preserve the installed edition when re-running either installer unless an
+  edition is explicitly selected. Upload Desktop archives before Server archives
+  for compatibility with older Desktop selectors.
+- Keep completed worker results in Done while other tasks execute, then move
+  pending reviews to Needs you. Explain when Accept/Reject become available in
+  Desktop and Studio. Resolves #26; incorporates reviewed PR #27.
+- Preserve sidebar navigation across VS Code/Codium view recreation. Dedicated
+  worker windows no longer consume sidebar requests or navigate away from their
+  run. Resolves #28; incorporates and extends reviewed PR #29.
+- Keep primary worker buttons readable on hover in light and dark themes, and
+  distinguish Studio Stop actions. Resolves #24; incorporates reviewed PR #30.
+- Select MCP servers when creating a Documents session, persist IDs before the
+  editor opens, show persona defaults and honor an explicitly empty selection.
+  Failed selection saves prevent launch. Resolves #25; incorporates reviewed PR
+  #31 with functional regression coverage.
+- Include these shared interface fixes in Android 1.3.5 while preserving its
+  application ID, local profiles and persistent preview signer.
 
-**After updating from 1.3.2:** reopen the updated Server app, choose **Server →
-System startup → Update startup configuration**, then restart/start the
-background service. This regenerates its Linux unit and records the stable
-runtime paths. Saved Cloudflare settings and paired devices are retained.
-See the [startup guide](https://github.com/sPROFFEs/PrAImate/blob/v1.3.3/docs/SERVER-STARTUP.md).
+**If an older updater already installed the wrong edition:** reinstall the
+intended edition explicitly with `--edition desktop` / `--edition server`, or
+PowerShell's `-Edition Desktop` / `-Edition Server`, into the original prefix.
+Do not use purge. A new marker records the intended edition for future updates.
+Use separate installation directories and profiles when keeping both editions.
 
-Tests cover service-like environments and controlled npm execution; they do not
-perform real third-party package updates or enable persistent OS services.
-Native authorization and complete boot behavior still require target-OS testing.
+Verification covers both branches: Core, Workers, Skills, installers and GUI
+regressions; updater race checks; Windows updater cross-compilation; PowerShell
+edition selection; 42 Studio extension tests; browser hover and Documents MCP
+creation in both themes; and frontend production builds. Native OS startup and
+end-user update flows still need target-device testing.
 
-This combined release includes Desktop, Server and the signed Android preview.
-Application archives are self-contained; shared standalone tools are published
-once per platform. `SHA256SUMS` covers all published artifacts. The Android
-preview keeps its existing application ID and persistent signer for updates.
-`main` remains Desktop-only; Server implementation stays on `server`.
+Application archives are self-contained. Shared CLI tools are published once per
+platform, and `SHA256SUMS` covers every published artifact. `ANDROID-VERSION`
+records the independent APK version. Desktop remains on `main`; Server services
+remain on `server`.

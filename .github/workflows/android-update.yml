@@ -24,6 +24,8 @@ concurrency:
 
 jobs:
   android:
+    # Combined releases publish Android through release.yml instead.
+    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'release:')
     name: Build and publish Android only
     runs-on: ubuntu-latest
     steps:

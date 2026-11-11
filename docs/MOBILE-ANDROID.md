@@ -8,7 +8,7 @@ cancel server jobs. Native VS Code/VSCodium windows are not screen-streamed.
 
 ## Install the published APK
 
-Install **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.3/praimate-mobile-preview.apk)**
+Install **[praimate-mobile-preview.apk](https://github.com/sPROFFEs/PrAImate/releases/download/v1.3.4/praimate-mobile-preview.apk)**
 from the combined release. You do not need the Android SDK or a source build to
 use it. Android may ask you to allow installation from your browser/file manager.
 The APK requires Android 8.0+ and a current Android System WebView; isolated
@@ -215,17 +215,18 @@ client selects releases containing its own APK type, so Desktop-only releases
 do not become incompatible Android updates. An HTTPS release redirect and
 checksum manifest provide a fallback when the API is unavailable.
 
-Android has an independent version in `mobile/android/VERSION`. The Android
-1.3.4 APK is published on the existing **v1.3.3** release; Desktop, Server and
-shared CLI binaries remain unchanged. Install this update manually once from the
-link above if using Android 1.3.3 or earlier. Those clients compare only the host
-release tag. Android 1.3.4 and later also read the Android version in the release
-notes, with `ANDROID-VERSION` as the HTTPS fallback, so later APK-only updates
-appear in the normal update check.
+Android has an independent version in `mobile/android/VERSION`. The combined
+**v1.3.4** release includes Desktop/Server **1.3.4** and the Android **1.3.5** APK.
+Android 1.3.3 and earlier compare only the host release tag: this combined release
+can be found normally, but an APK-only update inside an unchanged release may
+require a manual installation. Android 1.3.4 and later also read the Android
+version in the release notes, with `ANDROID-VERSION` as the HTTPS fallback, so
+later APK-only updates appear in the normal update check.
 
 The **Android update** workflow builds, tests, lints and verifies the APK with
 the persistent preview signer. Pushing a change to `mobile/android/VERSION` on
-the `server` branch triggers it; it can also be dispatched with a version and
+the `server` branch triggers it, except for combined-release preparation commits
+whose subject starts with `release:`. It can also be dispatched with a version and
 existing release tag. It replaces only the preview APK and Android metadata,
 updates the APK checksum in `SHA256SUMS`, and preserves all host assets and their
 checksum entries. The original host release tag and version stay in place.
