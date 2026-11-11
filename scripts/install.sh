@@ -36,6 +36,7 @@ REPO_URL="$GITHUB_URL/$REPO"
 RELEASE_API_URL="https://api.github.com/repos/$REPO/releases/latest"
 SOURCE_BRANCH="main"
 EDITION="desktop"
+EDITION_EXPLICIT=0
 ASSET_PREFIX="praimate"
 BUILD_TAGS=""
 # Release tag to pull assets from. When unset we resolve "latest" via
@@ -58,8 +59,8 @@ while [[ $# -gt 0 ]]; do
     --source)    MODE="source"  ; shift ;;
     --edition)
       [[ $# -ge 2 ]] || { printf 'missing value for --edition\n' >&2; exit 2; }
-      EDITION="$2"; shift 2 ;;
-    --edition=*) EDITION="${1#--edition=}"; shift ;;
+      EDITION="$2"; EDITION_EXPLICIT=1; shift 2 ;;
+    --edition=*) EDITION="${1#--edition=}"; EDITION_EXPLICIT=1; shift ;;
     --user)      PREFIX_MODE="user" ; shift ;;
     --system)    PREFIX_MODE="system" ; shift ;;
     --prefix)    PREFIX="$2"   ; shift 2 ;;
@@ -80,17 +81,9 @@ EOF
   esac
 done
 
-case "$EDITION" in
-  desktop) ;;
-  server) SOURCE_BRANCH="server"; ASSET_PREFIX="praimate-server"; BUILD_TAGS="server" ;;
-  *) printf 'unknown edition: %s (use desktop or server)\n' "$EDITION" >&2; exit 2 ;;
-esac
-if [[ -n "$RELEASE_TAG" ]]; then
-  case "$EDITION:$RELEASE_TAG" in
-    desktop:v[0-9]*|server:server-v[0-9]*|server:v[0-9]*) ;;
-    *) printf 'release tag %s does not belong to the %s edition\n' "$RELEASE_TAG" "$EDITION" >&2; exit 2 ;;
-  esac
-fi
+
+# Validate explicit input before resolving a destination or requesting sudo.
+case "$EDITION" in desktop|server) ;; *) printf 'unknown edition: %s (use desktop or server)\n' "$EDITION" >&2; exit 2 ;; esac
 
 # ---------- uninstall ----------
 do_uninstall() {
@@ -314,6 +307,23 @@ choose_dest() {
 }
 
 DEST="$(choose_dest)"
+# Re-running the installer updates this installation's edition by default.
+# --edition remains an explicit request to install a different edition.
+if [[ "$EDITION_EXPLICIT" == 0 && -f "$DEST/praimate-edition" ]]; then
+  EDITION="$(cat "$DEST/praimate-edition")"
+fi
+case "$EDITION" in
+  desktop) ;;
+  server) SOURCE_BRANCH="server"; ASSET_PREFIX="praimate-server"; BUILD_TAGS="server" ;;
+  *) printf 'unknown edition: %s (use desktop or server)\n' "$EDITION" >&2; exit 2 ;;
+esac
+if [[ -n "$RELEASE_TAG" ]]; then
+  case "$EDITION:$RELEASE_TAG" in
+    desktop:v[0-9]*|server:server-v[0-9]*|server:v[0-9]*) ;;
+    *) printf 'release tag %s does not belong to the %s edition\n' "$RELEASE_TAG" "$EDITION" >&2; exit 2 ;;
+  esac
+fi
+
 mkdir -p "$DEST" 2>/dev/null || true
 
 SUDO=""

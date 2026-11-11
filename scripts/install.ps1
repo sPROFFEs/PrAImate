@@ -53,22 +53,6 @@ $Repo = "sPROFFEs/praimate"
 $GitHubURL = "https://github.com"
 $RepoURL = "$GitHubURL/$Repo"
 $ReleaseApiURL = "https://api.github.com/repos/$Repo/releases/latest"
-$Edition = $Edition.ToLowerInvariant()
-$SourceBranch = if ($Edition -eq "server") { "server" } else { "main" }
-$AssetPrefix = if ($Edition -eq "server") { "praimate-server" } else { "praimate" }
-$BuildTags = if ($Edition -eq "server") { "server" } else { "" }
-$RootBuildArgs = @()
-if ($BuildTags) { $RootBuildArgs = @("-tags", $BuildTags) }
-$GuiBuildTags = if ($BuildTags) { "desktop,production,server" } else { "desktop,production" }
-# Release tag to pull assets from. When unset we resolve "latest" via
-# the GitHub API at download time so the installer keeps working as
-# the operator publishes new versioned tags (1.0.8, 1.0.9, ...).
-# Override with $env:RELEASE_TAG=<tag> to pin a specific release.
-$ReleaseTag = $env:RELEASE_TAG
-if ($ReleaseTag) {
-    $tagPattern = if ($Edition -eq "server") { "^(server-)?v[0-9]" } else { "^v[0-9]" }
-    if ($ReleaseTag -notmatch $tagPattern) { throw "Release tag $ReleaseTag does not belong to the $Edition edition" }
-}
 
 # ---------- pretty ----------
 function Step($Text) { Write-Host ""; Write-Host "==> $Text" -ForegroundColor Green }
@@ -237,6 +221,29 @@ function Choose-Dest {
     return (Join-Path $env:LOCALAPPDATA "Programs\PrAImate")
 }
 $Dest = Choose-Dest
+# Keep a pre-existing installation in its edition unless explicitly selected.
+$EditionMarker = Join-Path $Dest "praimate-edition"
+if (-not $PSBoundParameters.ContainsKey('Edition') -and (Test-Path $EditionMarker -PathType Leaf)) {
+    $Edition = (Get-Content -Raw $EditionMarker).Trim()
+}
+if ($Edition.ToLowerInvariant() -notin @('desktop', 'server')) { throw 'Invalid installed edition marker' }
+$Edition = $Edition.ToLowerInvariant()
+$SourceBranch = if ($Edition -eq "server") { "server" } else { "main" }
+$AssetPrefix = if ($Edition -eq "server") { "praimate-server" } else { "praimate" }
+$BuildTags = if ($Edition -eq "server") { "server" } else { "" }
+$RootBuildArgs = @()
+if ($BuildTags) { $RootBuildArgs = @("-tags", $BuildTags) }
+$GuiBuildTags = if ($BuildTags) { "desktop,production,server" } else { "desktop,production" }
+# Release tag to pull assets from. When unset we resolve "latest" via
+# the GitHub API at download time so the installer keeps working as
+# the operator publishes new versioned tags (1.0.8, 1.0.9, ...).
+# Override with $env:RELEASE_TAG=<tag> to pin a specific release.
+$ReleaseTag = $env:RELEASE_TAG
+if ($ReleaseTag) {
+    $tagPattern = if ($Edition -eq "server") { "^(server-)?v[0-9]" } else { "^v[0-9]" }
+    if ($ReleaseTag -notmatch $tagPattern) { throw "Release tag $ReleaseTag does not belong to the $Edition edition" }
+}
+
 if (-not (Test-Path $Dest)) {
     New-Item -ItemType Directory -Path $Dest -Force | Out-Null
 }

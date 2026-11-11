@@ -218,6 +218,9 @@ func AssetForHost(rel *Release) (*Asset, error) {
 }
 
 func assetForPlatform(rel *Release, goos, goarch string) (*Asset, error) {
+	if rel == nil {
+		return nil, errors.New("no release selected")
+	}
 	if goos != "linux" && goos != "windows" && goos != "darwin" {
 		return nil, fmt.Errorf("unsupported operating system %s; PrAImate supports Linux, Windows, and macOS only", goos)
 	}
@@ -227,11 +230,12 @@ func assetForPlatform(rel *Release, goos, goarch string) (*Asset, error) {
 		wantExt = ".zip"
 	}
 	canonical := version.AssetPrefix + "-" + triplet + wantExt
-	legacy := version.AssetPrefix + "-" + strings.TrimPrefix(rel.TagName, version.ReleaseTagPrefix) + "-" + triplet + wantExt
-	for i := range rel.Assets {
-		a := &rel.Assets[i]
-		if a.Name == canonical || (rel.TagName != "" && a.Name == legacy) {
-			return a, nil
+	legacy := version.AssetPrefix + "-" + strings.TrimPrefix(strings.TrimPrefix(rel.TagName, "server-"), "v") + "-" + triplet + wantExt
+	for _, name := range []string{canonical, legacy} {
+		for i := range rel.Assets {
+			if rel.Assets[i].Name == name {
+				return &rel.Assets[i], nil
+			}
 		}
 	}
 	return nil, fmt.Errorf("no release asset for %s found in %s", triplet, rel.TagName)
@@ -247,15 +251,24 @@ func assetForPlatform(rel *Release, goos, goarch string) (*Asset, error) {
 // original path. The .old artifact is harmless and gets overwritten
 // on the next update.
 func Apply(asset *Asset, progress func(stage string)) error {
-	if progress == nil {
-		progress = func(string) {}
-	}
-
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("locate own executable: %w", err)
 	}
 	exePath, _ = filepath.EvalSymlinks(exePath)
+	return applyAt(exePath, asset, progress)
+}
+
+func applyAt(exePath string, asset *Asset, progress func(stage string)) error {
+	if progress == nil {
+		progress = func(string) {}
+	}
+	if err := validateUpdateAsset(asset); err != nil {
+		return err
+	}
+	if err := validateInstalledEdition(filepath.Dir(exePath)); err != nil {
+		return err
+	}
 
 	if err := checkUpdateDirectory(exePath); err != nil {
 		return err
@@ -266,6 +279,9 @@ func Apply(asset *Asset, progress func(stage string)) error {
 		return err
 	}
 	defer os.Remove(archivePath)
+	if err := validateArchiveEdition(archivePath); err != nil {
+		return fmt.Errorf("validate update edition: %w", err)
+	}
 
 	progress("extracting binary")
 	binName := filepath.Base(exePath)
@@ -320,6 +336,9 @@ func Apply(asset *Asset, progress func(stage string)) error {
 			continue
 		}
 		os.Remove(staged)
+	}
+	if err := recordInstalledEdition(exeDir); err != nil {
+		return fmt.Errorf("binaries updated but the edition marker could not be saved: %w", err)
 	}
 	return nil
 }

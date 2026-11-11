@@ -60,6 +60,9 @@ fi
 grep -Fx 'preserve this installation' "$DEST/praimate"
 install_bundle --edition server
 grep -Fx server "$DEST/praimate-edition"
+# An update without --edition must retain Server, rather than default to Desktop.
+install_bundle
+grep -Fx server "$DEST/praimate-edition"
 printf 'desktop\n' > "$BUNDLE/praimate-edition"
 if install_bundle --edition server; then
   echo "server installer accepted a desktop bundle" >&2

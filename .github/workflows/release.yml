@@ -53,6 +53,7 @@ jobs:
           go test -tags server ./internal/updater
           python3 scripts/edition_test.py
           python3 scripts/release_assets_test.py
+          python3 scripts/upload-release-assets_test.py
           bash scripts/install_test.sh
       - name: Verify browser and mobile transport
         working-directory: cmd/praimate-gui/frontend
@@ -61,6 +62,12 @@ jobs:
           npm run test:remote
           npm run test:mobile
           npm run test:settings-ui
+          npm run test:studio
+          node --test src/lib/WorkerGraph.test.js src/lib/workerBoard.test.js
+
+      - name: Verify Windows installer edition selection
+        shell: pwsh
+        run: ./scripts/install_edition_test.ps1
 
   build:
     needs: verify
@@ -280,7 +287,7 @@ jobs:
               --title "PrAImate $TAG" \
               --notes-file release-notes.md
           fi
-          gh release upload "$TAG" release-dist/* --clobber
+          python3 scripts/upload-release-assets.py "$TAG" release-dist
           if [ "${{ inputs.draft }}" != true ]; then
             gh release edit "$TAG" --draft=false $PRERELEASE_FLAG $LATEST_FLAG --notes-file release-notes.md
           fi
