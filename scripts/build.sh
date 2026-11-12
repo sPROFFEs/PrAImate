@@ -35,7 +35,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.3.4}"
+VERSION="${VERSION:-1.3.5}"
 EXTRA_LDFLAGS="${LDFLAGS:--s -w}"  # strip symbols by default — tiny binaries
 EDITION="desktop"
 ARCHIVE=1
