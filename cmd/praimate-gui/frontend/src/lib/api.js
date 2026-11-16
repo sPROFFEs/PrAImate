@@ -1,3 +1,5 @@
+import { systemLinkOpener } from './externalLinks.js'
+
 // Thin wrapper over the Wails-injected window.go.main.App bindings.
 // Every call returns a promise; rejections carry the Go error string.
 //
@@ -245,6 +247,10 @@ export const api = {
   createSkillInStudio: (name) => call('CreateSkillInStudio', name),
   activeChatIDs: () => call('ActiveChatIDs'),
   openEditorFolder: () => call('OpenEditorFolder'),
+  openExternalURL: url => {
+    const open = systemLinkOpener()
+    return open ? Promise.resolve().then(() => open(url)) : Promise.reject(new Error('No local browser opener is available'))
+  },
   openAgentKnowledgeFolder: (id) => call('OpenAgentKnowledgeFolder', id),
   openEditorWindow: (folder, agentID, cli, model, chatID, localEndpoint, localApiKey, localModel) =>
     call('OpenEditorWindow', folder, agentID, cli, model || '', chatID, localEndpoint || '', localApiKey || '', localModel || ''),
