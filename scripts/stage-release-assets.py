@@ -30,5 +30,5 @@ def stage(root, edition, target):
     return output
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--edition',choices=['all','desktop','server'],required=True);parser.add_argument('--target',choices=['linux-amd64','windows-amd64','windows-arm64','darwin-amd64','darwin-arm64'],required=True)
+    parser=argparse.ArgumentParser();parser.add_argument('--edition',choices=['all','desktop','server'],required=True);parser.add_argument('--target',choices=['linux-amd64','linux-arm64','windows-amd64','windows-arm64','darwin-amd64','darwin-arm64'],required=True)
     args=parser.parse_args();stage(Path(__file__).resolve().parent.parent,args.edition,args.target)

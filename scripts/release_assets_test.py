@@ -5,6 +5,11 @@ import unittest
 
 spec=importlib.util.spec_from_file_location('stage',Path(__file__).with_name('stage-release-assets.py'));module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
 class ReleaseAssets(unittest.TestCase):
+    def test_linux_arm64_is_accepted_by_the_command_line_stager(self):
+        import subprocess
+        result=subprocess.run(['python3',str(Path(__file__).with_name('stage-release-assets.py')),'--target','linux-arm64','--help'],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('linux-arm64',result.stdout)
     def test_combined_release_has_distinct_archives_and_one_shared_copy(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);(root/'dist/server').mkdir(parents=True)
