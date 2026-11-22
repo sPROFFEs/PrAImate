@@ -97,7 +97,58 @@ try {
   await send(completed)
   assert.match(await evaluate("document.querySelector('.worker-review-bar').textContent"), /0 accepted · 2 rejected/)
   assert.equal(await evaluate("document.querySelector('.worker-review-bar button').disabled"), true)
-  console.log('PASS: real Desktop plan focus in both themes; Studio selected-CLI models; stable board, search focus and horizontal scroll while streaming; completed-task tabs; visible review/merge actions.')
+  await execute("workerFollow=false;workerSearch='';workerConsoleTab='activity';")
+  const running = snapshot(10)
+  running.events = Array.from({length:60},(_,i)=>({workerID:'att',sequence:i+1,kind:'stream',text:'Activity '+i+'\n'.repeat(3),timestamp:new Date().toISOString()}))
+  await send(running)
+  await execute("window.keptPicker=document.querySelector('.worker-console select');keptPicker.focus();document.getElementById('worker-event-log').scrollTop=120;")
+  const streaming = structuredClone(running);streaming.updatedAt='11';streaming.events.push({workerID:'att',sequence:61,kind:'stream',text:'latest chunk',timestamp:new Date().toISOString()})
+  await send(streaming)
+  assert.equal(await evaluate("keptPicker===document.querySelector('.worker-console select')"),true)
+  await execute('keptPicker.blur();')
+  await until("document.querySelector('.worker-console').textContent.includes('latest chunk')")
+  assert.equal(await evaluate("document.getElementById('worker-event-log').scrollTop"),120)
+  streaming.updatedAt='12';streaming.attempts[0].status='completed';streaming.dag.tasks[0].status='completed';streaming.status='completed'
+  await send(streaming)
+  await execute("document.querySelector('.worker-console select').focus();")
+  streaming.updatedAt='13';streaming.attempts[0].status='failed'
+  await send(streaming)
+  assert.match(await evaluate("document.querySelector('.worker-console select').textContent"), /failed/)
+  await execute("workerFollow=true;renderWorkerBoard();")
+  assert.equal(await evaluate("(()=>{const l=document.getElementById('worker-event-log');return l.scrollHeight-l.scrollTop-l.clientHeight<2})()"),true)
+  await screenshot('studio-activity-picker-scroll')
+  await execute("navigate('chat');navigate('workers');receive({type:'workerState',runs:[{id:'other'},{id:'run'}]});")
+  assert.equal(await evaluate("sent.filter(m=>m.type==='workerRefresh').at(-1).id"),'run')
+  assert.equal(await evaluate('savedState.workerSelected'),'run')
+  const prose='## Verified\n**Success** <img src=x onerror=alert(1)>\n- checked'
+  streaming.result=prose;streaming.updatedAt='14';streaming.turns=[{task:'Long instruction\n'+'.'.repeat(400),result:prose}]
+  await send(streaming)
+  assert.equal(await evaluate("document.querySelector('#worker-result .markdown h2').textContent"),'Verified')
+  assert.equal(await evaluate("!!document.querySelector('#worker-result .markdown img')"),false)
+  assert.equal(await evaluate("document.querySelector('.worker-turn details').open"),false)
+
+  await call('browsingContext.navigate', {context,url:base,wait:'complete'})
+  await until('!!window.issueReview')
+  const chat={ID:'find-chat',Title:'Find fixture',CLIAgent:'codex',Settings:{tools:''}}
+  const history=[{Role:'user',Content:'İstanbul hello world'},{Role:'assistant',Content:'Hello **world**\n\n'+prose,Meta:{activity:[{type:'tool',tool:'bash',detail:'hidden command',done:true,ok:true}]}}]
+  for(const theme of ['dark','light']) {
+    await execute(`document.documentElement.classList.toggle('light',${theme==='light'});issueReview.data.ListChats=[${JSON.stringify(chat)}];issueReview.data.ChatMessages=${JSON.stringify(history)};issueReview.show('chats');`)
+    await until("!!document.querySelector('.msg.assistant')")
+    await execute("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Show activity')?.click();")
+    await execute("[...document.querySelectorAll('button')].find(b=>b.textContent==='Find').click();")
+    await until("!!document.querySelector('.findbar input')")
+    await execute("const f=document.querySelector('.findbar input');f.value='hello world';f.dispatchEvent(new Event('input',{bubbles:true}));")
+    await until("document.querySelector('.find-count').textContent==='1/2'")
+    await execute("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Hide activity').click();")
+    await until("document.querySelector('.activity-block summary').textContent.includes('hidden')")
+    assert.equal(await evaluate("document.querySelector('.activity-block').open"),false)
+    await execute("const f=document.querySelector('.findbar input');f.value='hidden command';f.dispatchEvent(new Event('input',{bubbles:true}));")
+    await until("document.querySelector('.find-count').textContent==='1/1'")
+    assert.equal(await evaluate("document.querySelector('.activity-block').open"),true,'find reveals folded actions')
+    await screenshot('chat-find-activity-'+theme)
+    await execute("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Show activity').click();")
+  }
+  console.log('PASS: both themes; Studio models, board, picker, live scroll, persisted run, Markdown, collapsed followups; GUI chat find across markup and hidden activity; review/merge actions.')
 } catch (error) {
   await screenshot('failure')
   throw error

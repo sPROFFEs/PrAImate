@@ -3,6 +3,8 @@ import WorkerGraph from '../../src/lib/WorkerGraph.svelte'
 import WorkerMonitor from '../../src/lib/WorkerMonitor.svelte'
 import Documents from '../../src/pages/Documents.svelte'
 import Studio from '../../src/pages/Studio.svelte'
+import Chats from '../../src/pages/Chats.svelte'
+import { openChatId } from '../../src/lib/stores.js'
 
 const calls=[]
 const data={ListChats:[],ListAgents:[],ListCLIs:[{id:'codex',available:true}],LocalLLMModels:{configured:false},ListCLIModels:[],MCPServers:[{id:'docs-id',name:'Documentation endpoint',enabled:true},{id:'disabled',name:'Disabled endpoint',enabled:false}],PreflightExecution:{ok:true,issues:[]},PrepareStudioChat:'created-chat',PickFolder:'/project'}
@@ -11,5 +13,5 @@ window.go={main:{App:new Proxy({},{get(_,method){return async(...args)=>{calls.p
 window.runtime={EventsOn:()=>()=>{},EventsOff(){}}
 const snapshot={id:'review-fixture',task:'Review a saved task graph',status:'draft',profiles:[{tier:'middle',runtime:'cli',cli:'codex'}],events:[],dag:{targetBranch:'main',baseCommit:'abc',maxParallel:2,tasks:[{id:'one',description:'Apply the requested change',worker:{profile:'middle'},dependencies:[],status:'pending'}]}}
 let component
-window.issueReview={calls,show(mode,customSnapshot=snapshot){component?.$destroy();document.getElementById('app').replaceChildren();component=new ({graph:WorkerGraph,monitor:WorkerMonitor,documents:Documents,studio:Studio}[mode])({target:document.getElementById('app'),props:['documents','studio'].includes(mode)?{}:{snapshot:customSnapshot,clis:data.ListCLIs}})}}
+window.issueReview={calls,data,show(mode,customSnapshot=snapshot){component?.$destroy();document.getElementById('app').replaceChildren();if(mode==='chats')openChatId.set(data.ListChats[0]?.ID || null);component=new ({chats:Chats,graph:WorkerGraph,monitor:WorkerMonitor,documents:Documents,studio:Studio}[mode])({target:document.getElementById('app'),props:['documents','studio','chats'].includes(mode)?{}:{snapshot:customSnapshot,clis:data.ListCLIs}})}}
 window.issueReview.show('graph')

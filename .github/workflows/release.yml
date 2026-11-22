@@ -25,7 +25,30 @@ permissions:
   contents: write
 
 jobs:
+  verify:
+    name: Verify Studio and chat regressions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.1'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: go test ./internal/studio ./cmd/praimate
+      - run: node --test internal/studio/extension/extension.test.js
+      - working-directory: cmd/praimate-gui/frontend
+        run: |
+          npm ci
+          npm run test:studio
+          npm run test:markdown
+          npm run test:chat-search
+          npm run test:chat-activity
+
   build:
+    needs: verify
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:

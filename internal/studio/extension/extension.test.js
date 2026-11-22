@@ -202,6 +202,46 @@ test('a dedicated worker window does not consume a pending sidebar navigation', 
     assert.equal(h.provider().requestedPage,'');
   } finally {h.close();}
 });
+test('a badge counts finished chats and worker runs while PrAImate is hidden and clears when shown', async () => {
+  let workerStatus = 'running';
+  const h=extensionHarness('linux',true,null,req => req.method==='workers.list' ? [{id:'run-1',title:'Refactor',status:workerStatus}] : undefined);
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    let visibility;
+    const view={visible:false,badge:undefined,webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage(){},onDidReceiveMessage(){}},onDidDispose(){},onDidChangeVisibility:fn=>{visibility=fn;}};
+    h.provider().resolveWebviewView(view,{state:undefined});
+    await h.provider().checkWorkers();
+    assert.equal(view.badge?.value || 0,0);
+    await h.provider().send('hello',false);
+    assert.equal(view.badge.value,1);
+    workerStatus='completed';
+    await h.provider().checkWorkers();
+    assert.equal(view.badge.value,2);
+    assert.match(view.badge.tooltip,/Chat.*Refactor/);
+    view.visible=true;visibility();
+    assert.equal(view.badge?.value || 0,0);
+    const polls=h.requests.filter(r=>r.method==='workers.list').length;
+    await h.provider().checkWorkers();
+    assert.equal(h.requests.filter(r=>r.method==='workers.list').length,polls,'no polling while the view is visible');
+    await h.provider().send('again',false);
+    assert.equal(view.badge?.value || 0,0,'no badge while the view is visible');
+  } finally {h.close();}
+});
+test('a badge pending while no view exists is cleared when the sidebar view is shown again', async () => {
+  const h=extensionHarness('linux');
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    h.vscode.Uri={joinPath:(_, ...parts)=>parts.join('/')};
+    await h.provider().send('hello',false);
+    assert.equal(h.provider().unseen.size,1);
+    let receive;
+    const view={visible:true,badge:undefined,webview:{asWebviewUri:v=>v,cspSource:'test:',postMessage(){},onDidReceiveMessage:fn=>{receive=fn;}},onDidDispose(){},onDidChangeVisibility(){}};
+    h.provider().resolveWebviewView(view,{state:undefined});
+    assert.equal(h.provider().unseen.size,0);
+    assert.equal(view.badge?.value || 0,0);
+  } finally {h.close();}
+});
 for (const platform of ['linux','win32']) {
   test(platform+': launches stdio with spaced paths and persists chat identity', async () => {
     const h = extensionHarness(platform);
@@ -968,4 +1008,51 @@ test('streamed worker output keeps the board element and its horizontal scroll; 
   // Another run starts from the beginning.
   h.send({type:'workerSnapshot',runs:[{id:'other',status:'running'}],selectedId:'other',snapshot:{...snapshot([event(1,'x')]),id:'other',updatedAt:'o1'}});
   assert.equal(boardEl().scrollLeft,0);
+});
+
+test('selected worker run survives navigation and webview recreation', () => {
+  const h=webviewHarness();
+  h.send({type:'status',status:{connected:true}});
+  h.send({type:'workerSnapshot',selectedId:'saved-run',runs:[{id:'saved-run'}],snapshot:{id:'saved-run',task:'Saved',status:'completed',updatedAt:'1',profiles:[],events:[]}});
+  h.eval("navigate('chat');navigate('workers')");
+  h.send({type:'workerState',runs:[{id:'other'},{id:'saved-run'}]});
+  assert.equal(h.posted.filter(m=>m.type==='workerRefresh').at(-1).id,'saved-run');
+  const next=webviewHarness(false,h.state());
+  next.send({type:'status',status:{connected:true}});
+  next.send({type:'workerState',runs:[{id:'other'},{id:'saved-run'}]});
+  assert.equal(next.posted.filter(m=>m.type==='workerRefresh').at(-1).id,'saved-run');
+});
+
+test('worker results and followups render escaped markdown while diffs stay literal',()=>{
+  const h=webviewHarness();
+  const body='## Result\n**Done** <script>bad()</script>\n- checked';
+  h.send({type:'workerSnapshot',selectedId:'run',runs:[{id:'run'}],snapshot:{id:'run',task:'Saved',status:'completed',updatedAt:'1',profiles:[],events:[],result:body,turns:[{task:'Long task\n'+'.'.repeat(200),result:body}]}});
+  const nodes=descendants(h.elements.get('worker-result'));
+  assert.ok(nodes.some(n=>n.className==='markdown' && /<h2>Result<\/h2>/.test(n.innerHTML)));
+  assert.ok(nodes.filter(n=>n.className==='markdown').every(n=>!/<script>/.test(n.innerHTML)));
+  const folded=nodes.find(n=>n.tag==='details' && n.children[0]?.textContent.startsWith('You:'));
+  assert.equal(folded.open,false);
+});
+
+test('successful followup selects live activity on the newest reasoner attempt',()=>{
+  const h=webviewHarness();
+  h.send({type:'workerSnapshot',selectedId:'run',runs:[{id:'run'}],snapshot:{id:'run',status:'completed',updatedAt:'1',profiles:[],events:[]}});
+  h.eval("workerFollow=false;workerAttempt='old';workerConsoleTab='result'");
+  h.eval("document.getElementById('worker-followup').value='Continue'");
+  h.elements.get('worker-continue').fire('click');
+  const request=h.posted.findLast(m=>m.type==='workerContinue');
+  h.send({type:'actionResult',id:request.requestId,ok:true});
+  assert.equal(h.eval('workerFollow'),true);
+  assert.equal(h.eval('workerAttempt'),'');
+  assert.equal(h.eval('workerConsoleTab'),'activity');
+});
+
+
+test('worker Markdown preserves fenced code literally and never loads raw HTML',()=>{
+  const h=webviewHarness();
+  const source='## Result\n```html\n<img src=x> **literal**\n```';
+  const html=h.eval('markdownBlock('+JSON.stringify(source)+').innerHTML');
+  assert.match(html, /<h2>Result<\/h2>/);
+  assert.match(html, /<pre><code>&lt;img src=x&gt; \*\*literal\*\*/);
+  assert.doesNotMatch(html, /<img|<strong>/);
 });
