@@ -75,6 +75,30 @@ func TestRemoteStudioCreatesAPersistentChatWithTheSelectedExecutionSettings(t *t
 	if chat.CLIAgent != "codex" || chat.Settings.Model != "gpt-6.1-sol" || chat.Settings.Tools != "full" || chat.Settings.Surface != "studio" || chat.WorkspacePath != root {
 		t.Fatalf("Studio configuration lost: %#v", chat)
 	}
+	// Reopening a saved Safe project must not inherit PrepareStudioChat's
+	// default edit permissions; history must record the exact reopened settings.
+	result, err = a.prepareRemoteProject(root, "", "codex", "saved-model", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err = c.GetChat(a.ctx, result["chatId"])
+	if err != nil || chat.Settings.Tools != "" {
+		t.Fatalf("Safe permissions changed: %#v, %v", chat, err)
+	}
+	projects, err := a.StudioListRecentProjects()
+	if err != nil || len(projects) != 1 || !projects[0].Configured || projects[0].Tools != "" || projects[0].Model != "saved-model" {
+		t.Fatalf("remote launch history lost: %#v, %v", projects, err)
+	}
+	if err := a.StudioRemoveRecentProject(root); err != nil {
+		t.Fatal(err)
+	}
+	projects, err = a.StudioListRecentProjects()
+	if err != nil || len(projects) != 0 {
+		t.Fatalf("recent project was not removed: %#v, %v", projects, err)
+	}
+	if _, err := os.Stat(root); err != nil {
+		t.Fatalf("removing history changed the folder: %v", err)
+	}
 }
 
 func TestRemoteMCPCatalogHidesCredentialsFromNonAdminDevices(t *testing.T) {

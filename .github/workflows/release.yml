@@ -48,7 +48,7 @@ jobs:
           node-version: '22'
       - name: Verify release and edition contracts
         run: |
-          go test ./internal/installer ./internal/launcher ./internal/remote ./internal/cloudflared ./internal/serverboot ./internal/updater ./internal/orchestrator
+          go test ./internal/studio ./cmd/praimate ./internal/installer ./internal/launcher ./internal/remote ./internal/cloudflared ./internal/serverboot ./internal/updater ./internal/orchestrator
           go test ./internal/store -run '^TestVerifyPasswordDoesNotOpenOrChangeDatabase$'
           go test -tags server ./internal/updater
           python3 scripts/edition_test.py
@@ -63,6 +63,9 @@ jobs:
           npm run test:mobile
           npm run test:settings-ui
           npm run test:studio
+          npm run test:chat-search
+          npm run test:chat-activity
+          node --test ../../../internal/studio/extension/extension.test.js
           node --test src/lib/WorkerGraph.test.js src/lib/workerBoard.test.js
 
       - name: Verify Windows installer edition selection

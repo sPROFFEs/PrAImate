@@ -155,11 +155,11 @@ func (a *App) prepareRemoteProject(folder, agentID, cli, model, tools, localEndp
 	if err != nil {
 		return nil, err
 	}
-	if tools != "" {
-		err = a.SetChatTools(id, tools)
-	}
+	// An empty tools level explicitly selects Safe / Build; do not retain
+	// PrepareStudioChat's default edit permissions when reopening a saved project.
+	err = a.SetChatTools(id, tools)
 	if err == nil {
-		err = studio.NewManager(a.core).SaveRecentProject(abs)
+		err = studio.NewManager(a.core).SaveRecentProjectConfig(studio.RecentProject{Path: abs, CLI: cli, Model: model, AgentID: agentID, Tools: tools})
 	}
 	if err != nil {
 		_ = a.core.DeleteChat(a.ctx, id)

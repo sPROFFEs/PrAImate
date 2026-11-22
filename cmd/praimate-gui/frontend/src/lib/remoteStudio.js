@@ -7,7 +7,7 @@ export function remoteStudio(client, openWindow, origin, version, workspaceChang
     try {
       let workspace
       if (!chatId && config) {
-        const result = await client.call('projects.prepare', [folder, config.agent || '', config.cli || 'claude', config.model || '', config.tools || 'edits', config.localEndpoint || '', config.localModel || ''])
+        const result = await client.call('projects.prepare', [folder, config.agent || '', config.cli || 'claude', config.model || '', config.tools ?? 'edits', config.localEndpoint || '', config.localModel || ''])
         workspace = result.workspace
         chatId = result.chatId
       } else workspace = await client.call('projects.validate', [folder])

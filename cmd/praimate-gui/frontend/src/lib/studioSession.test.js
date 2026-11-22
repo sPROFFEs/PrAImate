@@ -37,7 +37,7 @@ test('overview never probes CLIs and shows projects while status is still pendin
   const session = createStudioSession(fixture({ studioGetStatus: () => status.promise, listCLIs: () => { probes++; return new Promise(() => {}) } }))
   const load = session.refresh()
   await Promise.resolve()
-  assert.deepEqual(session.state.projects, ['/tmp/project'])
+  assert.deepEqual(session.state.projects, [{ path: '/tmp/project', cli: '', model: '', agentID: '', tools: '', configured: false }])
   assert.equal(session.state.loadingProjects, false)
   assert.equal(session.state.loadingStatus, true)
   assert.equal(probes, 0)
@@ -93,7 +93,7 @@ test('resource errors stay visible and preserve independently loaded content', a
   await session.refresh()
   assert.match(session.state.statusError, /status unavailable/)
   assert.equal(session.state.status, null)
-  assert.deepEqual(session.state.projects, ['/tmp/project'])
+  assert.deepEqual(session.state.projects, [{ path: '/tmp/project', cli: '', model: '', agentID: '', tools: '', configured: false }])
   assert.equal(session.state.loadingStatus, false)
 })
 
@@ -150,7 +150,7 @@ test('launch preserves configuration, rejects duplicate clicks and separates his
   assert.deepEqual(calls, [[config.workspacePath, config.cli, config.model, config.agentID, config.tools]])
   assert.equal(session.state.error, '')
   assert.match(session.state.projectsError, /history unavailable/)
-  assert.deepEqual(session.state.projects, ['/tmp/project'])
+  assert.deepEqual(session.state.projects, [{ path: '/tmp/project', cli: '', model: '', agentID: '', tools: '', configured: false }])
   assert.equal(session.state.openingPath, '')
 })
 
@@ -186,4 +186,51 @@ test('project names handle Linux, Windows and root folders', () => {
   assert.equal(studioProjectName('/home/user/project/'), 'project')
   assert.equal(studioProjectName('C:\\Projects\\Example\\'), 'Example')
   assert.equal(studioProjectName('/'), '/')
+})
+
+test('recent project entries keep their saved launch configuration', async () => {
+  const { normalizeRecentProjects } = await import('./studioSession.js')
+  assert.deepEqual(normalizeRecentProjects([
+    { path: '/tmp/a', cli: 'claude', model: 'sonnet', agentID: 'rev', tools: '', configured: true },
+    '/tmp/legacy', { path: '' }, null,
+  ]), [
+    { path: '/tmp/a', cli: 'claude', model: 'sonnet', agentID: 'rev', tools: '', configured: true },
+    { path: '/tmp/legacy', cli: '', model: '', agentID: '', tools: '', configured: false },
+  ])
+  assert.deepEqual(normalizeRecentProjects(null), [])
+})
+
+test('removing a recent project updates the list and reports failures', async () => {
+  const { createStudioSession } = await import('./studioSession.js')
+  const removed = []
+  let fail = false
+  const session = createStudioSession({
+    studioGetStatus: async () => ({ state: 'installed' }),
+    studioListRecentProjects: async () => ['/tmp/a', '/tmp/b'],
+    studioRemoveRecentProject: async path => { if (fail) throw Error('history locked'); removed.push(path) },
+  })
+  await session.refresh()
+  assert.equal(await session.removeProject('/tmp/a'), true)
+  assert.deepEqual(removed, ['/tmp/a'])
+  assert.deepEqual(session.state.projects.map(project => project.path), ['/tmp/b'])
+  fail = true
+  assert.equal(await session.removeProject('/tmp/b'), false)
+  assert.match(session.state.projectsError, /history locked/)
+  assert.deepEqual(session.state.projects.map(project => project.path), ['/tmp/b'])
+})
+
+
+test('a pending overview cannot restore a project removed from history', async () => {
+  const old = deferred(); let reads = 0
+  const session = createStudioSession(fixture({
+    studioListRecentProjects: () => ++reads === 1 ? Promise.resolve(['/tmp/project']) : old.promise,
+    studioRemoveRecentProject: async () => {},
+  }))
+  await session.refresh()
+  const refresh = session.refresh()
+  assert.equal(await session.removeProject('/tmp/project'), true)
+  old.resolve(['/tmp/project'])
+  await refresh
+  assert.deepEqual(session.state.projects, [])
+  assert.equal(session.state.loadingProjects, false)
 })

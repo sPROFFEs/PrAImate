@@ -224,6 +224,7 @@ func (a *App) remoteMethods() *remote.Registry {
 	r.Register("api.StudioListCLIModels", "admin", false, a.StudioListCLIModels)
 	r.Register("api.StudioListCLIs", "admin", false, a.StudioListCLIs)
 	r.Register("api.StudioListRecentProjects", "admin", false, a.StudioListRecentProjects)
+	r.Register("api.StudioRemoveRecentProject", "admin", true, a.StudioRemoveRecentProject)
 	r.Register("api.StudioLocalLLMModels", "admin", false, a.StudioLocalLLMModels)
 	r.Register("api.StudioMCPServers", "admin", false, a.StudioMCPServers)
 	r.Register("api.StudioRefreshCLIModels", "admin", false, a.StudioRefreshCLIModels)

@@ -22,6 +22,13 @@ test('opening an existing Studio chat reuses it and never prepares another chat'
   assert.equal(new URLSearchParams(new URL(tab.location).hash.slice(1)).get('chat'), 'existing-chat')
 })
 
+test('reopening a saved Safe project preserves its explicitly empty permissions', async () => {
+  const calls = []
+  const studio = remoteStudio({async call(method, args) {calls.push({method,args});return {workspace:'/srv/project',chatId:'safe-chat'}}}, () => ({close(){}}), 'https://server.example', 'fixture')
+  await studio.openProject('/srv/project', 'codex', 'saved-model', '', '')
+  assert.equal(calls[0].args[4], '')
+})
+
 test('blocked popups cannot create orphan conversations', async () => {
   let calls = 0
   const studio = remoteStudio({async call(){calls++}}, () => null, 'https://server.example', 'fixture')

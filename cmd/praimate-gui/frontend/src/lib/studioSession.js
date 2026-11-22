@@ -7,7 +7,7 @@ export function createStudioSession(api, changed = () => {}) {
     statusError: '', projectsError: '', choicesError: '', modelError: '', error: '',
     operation: '', openingPath: '',
   }
-  let disposed = false, statusSeq = 0, modelSeq = 0
+  let disposed = false, statusSeq = 0, modelSeq = 0, projectsSeq = 0
   let overviewFlight, choicesFlight, choicesLoaded = false
   const patch = next => {
     if (disposed) return
@@ -18,7 +18,7 @@ export function createStudioSession(api, changed = () => {}) {
   function refresh() {
     if (disposed || state.operation || state.openingPath) return Promise.resolve()
     if (overviewFlight) return overviewFlight
-    const seq = ++statusSeq
+    const seq = ++statusSeq, projectSeq = ++projectsSeq
     patch({ loadingStatus: true, loadingProjects: true, statusError: '', projectsError: '' })
     overviewFlight = Promise.all([
       api.studioGetStatus().then(status => {
@@ -26,8 +26,8 @@ export function createStudioSession(api, changed = () => {}) {
       }).catch(error => {
         if (seq === statusSeq) patch({ statusError: String(error), loadingStatus: false })
       }),
-      api.studioListRecentProjects().then(projects => patch({ projects: projects || [], loadingProjects: false }))
-        .catch(error => patch({ projectsError: String(error), loadingProjects: false })),
+      api.studioListRecentProjects().then(projects => { if (projectSeq === projectsSeq) patch({ projects: normalizeRecentProjects(projects), loadingProjects: false }) })
+        .catch(error => { if (projectSeq === projectsSeq) patch({ projectsError: String(error), loadingProjects: false }) }),
     ]).finally(() => { overviewFlight = null })
     return overviewFlight
   }
@@ -99,7 +99,7 @@ export function createStudioSession(api, changed = () => {}) {
       if (!disposed) {
         try { patch({ status: await api.studioGetStatus(), statusError: '', loadingStatus: false }) }
         catch (error) { patch({ statusError: String(error), loadingStatus: false }) }
-        try { patch({ projects: (await api.studioListRecentProjects()) || [], projectsError: '' }) }
+        try { patch({ projects: normalizeRecentProjects(await api.studioListRecentProjects()), projectsError: '' }) }
         catch (error) { patch({ projectsError: String(error) }) }
       }
       return !disposed
@@ -109,9 +109,33 @@ export function createStudioSession(api, changed = () => {}) {
     } finally { patch({ openingPath: '' }) }
   }
 
-  return { get state() { return state }, refresh, loadChoices, loadModels, maintain, launch,
+  // Removing only edits Studio history; the project folder is untouched.
+  async function removeProject(path) {
+    if (disposed || state.operation || state.openingPath || !path) return false
+    try {
+      await api.studioRemoveRecentProject(path)
+      ++projectsSeq
+      patch({ loadingProjects: false })
+      patch({ projects: state.projects.filter(project => project.path !== path), projectsError: '' })
+      return !disposed
+    } catch (error) {
+      patch({ projectsError: String(error) })
+      return false
+    }
+  }
+
+  return { get state() { return state }, refresh, loadChoices, loadModels, maintain, launch, removeProject,
     dispose() { disposed = true; ++statusSeq; ++modelSeq },
   }
+}
+
+// Older backends return plain paths. Those entries are unconfigured, so the
+// UI asks for a configuration instead of guessing one.
+export function normalizeRecentProjects(projects) {
+  return (projects || []).map(project => typeof project === 'string'
+    ? { path: project, cli: '', model: '', agentID: '', tools: '', configured: false }
+    : { path: project?.path || '', cli: project?.cli || '', model: project?.model || '', agentID: project?.agentID || '', tools: project?.tools || '', configured: !!project?.configured })
+    .filter(project => project.path)
 }
 
 export function studioProjectName(path) {
