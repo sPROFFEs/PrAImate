@@ -723,6 +723,8 @@ func RunWithOptions(ctx context.Context, m Method, opts RunOptions, stdout, stde
 	// Bypasses buildCmd entirely.
 	if m.ManagedPrefix != "" {
 		switch m.ManagedPrefix {
+		case string(ToolREA):
+			return installREA(ctx, stdout, stderr)
 		case "graphify":
 			return installUvIntoManagedPrefix(ctx, m, extraEnv, stdout, stderr)
 		case "gstack":

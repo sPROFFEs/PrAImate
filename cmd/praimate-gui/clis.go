@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -154,7 +155,7 @@ func (e *installError) Error() string {
 	return "no install method " + e.id + " for " + e.cli + " on this OS"
 }
 
-// --- managed tools (graphify, gstack, scrapegraph) ----------------------------
+// --- managed tools -----------------------------------------------------------
 
 // ManagedTool mirrors installer.Tool for the CLIs tab's tools section.
 // praimate-code is excluded — it has its own dedicated row.
@@ -165,6 +166,7 @@ type ManagedTool struct {
 	Installed   bool   `json:"installed"`
 	Version     string `json:"version,omitempty"`
 	InstallHint string `json:"installHint,omitempty"`
+	ProbeError  string `json:"probeError,omitempty"`
 }
 
 // ListManagedTools detects the PrAImate-managed helper tools.
@@ -181,15 +183,16 @@ func (a *App) ListManagedTools() ([]ManagedTool, error) {
 		if t.ID == installer.ToolPraimateStudio {
 			status, err := studio.NewManager(a.core).GetStatus(ctx)
 			if err != nil {
-				return nil, err
+				t.ProbeError = err.Error()
+			} else {
+				t.Available = status.State == studio.StateInstalled || status.State == studio.StateUpdateAvailable
+				t.Binary = status.BinaryPath
+				t.Version = status.Version
 			}
-			t.Available = status.State == studio.StateInstalled
-			t.Binary = status.BinaryPath
-			t.Version = status.Version
 		}
 		out = append(out, ManagedTool{
 			ID: string(t.ID), Label: t.Label, Binary: t.Binary,
-			Installed: t.Available, Version: t.Version, InstallHint: t.InstallHint,
+			Installed: t.Available, Version: t.Version, InstallHint: t.InstallHint, ProbeError: t.ProbeError,
 		})
 	}
 	return out, nil
@@ -217,6 +220,9 @@ func (a *App) InstallManagedTool(tool, methodID string) error {
 	methods := installer.ToolMethods(installer.ToolID(tool), installer.ActionInstall, installer.DetectOS())
 	for _, m := range methods {
 		if m.ID == methodID {
+			if missing := installer.BlockingPrereqs(m, installer.RunOptions{}); len(missing) > 0 {
+				return fmt.Errorf("%s requires %s on PATH", tool, strings.Join(missing, ", "))
+			}
 			w := installLogWriter{ctx: a.ctx, cli: tool}
 			ctx, cancel := context.WithTimeout(a.ctx, 15*time.Minute)
 			defer cancel()
@@ -224,6 +230,20 @@ func (a *App) InstallManagedTool(tool, methodID string) error {
 				_, err := studio.NewManager(a.core).Install(ctx)
 				refreshManagedPaths()
 				return err
+			}
+			if tool == string(installer.ToolREA) {
+				c, err := a.requireCore()
+				if err != nil {
+					return err
+				}
+				if err := installer.Run(ctx, m, w, w); err != nil {
+					return err
+				}
+				if err := c.RegisterManagedREA(ctx); err != nil {
+					return fmt.Errorf("REA installed, but MCP registration failed: %w", err)
+				}
+				fmt.Fprintln(w, "✓ REA is available in the PrAImate MCP catalogue.")
+				return nil
 			}
 			err := installer.Run(ctx, m, w, w)
 			refreshManagedPaths()

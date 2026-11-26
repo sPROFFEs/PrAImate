@@ -74,7 +74,7 @@ func run(args []string) int {
 	updateFlag := flags.Bool("update", false, "download and install the latest release, then exit")
 	yesFlag := flags.Bool("y", false, "auto-confirm the update prompt")
 	installTool := flags.String("install-tool", "",
-		"install a PrAImate-managed tool and exit (graphify, gstack, scrapegraph, praimate-code)")
+		"install a PrAImate-managed tool and exit (graphify, gstack, scrapegraph, rea, praimate-code)")
 	mergeMemory := flags.Bool("merge-memory", false,
 		"git merge driver hook for per-chat MEMORY.md files; not for direct use")
 	runAgent := flags.String("run-agent", "",
@@ -124,7 +124,7 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "  --help, -h                 Print this help and exit")
 		fmt.Fprintln(os.Stderr, "  --check-update             Check for newer release on GitHub/mirror")
 		fmt.Fprintln(os.Stderr, "  --update                   Download and apply latest update")
-		fmt.Fprintln(os.Stderr, "  --install-tool <name>      Install tool (graphify, gstack, scrapegraph, praimate-code)")
+		fmt.Fprintln(os.Stderr, "  --install-tool <name>      Install tool (graphify, gstack, scrapegraph, rea, praimate-code)")
 		fmt.Fprintln(os.Stderr, "  --list-agents              List all agents stored in database")
 		fmt.Fprintln(os.Stderr, "\nAgent Execution Options (`praimate agent run`):")
 		fmt.Fprintln(os.Stderr, "  --agent <id>               Target agent ID (required)")
@@ -169,7 +169,7 @@ func run(args []string) int {
 		return runUpdate(*yesFlag)
 	}
 	if *installTool != "" {
-		return runInstallTool(*installTool)
+		return runInstallTool(*installTool, *dbPasswordStdin)
 	}
 	if *listAgents {
 		return runListAgents()
@@ -315,7 +315,9 @@ func runUpdate(autoYes bool) int {
 	return 0
 }
 
-func runInstallTool(name string) int {
+func runInstallTool(name string, dbPasswordStdin bool) int {
+	installer.ImportUserBinDirs()
+	installer.ImportWindowsRegistryPath()
 	if name == "praimate-code" {
 		if err := installer.InstallPraimateCode(context.Background(), os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "\npraimate: install praimate-code failed: %v\n", err)
@@ -349,11 +351,38 @@ func runInstallTool(name string) int {
 		fmt.Fprintln(os.Stderr, "       Windows: irm https://astral.sh/uv/install.ps1 | iex")
 		return 1
 	}
+	var register func() error
+	if id == installer.ToolREA {
+		c, closeCore, err := openAgentUtilityCore(dbPasswordStdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "praimate: open profile to register REA MCP: %v\n", err)
+			return 1
+		}
+		defer closeCore()
+		register = func() error { return c.RegisterManagedREA(context.Background()) }
+	}
 	method := methods[0]
+	for _, candidate := range methods {
+		if len(installer.BlockingPrereqs(candidate, installer.RunOptions{})) == 0 {
+			method = candidate
+			break
+		}
+	}
+	if missing := installer.BlockingPrereqs(method, installer.RunOptions{}); len(missing) > 0 {
+		fmt.Fprintf(os.Stderr, "praimate: %s requires %s on PATH\n", name, strings.Join(missing, ", "))
+		return 1
+	}
 	fmt.Printf("Installing %s\n  method: %s\n  command: %s\n\n", name, method.Label, method.Command)
 	if err := installer.Run(context.Background(), method, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintf(os.Stderr, "\npraimate: install %s failed: %v\n", name, err)
 		return 1
+	}
+	if register != nil {
+		if err := register(); err != nil {
+			fmt.Fprintf(os.Stderr, "praimate: REA installed, but MCP registration failed: %v\n", err)
+			return 1
+		}
+		fmt.Println("✓ REA is available in the PrAImate MCP catalogue.")
 	}
 	fmt.Printf("\n✓ %s installed. New chats and sandboxes will pick it up automatically.\n", name)
 	return 0

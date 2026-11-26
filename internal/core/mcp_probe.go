@@ -24,13 +24,17 @@ func (c *Core) ProbeMCPServer(ctx context.Context, id string) (MCPProbeResult, e
 	if err != nil {
 		return MCPProbeResult{}, err
 	}
+	return probeMCPDefinition(ctx, *server), nil
+}
+
+func probeMCPDefinition(ctx context.Context, server MCPServer) MCPProbeResult {
 	ctx, cancel := context.WithTimeout(ctx, 7*time.Second)
 	defer cancel()
 	started := time.Now()
-	fail := func(err error) (MCPProbeResult, error) {
-		return MCPProbeResult{Error: err.Error(), Latency: time.Since(started).Round(time.Millisecond).String()}, nil
+	fail := func(err error) MCPProbeResult {
+		return MCPProbeResult{Error: err.Error(), Latency: time.Since(started).Round(time.Millisecond).String()}
 	}
-	client, err := newManagedMCPClient(ctx, "", *server)
+	client, err := newManagedMCPClient(ctx, "", server)
 	if err != nil {
 		return fail(err)
 	}
@@ -43,5 +47,5 @@ func (c *Core) ProbeMCPServer(ctx context.Context, id string) (MCPProbeResult, e
 	for _, tool := range tools {
 		info = append(info, MCPToolInfo{Name: tool.Name, Description: tool.Description})
 	}
-	return MCPProbeResult{OK: true, Tools: info, Latency: time.Since(started).Round(time.Millisecond).String()}, nil
+	return MCPProbeResult{OK: true, Tools: info, Latency: time.Since(started).Round(time.Millisecond).String()}
 }

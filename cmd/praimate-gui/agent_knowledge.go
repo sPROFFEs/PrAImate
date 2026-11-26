@@ -225,7 +225,7 @@ func (a *App) GetAgentKnowledge(id string) (*AgentKnowledgeInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, gOK := installer.ResolveGraphify()
+	_, gOK := installer.ResolveGraphify(a.ctx)
 	nativeIndex := knowledge.HasIndex(dir)
 	graphifyIndex := knowledge.HasGraphifyIndex(dir)
 	retrievalEngine := "graphify"
@@ -553,7 +553,7 @@ func (a *App) BuildAgentRAG(id, backend, apiKey, model string) error {
 		}
 		return nil
 	}
-	graphifyBin, ok := installer.ResolveGraphify()
+	graphifyBin, ok := installer.ResolveGraphify(a.ctx)
 	if !ok {
 		return fmt.Errorf("graphify is not installed — install it from the CLIs tab (Managed tools) first")
 	}

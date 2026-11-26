@@ -241,7 +241,7 @@ func TestManagedKnowledgeFallsBackWhenGraphifyQueryFails(t *testing.T) {
 	}
 	withTempConfigDir(t)
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "graphify"), []byte("#!/bin/sh\nprintf 'broken graph index' >&2\nexit 2\n"), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "graphify"), []byte("#!/bin/sh\nif [ \"$1\" = --version ]; then echo graphify-fixture; exit 0; fi\nprintf 'broken graph index' >&2\nexit 2\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
