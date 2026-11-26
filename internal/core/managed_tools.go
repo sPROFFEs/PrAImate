@@ -19,13 +19,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/sPROFFEs/PrAImate/internal/appdata"
+	"github.com/sPROFFEs/PrAImate/internal/installer"
 	"github.com/sPROFFEs/PrAImate/internal/knowledge"
 )
 
@@ -866,8 +865,11 @@ func (b *managedToolBroker) queryKnowledge(ctx context.Context, raw json.RawMess
 	}
 	// Keep existing Graphify indexes usable, and fall back locally when its
 	// executable is absent or fails. An explicit built-in build takes precedence.
-	bin, graphErr := findGraphifyBinary()
-	if knowledge.UseNative(root) || !graphifyIndexPresent(root) || graphErr != nil {
+	if knowledge.UseNative(root) || !graphifyIndexPresent(root) {
+		return knowledge.Query(ctx, root, args.Question, args.Budget)
+	}
+	bin, found := installer.ResolveGraphify(ctx)
+	if !found {
 		return knowledge.Query(ctx, root, args.Question, args.Budget)
 	}
 	qctx, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -917,36 +919,6 @@ func existingRoot(path string) (string, string, error) {
 	}
 	real, err := filepath.EvalSymlinks(abs)
 	return abs, real, err
-}
-
-func findGraphifyBinary() (string, error) {
-	name := "graphify"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	if path, err := exec.LookPath("graphify"); err == nil {
-		return path, nil
-	}
-	root, err := appdata.Root()
-	if err != nil {
-		return "", err
-	}
-	for _, candidate := range []string{
-		filepath.Join(root, "bin", "praimate-graphify"+exeSuffix()),
-		filepath.Join(root, "tools", "graphify", "bin", name),
-	} {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
-		}
-	}
-	return "", errors.New("Graphify is not installed; install it from CLI & Tools")
-}
-
-func exeSuffix() string {
-	if runtime.GOOS == "windows" {
-		return ".exe"
-	}
-	return ""
 }
 
 func boundManagedOutput(text string) string {

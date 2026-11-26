@@ -218,7 +218,7 @@ func installFromBundledSidecar(m Method, w io.Writer) (bool, error) {
 	// The bundled sidecars are the default (AVX2) x64 builds; on a host
 	// that needs the baseline variant, skip straight to the release
 	// download so the right asset is fetched.
-	if m.VerifyRun && hostNeedsBaselineBuild() {
+	if m.FallbackAsset != "" && hostNeedsBaselineBuild() {
 		return false, nil
 	}
 	exe, err := os.Executable()

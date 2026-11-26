@@ -481,8 +481,19 @@ The UI no longer shows a second duplicate item for a source-built copy.
 Detection resolves the installed binary regardless of whether it came from a
 release asset or a local source build.
 
-Managed tools include PrAImate Code and Graphify. Other optional integrations
-appear only when their supported installer/detection entry exists.
+**Managed tools** also includes Graphify, gstack, ScrapeGraphAI and REA.
+Graphify prefers the bundled build when present and can also be installed with
+uv. ScrapeGraphAI uses a managed Python 3.12 environment. gstack needs Git, Bash
+and Bun and uses upstream setup to install its skills into supported hosts.
+
+Install **REA** here (or use `praimate --install-tool rea` with an unlocked
+profile). The installer uses the official `rea-agents` package and requires a
+compatible Node.js runtime and npm. After verifying the stdio connection,
+PrAImate adds **REA (local artifact analysis)** to **MCP**. Select it for a
+chat or agent, or use the existing enabled MCP selection when opening a new
+managed terminal. Reopen a terminal to reload its MCP configuration.
+The provided profile covers local artifacts and saved captures. On Server,
+installation and analysis run on the server host.
 
 ## Local LLM
 

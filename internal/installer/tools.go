@@ -3,6 +3,7 @@ package installer
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +30,7 @@ const (
 	// Installed into a PrAImate-managed prefix via `uv tool install` so the
 	// install is isolated from the user's Python environment.
 	ToolGraphify ToolID = "graphify"
+	ToolREA      ToolID = "rea"
 	// ToolGstack is Garry Tan's skill pack. It is not a normal binary
 	// helper: setup installs slash-command skills into supported hosts
 	// (Claude Code, Codex, OpenCode, etc.). PrAImate keeps the git checkout
@@ -81,7 +82,11 @@ func KnownTools() []Tool {
 			ID:          ToolGraphify,
 			Label:       "Graphify (knowledge-graph builder)",
 			Binary:      "graphify",
-			InstallHint: "uv tool install graphifyy   (needs uv on PATH; Clade installs into a managed prefix)",
+			InstallHint: "Install the bundled binary or use uv to install the pinned Graphify package.",
+		},
+		{
+			ID: ToolREA, Label: "REA (local artifact analysis)", Binary: "rea",
+			InstallHint: "Install with Node.js and npm to use the local artifact analysis MCP in supported CLIs.",
 		},
 		{
 			ID:          ToolGstack,
@@ -114,32 +119,47 @@ func KnownTools() []Tool {
 func DetectTools(ctx context.Context) []Tool {
 	tools := KnownTools()
 	for i := range tools {
-		candidates := toolCandidatePaths(tools[i].ID, tools[i].Binary)
-		var lastErr error
-		for _, cand := range candidates {
-			if st, err := os.Stat(cand); err != nil || st.IsDir() {
-				continue
-			}
-			version, perr := probeToolVersion(ctx, cand)
-			if perr != nil {
-				if lastErr == nil {
-					lastErr = perr
-				}
-				continue
-			}
+		if tools[i].ID == ToolREA {
+			detectREA(ctx, &tools[i])
+			continue
+		}
+		path, version, err := probeToolCandidates(ctx, toolCandidatePaths(tools[i].ID, tools[i].Binary))
+		if path != "" {
 			tools[i].Available = true
 			tools[i].Version = version
-			tools[i].Binary = cand
-			break
-		}
-		if !tools[i].Available && lastErr != nil {
-			tools[i].ProbeError = lastErr.Error()
+			tools[i].Binary = path
+		} else if err != nil {
+			tools[i].ProbeError = err.Error()
 		}
 	}
 	return tools
 }
 
+func probeToolCandidates(ctx context.Context, paths []string) (path, version string, firstErr error) {
+	seen := map[string]bool{}
+	for _, candidate := range paths {
+		if ctx.Err() != nil {
+			break
+		}
+		if seen[candidate] || !fileExists(candidate) {
+			continue
+		}
+		seen[candidate] = true
+		version, err := probeToolVersion(ctx, candidate)
+		if err == nil {
+			return candidate, version, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	return "", "", firstErr
+}
+
 func toolCandidatePaths(id ToolID, binary string) []string {
+	if id == ToolGraphify {
+		return graphifyCandidates()
+	}
 	var paths []string
 	// PATH first, in case the user installed by hand.
 	if p, err := exec.LookPath(binary); err == nil {
@@ -208,12 +228,11 @@ var errProbeTimeout = errors.New("--version probe timed out")
 // 8s deadline (Node / uv tools on Windows can take 3-6s to cold-start),
 // with the timeout-vs-real-failure distinction surfaced as a readable
 // error instead of the bare "signal: killed".
-func probeToolVersion(parent context.Context, path string) (string, error) {
+func probeToolVersion(parent context.Context, path string, args ...string) (string, error) {
 	const deadline = 8 * time.Second
 	ctx, cancel := context.WithTimeout(parent, deadline)
 	defer cancel()
-	probe := exec.CommandContext(ctx, path, "--version")
-	hideConsole(probe)
+	probe := toolVersionCommand(ctx, path, args)
 	out, err := probe.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -316,28 +335,32 @@ func BundledGraphifyPath() (string, error) {
 //  4. Whatever's on PATH.
 //
 // Returns ("", false) when graphify can't be found anywhere.
-func ResolveGraphify() (string, bool) {
-	if p, err := BundledGraphifyPath(); err == nil && fileExists(p) {
-		return p, true
-	}
+func ResolveGraphify(ctx context.Context) (string, bool) {
+	path, _, _ := probeToolCandidates(ctx, graphifyCandidates())
+	return path, path != ""
+}
+
+// graphifyCandidates is shared by the installer catalogue and RAG lookup.
+// The unprefixed file in PrAImate's bin directory is a legacy bundled install.
+func graphifyCandidates() []string {
+	var paths []string
 	name := "graphify"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
+	if bundled, err := BundledGraphifyPath(); err == nil {
+		paths = append(paths, bundled, filepath.Join(filepath.Dir(bundled), name))
+	}
 	if binDir, err := ManagedToolBinDir("graphify"); err == nil {
-		if p := filepath.Join(binDir, name); fileExists(p) {
-			return p, true
-		}
+		paths = append(paths, filepath.Join(binDir, name))
 	}
 	if base, err := os.UserConfigDir(); err == nil {
-		if p := filepath.Join(base, "clade", "tools", "graphify", "bin", name); fileExists(p) {
-			return p, true
-		}
+		paths = append(paths, filepath.Join(base, "clade", "tools", "graphify", "bin", name))
 	}
-	if p, err := exec.LookPath("graphify"); err == nil {
-		return p, true
+	if path, err := exec.LookPath("graphify"); err == nil {
+		paths = append(paths, path)
 	}
-	return "", false
+	return paths
 }
 
 // graphifyAssetName is the release-asset file name for the bundled
@@ -357,7 +380,7 @@ func graphifyAssetName() string {
 // pinned uv method instead (still robust — same vetted version).
 func graphifyAssetShipped() bool {
 	switch runtime.GOOS + "/" + runtime.GOARCH {
-	case "linux/amd64":
+	case "linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64", "windows/amd64":
 		return true
 	default:
 		return false
@@ -369,7 +392,7 @@ func graphifyAssetShipped() bool {
 // standalone build from the GitHub release into <config>/praimate/bin.
 // Returns nil when no asset ships for this platform or the praimate bin
 // dir can't be resolved.
-func graphifyBundledMethod(current OS) *Method {
+func graphifyBundledMethod() *Method {
 	if !graphifyAssetShipped() {
 		return nil
 	}
@@ -377,10 +400,7 @@ func graphifyBundledMethod(current OS) *Method {
 	if err != nil {
 		return nil
 	}
-	dest := filepath.Join(binDir, "graphify")
-	if current == OSWindows {
-		dest += ".exe"
-	}
+	dest := filepath.Join(binDir, bundledGraphifyName())
 	asset := graphifyAssetName()
 	return &Method{
 		ID:            "download",
@@ -388,6 +408,7 @@ func graphifyBundledMethod(current OS) *Method {
 		Command:       assetDownloadDisplayCmd(asset, dest),
 		DownloadAsset: asset,
 		DownloadDest:  dest,
+		VerifyRun:     true,
 		Recommended:   true,
 	}
 }
@@ -412,10 +433,7 @@ func InstallBundledGraphify(ctx context.Context, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	dest := filepath.Join(binDir, "graphify")
-	if runtime.GOOS == "windows" {
-		dest += ".exe"
-	}
+	dest := filepath.Join(binDir, bundledGraphifyName())
 	asset := graphifyAssetName()
 	m := Method{
 		ID:            "download",
@@ -423,6 +441,7 @@ func InstallBundledGraphify(ctx context.Context, w io.Writer) error {
 		Command:       assetDownloadDisplayCmd(asset, dest),
 		DownloadAsset: asset,
 		DownloadDest:  dest,
+		VerifyRun:     true,
 	}
 	return Run(ctx, m, w, w)
 }
@@ -454,7 +473,7 @@ func ToolMethods(tool ToolID, action Action, current OS) []Method {
 	return filtered
 }
 
-func allToolMethods(tool ToolID, action Action, current OS) []Method {
+func allToolMethods(tool ToolID, _ Action, current OS) []Method {
 	switch tool {
 	case ToolGraphify:
 		// uv tool install graphifyy — pure Python wheels, no native
@@ -478,14 +497,11 @@ func allToolMethods(tool ToolID, action Action, current OS) []Method {
 		// No shell quoting: Command is split with strings.Fields and
 		// exec'd directly (no shell), and the spec has no whitespace.
 		pin := "graphifyy[openai]==" + GraphifyPinnedVersion
-		cmd := "uv tool install --index-url=https://pypi.org/simple/ " + pin
-		if action == ActionUpdate {
-			cmd = "uv tool upgrade --index-url=https://pypi.org/simple/ " + pin
-		}
+		cmd := "uv tool install --reinstall --index-url=https://pypi.org/simple/ " + pin
 		var methods []Method
 		// Recommended: PrAImate's bundled standalone build — no Python or
 		// uv needed, and it's the exact version we test against.
-		if m := graphifyBundledMethod(current); m != nil {
+		if m := graphifyBundledMethod(); m != nil {
 			methods = append(methods, *m)
 		}
 		methods = append(methods, Method{
@@ -498,6 +514,8 @@ func allToolMethods(tool ToolID, action Action, current OS) []Method {
 			Prereqs:          []string{"uv"},
 		})
 		return methods
+	case ToolREA:
+		return []Method{reaMethod()}
 	case ToolGstack:
 		// gstack's upstream setup is a bash script that installs skills
 		// into whichever supported hosts it detects. The README's broad
@@ -517,7 +535,7 @@ func allToolMethods(tool ToolID, action Action, current OS) []Method {
 				ManagedPrefix:    "gstack",
 				ManagedPrefixPkg: "https://github.com/garrytan/gstack.git",
 				Recommended:      true,
-				Prereqs:          []string{"git", "bun"},
+				Prereqs:          []string{"bash", "git", "bun"},
 			},
 		}
 	case ToolScrapeGraph:
@@ -530,8 +548,8 @@ func allToolMethods(tool ToolID, action Action, current OS) []Method {
 		return []Method{
 			{
 				ID:               "uv",
-				Label:            "uv venv install + Clade scrapegraph-search wrapper",
-				Command:          "uv venv <managed>/venv && uv pip install --python <managed>/venv/{bin,Scripts}/python --index-url=https://pypi.org/simple/ scrapegraphai 'scrapegraph-py>=2.1.0'",
+				Label:            "uv venv (Python 3.12) + PrAImate search wrapper",
+				Command:          "uv venv --python 3.12 <managed>/venv && uv pip install --upgrade --python <managed>/venv/{bin,Scripts}/python --index-url=https://pypi.org/simple/ scrapegraphai 'scrapegraph-py>=2.1.0'",
 				ManagedPrefix:    "scrapegraph",
 				ManagedPrefixPkg: pkgs,
 				Recommended:      true,
@@ -798,7 +816,7 @@ func installUvIntoManagedPrefix(ctx context.Context, m Method, extraEnv []string
 			return fmt.Errorf("create %s: %w", d, err)
 		}
 	}
-	fmt.Fprintf(stdout, "→ installing %s into Clade-managed prefix: %s\n", m.ManagedPrefixPkg, prefix)
+	fmt.Fprintf(stdout, "→ installing %s into PrAImate-managed prefix: %s\n", m.ManagedPrefixPkg, prefix)
 
 	// uv reads UV_TOOL_DIR + UV_TOOL_BIN_DIR for the install destination.
 	// We pass them via the command env so the user's global uv config is
@@ -818,7 +836,7 @@ func installUvIntoManagedPrefix(ctx context.Context, m Method, extraEnv []string
 		"UV_INDEX_URL=https://pypi.org/simple/",
 	)
 	cmd.Env = env
-	cmd.Stdout = io.MultiWriter(stdout, &cap)
+	cmd.Stdout = stdout
 	cmd.Stderr = io.MultiWriter(stderr, &cap)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s into %s: %w\n%s", m.Command, prefix, err, cap.String())
@@ -837,6 +855,9 @@ func installUvIntoManagedPrefix(ctx context.Context, m Method, extraEnv []string
 	if !binPresent {
 		return fmt.Errorf("%s ran but %s binary not found under %s",
 			m.Command, m.ManagedPrefix, binDir)
+	}
+	if _, err := probeToolVersion(ctx, bin); err != nil {
+		return fmt.Errorf("verify %s: %w", m.ManagedPrefix, err)
 	}
 	fmt.Fprintf(stdout, "✓ %s installed; binary at %s\n", m.ManagedPrefix, bin)
 	return nil
@@ -862,7 +883,7 @@ func installGstackIntoManagedPrefix(ctx context.Context, m Method, extraEnv []st
 			return err
 		}
 	} else {
-		fmt.Fprintf(stdout, "→ cloning gstack into Clade-managed prefix: %s\n", repo)
+		fmt.Fprintf(stdout, "→ cloning gstack into PrAImate-managed prefix: %s\n", repo)
 		if err := os.RemoveAll(repo); err != nil {
 			return fmt.Errorf("clean stale gstack checkout %s: %w", repo, err)
 		}
@@ -890,8 +911,8 @@ func installGstackIntoManagedPrefix(ctx context.Context, m Method, extraEnv []st
 	if runtime.GOOS == "windows" {
 		bin += ".cmd"
 	}
-	if _, err := os.Stat(bin); err != nil {
-		return fmt.Errorf("gstack setup ran but wrapper not found at %s: %w", bin, err)
+	if _, err := probeToolVersion(ctx, bin); err != nil {
+		return fmt.Errorf("verify gstack wrapper: %w", err)
 	}
 	fmt.Fprintf(stdout, "✓ gstack skills installed; detection wrapper at %s\n", bin)
 	return nil
@@ -912,14 +933,14 @@ func installScrapeGraphIntoManagedVenv(ctx context.Context, m Method, extraEnv [
 
 	fmt.Fprintf(stdout, "→ creating ScrapeGraphAI venv: %s\n", venv)
 	if err := runToolCommand(ctx, stdout, stderr, "", extraEnv,
-		"uv", "venv", venv); err != nil {
+		"uv", "venv", "--allow-existing", "--python", "3.12", venv); err != nil {
 		return err
 	}
 	python := managedVenvPython(venv)
 	installEnv := append([]string{}, extraEnv...)
 	installEnv = append(installEnv, "UV_INDEX_URL=https://pypi.org/simple/")
 	args := []string{
-		"pip", "install",
+		"pip", "install", "--upgrade",
 		"--python", python,
 		"--index-url=https://pypi.org/simple/",
 	}
@@ -935,8 +956,8 @@ func installScrapeGraphIntoManagedVenv(ctx context.Context, m Method, extraEnv [
 	if runtime.GOOS == "windows" {
 		bin += ".cmd"
 	}
-	if _, err := os.Stat(bin); err != nil {
-		return fmt.Errorf("scrapegraph install ran but wrapper not found at %s: %w", bin, err)
+	if _, err := probeToolVersion(ctx, python, filepath.Join(prefix, "scrapegraph-search.py")); err != nil {
+		return fmt.Errorf("verify ScrapeGraphAI: %w", err)
 	}
 	fmt.Fprintf(stdout, "✓ ScrapeGraphAI installed; binary at %s\n", bin)
 	return nil
@@ -952,7 +973,7 @@ func runToolCommand(ctx context.Context, stdout, stderr io.Writer, dir string, e
 	hideConsole(cmd)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
-	cmd.Stdout = io.MultiWriter(stdout, &cap)
+	cmd.Stdout = stdout
 	cmd.Stderr = io.MultiWriter(stderr, &cap)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w\n%s", name, err, cap.String())
@@ -960,14 +981,21 @@ func runToolCommand(ctx context.Context, stdout, stderr io.Writer, dir string, e
 	return nil
 }
 
+func validVersionLabel(version string) bool {
+	return version != "" && !strings.ContainsFunc(version, func(r rune) bool {
+		return !(r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || strings.ContainsRune(".+-", r))
+	})
+}
+
 func writeGstackWrapper(binDir, repo string) error {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return fmt.Errorf("create gstack bin dir: %w", err)
 	}
-	version := "gstack installed (managed by Clade)"
+	version := "gstack skill pack (managed by PrAImate)"
 	if raw, err := os.ReadFile(filepath.Join(repo, "package.json")); err == nil {
-		if i := bytes.Index(raw, []byte(`"version"`)); i >= 0 {
-			version = "gstack skill pack (managed by Clade)"
+		var pkg struct{ Version string }
+		if json.Unmarshal(raw, &pkg) == nil && validVersionLabel(pkg.Version) {
+			version = "gstack " + pkg.Version
 		}
 	}
 	unix := "#!/usr/bin/env sh\n" +
@@ -975,7 +1003,7 @@ func writeGstackWrapper(binDir, repo string) error {
 		"  printf '%s\\n' " + shellQuote(version) + "\n" +
 		"  exit 0\n" +
 		"fi\n" +
-		"printf '%s\\n' 'gstack is installed as AI-agent skills via Clade.'\n" +
+		"printf '%s\\n' 'gstack is installed as AI-agent skills via PrAImate.'\n" +
 		"printf '%s\\n' 'Use the gstack slash commands inside supported hosts: Claude Code, Codex, OpenCode, Gemini CLI.'\n" +
 		"printf '%s\\n' 'DeepSeek-TUI is not a documented gstack host.'\n" +
 		"printf 'source: %s\\n' " + shellQuote(repo) + "\n"
@@ -987,10 +1015,9 @@ func writeGstackWrapper(binDir, repo string) error {
 		"  echo " + version + "\r\n" +
 		"  exit /b 0\r\n" +
 		")\r\n" +
-		"echo gstack is installed as AI-agent skills via Clade.\r\n" +
+		"echo gstack is installed as AI-agent skills via PrAImate.\r\n" +
 		"echo Use the gstack slash commands inside supported hosts: Claude Code, Codex, OpenCode, Gemini CLI.\r\n" +
-		"echo DeepSeek-TUI is not a documented gstack host.\r\n" +
-		"echo source: " + repo + "\r\n"
+		"echo DeepSeek-TUI is not a documented gstack host.\r\n"
 	if err := os.WriteFile(filepath.Join(binDir, "gstack.cmd"), []byte(cmd), 0o755); err != nil {
 		return fmt.Errorf("write gstack Windows wrapper: %w", err)
 	}
@@ -1006,11 +1033,15 @@ func writeScrapeGraphWrapper(prefix, binDir, python string) error {
 	if err := os.WriteFile(filepath.Join(binDir, "scrapegraph-search"), []byte(unix), 0o755); err != nil {
 		return fmt.Errorf("write scrapegraph-search wrapper: %w", err)
 	}
-	cmd := "@echo off\r\n" + strconv.Quote(python) + " " + strconv.Quote(scriptPath) + " %*\r\n"
+	cmd := "@echo off\r\nsetlocal DisableDelayedExpansion\r\n" + quoteBatchPath(python) + " " + quoteBatchPath(scriptPath) + " %*\r\n"
 	if err := os.WriteFile(filepath.Join(binDir, "scrapegraph-search.cmd"), []byte(cmd), 0o755); err != nil {
 		return fmt.Errorf("write scrapegraph-search Windows wrapper: %w", err)
 	}
 	return nil
+}
+
+func quoteBatchPath(path string) string {
+	return `"` + strings.ReplaceAll(path, "%", "%%") + `"`
 }
 
 func managedVenvPython(venv string) string {
@@ -1027,11 +1058,10 @@ func shellQuote(s string) string {
 func scrapeGraphSearchPython() string {
 	return `#!/usr/bin/env python3
 import argparse
+from importlib.metadata import PackageNotFoundError, version
 import json
 import os
 import sys
-
-VERSION = "scrapegraph-search (Clade wrapper for scrapegraphai + scrapegraph-py)"
 
 
 def parse_args():
@@ -1100,7 +1130,11 @@ def run_oss(prompt):
 def main():
     args = parse_args()
     if args.version:
-        print(VERSION)
+        try:
+            print(f"scrapegraph-search (scrapegraphai {version('scrapegraphai')}, SDK {version('scrapegraph-py')})")
+        except PackageNotFoundError as exc:
+            print(f"scrapegraph-search: reinstall the managed tool; missing {exc.name}", file=sys.stderr)
+            return 1
         return 0
     query = " ".join(args.query).strip()
     prompt = (args.prompt or query).strip()

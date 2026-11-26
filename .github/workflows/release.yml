@@ -37,7 +37,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: go test ./internal/studio ./cmd/praimate
+      - run: go test ./internal/studio ./cmd/praimate ./internal/installer
+      - run: go test ./internal/core -run '^(TestRegisterManagedREAUsesSharedCatalogueAndPreservesDisabledState|TestManagedKnowledgeFallsBackWhenGraphifyQueryFails)$'
       - run: node --test internal/studio/extension/extension.test.js
       - working-directory: cmd/praimate-gui/frontend
         run: |

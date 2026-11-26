@@ -5,7 +5,7 @@
   import { onMount, onDestroy } from 'svelte'
   import { get } from 'svelte/store'
   import { api } from '../lib/api.js'
-  import { cliCache, prefetchCLIs, showConfirm } from '../lib/stores.js'
+  import { activePage, cliCache, prefetchCLIs, showConfirm } from '../lib/stores.js'
 
   let clis = []
   let error = ''
@@ -19,6 +19,7 @@
 
   // managed helper tools (graphify, gstack, scrapegraph)
   let tools = []
+  let toolsError = ''
   let toolMethods = {}
   let toolChosen = {}
 
@@ -42,7 +43,9 @@
         ...installModal,
         status: 'success',
         path: detected.binary || '',
-        message: 'Installation complete. PATH was refreshed and the executable was detected.',
+        message: id === 'rea'
+          ? 'REA is registered in MCP. Select it for a chat or agent to analyse local artifacts.'
+          : 'Installation complete. PATH was refreshed and the executable was detected.',
       }
       appendInstallLine(`✓ detected${detected.binary ? ` at ${detected.binary}` : ''}${detected.version ? ` · ${detected.version}` : ''}`)
       return
@@ -50,7 +53,7 @@
     installModal = {
       ...installModal,
       status: 'error',
-      message: 'The installer finished, but PrAImate could not detect the executable after refreshing PATH.',
+      message: detected?.probeError || (kind === 'tool' && toolsError) || 'The installer finished, but PrAImate could not detect the executable after refreshing PATH.',
     }
   }
 
@@ -62,7 +65,8 @@
     } catch (e) {
       error = String(e)
     }
-    try { tools = (await api.listManagedTools()) || [] } catch { tools = [] }
+    toolsError = ''
+    try { tools = (await api.listManagedTools()) || [] } catch (e) { toolsError = String(e) }
     loading = false
     // Keep the app-wide prefetch cache warm so re-opening the tab is
     // instant after this fresh probe.
@@ -74,7 +78,8 @@
     try {
       const ms = (await api.listToolInstallMethods(t.id)) || []
       toolMethods = { ...toolMethods, [t.id]: ms }
-      toolChosen[t.id] = ms.find((m) => m.recommended)?.id || ms[0]?.id || ''
+      const runnable = ms.filter((m) => !m.missingPrereqs?.length)
+      toolChosen[t.id] = runnable.find((m) => m.recommended)?.id || runnable[0]?.id || ''
     } catch (e) {
       error = String(e)
     }
@@ -93,7 +98,7 @@
       })
       return
     }
-    if (methodID === 'npm' || methodID === 'pnpm') {
+    if ((methodID === 'npm' && t.id !== 'rea') || methodID === 'pnpm') {
       const ok = await showConfirm({
         title: 'Security Warning: Package Install',
         message: `npm/pnpm packages can execute code during installation via postinstall scripts.\n\nOnly install packages you trust.\n\nProceed with installing ${t.label}?`,
@@ -189,7 +194,7 @@
     // KnownAgents always returns rows. An empty prefetch therefore means
     // the background binding failed; retry through load() so the tab
     // surfaces the real error instead of silently rendering no CLIs.
-    if (!warmed.clis?.length) {
+    if (!warmed.clis?.length || !warmed.tools?.length) {
       await load()
       return
     }
@@ -259,6 +264,9 @@
       {#if installModal.path}<div class="detected-path mono">{installModal.path}</div>{/if}
       <pre class="install-log modal-log">{installModal.lines.join('\n') || 'Waiting for installer output…'}</pre>
       <div class="row" style="justify-content:flex-end; margin-top:14px">
+        {#if installModal.status === 'success' && installModal.id === 'rea'}
+          <button class="btn primary" on:click={() => { installModal = null; activePage.set('mcp') }}>Open MCP</button>
+        {/if}
         <button class="btn" on:click={() => (installModal = null)} disabled={installModal.status === 'running' || installModal.status === 'refreshing'}>
           {installModal.status === 'success' ? 'Done' : 'Close'}
         </button>
@@ -314,9 +322,10 @@
   </div>
 {/each}
 
+{#if toolsError}<div class="banner" role="alert">{toolsError}</div>{/if}
 {#if tools.length > 0}
   <h1 style="font-size:16px; margin-top:24px">Managed tools</h1>
-  <p class="subtitle">Helper tools installed into PrAImate-managed prefixes, available to every agent.</p>
+  <p class="subtitle">Install and maintain the tools used by your agents.</p>
   {#each tools as t}
     <div class="card">
       <div class="row">
@@ -326,6 +335,8 @@
             <span class="pill" class:ok={t.installed} class:err={!t.installed}>{t.installed ? 'installed' : 'not installed'}</span>
           </div>
           <div class="card-sub mono">{t.binary}{t.version ? ' · ' + t.version : ''}</div>
+          {#if t.probeError}<div class="card-sub" role="status">{t.probeError}</div>{/if}
+          {#if t.id === 'rea'}<div class="card-sub">Registers a local artifact analysis server in MCP. Reopen a managed session to use it with its MCP selection.</div>{/if}
           {#if t.id === 'graphify'}<div class="card-sub" style="font-size:11.5px; margin-top:2px">Knowledge-graph RAG engine for agents. Optional: extends the built-in RAG engine with semantic extraction and PDF/media support.</div>{/if}
         </div>
         <button class="btn" class:primary={!t.installed} on:click={() => showToolMethods(t)}>
@@ -345,7 +356,7 @@
                   </option>
                 {/each}
               </select>
-              <button class="btn primary" on:click={() => installTool(t)} disabled={installing !== ''}>
+              <button class="btn primary" on:click={() => installTool(t)} disabled={installing !== '' || !toolChosen[t.id]}>
                 {installing === t.id ? 'Installing…' : 'Run'}
               </button>
             </div>
