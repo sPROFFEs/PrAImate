@@ -17,6 +17,8 @@
   import ContextMenu from '../lib/ContextMenu.svelte'
   import { langOf as fileLang } from '../lib/langOf.js'
   import { renderMarkdown } from '../lib/markdown.js'
+  import ChatActivity from '../lib/ChatActivity.svelte'
+  import { applyChatStreamEvent } from '../lib/chatActivity.js'
   import { showSkillDeliveryToast, showConfirm } from '../lib/stores.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
 
@@ -589,19 +591,7 @@
   function handleStreamEvent(ev) {
     if (ev.chatId !== chatId || (!sending&&!remoteSync)) return
     if(!sending){sending=true;remoteSync.refresh()}
-    if (!stream) stream = { text: '', tools: [], reasoning: [], steps: [] }
-    if (ev.type === 'text') stream.text += (ev.text || '')
-    else if (ev.type === 'reasoning') stream.reasoning = (stream.reasoning || '') + (ev.text || ev.detail || '')
-    else if (ev.type === 'step_start' || ev.type === 'step_finish' || ev.type === 'context_compacted' || ev.type === 'context_recovery' || ev.type === 'error') stream.steps = [...(stream.steps || []), { type: ev.type.startsWith('context_') ? 'step_start' : ev.type, detail: ev.detail, ok: ev.type !== 'error' && ev.ok !== false }]
-    else if (ev.type === 'tool_start') stream.tools = [...stream.tools, { id: ev.id || '', tool: ev.tool, detail: ev.detail, done: false, ok: true }]
-    else if (ev.type === 'tool_end') {
-      const t = [...stream.tools]
-      let idx = ev.id ? t.findIndex((x) => x.id === ev.id && !x.done) : -1
-      if (idx < 0) idx = t.findIndex((x) => !x.done)
-      if (idx >= 0) t[idx] = { ...t[idx], done: true, ok: ev.ok }
-      stream.tools = t
-    }
-    stream = stream
+    stream = applyChatStreamEvent(stream, ev)
     scrollToBottom()
   }
 
@@ -696,31 +686,6 @@
   // hide it in the transcript.
   function cleanMsg(s) {
     return String(s).replace(/\n*\[The user is looking at:[^\]]*\]\s*$/, '')
-  }
-
-  function activityTitle(activity) {
-    const n = activity?.length || 0
-    return `Activity · ${n} event${n === 1 ? '' : 's'}`
-  }
-
-  function activityStatus(t) {
-    if (t.type === 'reasoning') return '💭'
-    if (t.type === 'step_start') return '◌'
-    if (t.type === 'step_finish') return '✓'
-    if (t.type === 'error' || t.ok === false) return '✗'
-    return '✓'
-  }
-
-  function activityName(t) {
-    if (t.type === 'reasoning') return 'thought'
-    if (t.type === 'step_start') return 'step'
-    if (t.type === 'step_finish') return 'step done'
-    if (t.type === 'error') return 'error'
-    return t.tool || t.type || 'tool'
-  }
-
-  function activityDetail(t) {
-    return (t.type === 'reasoning' ? (t.text || t.detail) : (t.detail || t.text)) || ''
   }
 
   function onWindowKey(e) {
@@ -1016,18 +981,7 @@
       {#each messages as m}
         <div class="msg {m.Role === 'user' ? 'user' : 'assistant'}" class:pending={m._pending}>
           <div class="who">{m.Role}{m.TS ? ' · ' + fmtDate(m.TS) : ''}</div>
-          {#if m.Meta?.activity?.length}
-            <details class="activity-block">
-              <summary>{activityTitle(m.Meta.activity)}</summary>
-              <div class="tool-feed">
-                {#each m.Meta.activity as t}
-                  <div class="tool-row" class:err={t.ok === false || t.type === 'error'} class:reasoning-row={t.type === 'reasoning'}>
-                    {activityStatus(t)} {activityName(t)} <span class="mono" class:reasoning-detail={t.type === 'reasoning'}>{activityDetail(t) || ''}</span>
-                  </div>
-                {/each}
-              </div>
-            </details>
-          {/if}
+          <ChatActivity events={m.Meta?.activity || []} hidden={true} />
           {#if m.Role === 'user'}
             {cleanMsg(m.Content)}
           {:else}
@@ -1038,25 +992,7 @@
       {#if sending}
         <div class="msg assistant">
           <div class="who">assistant</div>
-          {#if stream?.reasoning}
-            <div class="tool-feed">
-              <div class="tool-row reasoning-row">💭 thought <span class="reasoning-detail">{stream.reasoning}</span></div>
-            </div>
-          {/if}
-          {#if stream?.steps?.length}
-            <div class="tool-feed">
-              {#each stream.steps as s}
-                <div class="tool-row" class:err={!s.ok}>{s.ok ? (s.type === 'step_finish' ? '✓' : '◌') : '✗'} {s.type === 'error' ? 'error' : s.type === 'step_finish' ? 'step done' : 'step'} <span class="mono">{s.detail || ''}</span></div>
-              {/each}
-            </div>
-          {/if}
-          {#if stream?.tools?.length}
-            <div class="tool-feed">
-              {#each stream.tools as t}
-                <div class="tool-row">{t.done ? (t.ok ? '✓' : '✗') : '◌'} {t.tool} <span class="mono">{t.detail || ''}</span></div>
-              {/each}
-            </div>
-          {/if}
+          <ChatActivity events={stream?.activity || []} hidden={true} />
           {#if stream?.text}<div class="markdown">{@html renderMarkdown(stream.text)}</div><span class="cursor">▍</span>{:else}<span class="typing">…working</span>{/if}
         </div>
       {/if}
@@ -1390,13 +1326,6 @@
   .thread { flex: 1; overflow-y: auto; min-height: 0; }
   .composer { display: flex; gap: 6px; align-items: flex-end; padding-top: 8px; }
   .composer textarea { resize: none; }
-  .tool-feed { font-size: 11px; color: var(--text-dim); border-left: 2px solid var(--border); padding: 4px 8px; margin-bottom: 6px; }
-  .activity-block { margin: 3px 0 6px; }
-  .activity-block summary { cursor: pointer; color: var(--text-dim); font-size: 11px; user-select: none; }
-  .activity-block .tool-feed { margin-bottom: 0; }
-  .tool-row.err { color: var(--danger, #e5484d); }
-  .reasoning-row { color: var(--accent, #7c6cf2); white-space: pre-wrap; }
-  .reasoning-detail { white-space: pre-wrap; }
   .typing { color: var(--text-dim); font-style: italic; }
   .cursor { animation: blink 1s steps(1) infinite; }
   @keyframes blink { 50% { opacity: 0; } }

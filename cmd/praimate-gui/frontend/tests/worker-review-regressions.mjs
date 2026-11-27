@@ -148,6 +148,55 @@ try {
     await screenshot('chat-find-activity-'+theme)
     await execute("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Show activity').click();")
   }
+
+  // Switch away mid-turn, then mount Chats again without choosing the chat.
+  // A delayed history request exercises a delta racing with snapshot restore.
+  await execute(`
+    issueReview.data.ListChats=[{ID:'running-chat',Title:'Navigation fixture',CLIAgent:'codex',Settings:{}}];
+    issueReview.data.ChatMessages=[{Role:'user',Content:'Keep working'}];
+    issueReview.data.ChatLiveState={turnId:8,events:[{chatId:'running-chat',turnId:8,sequence:2,type:'text',text:'first chunk'}]};
+    issueReview.show('chats');
+  `)
+  await until("document.querySelector('.thread')?.textContent.includes('first chunk')")
+  await execute(`
+    issueReview.show('studio');
+    const progress={chatId:'running-chat',turnId:8,sequence:3,type:'reasoning',text:'thinking between pages'};
+    issueReview.data.ChatLiveState.events.push(progress);
+    issueReview.data.ChatMessages=()=>new Promise(resolve=>{window.resolveHistory=resolve});
+    issueReview.show('chats',{keepSelection:true});
+  `)
+  await until('typeof window.resolveHistory==="function"')
+  assert.equal(await evaluate("document.querySelector('.composer textarea').disabled"),true)
+  await execute(`
+    issueReview.emit('praimate:chat-stream', {chatId:'running-chat',turnId:8,sequence:3,type:'reasoning',text:'thinking between pages'});
+    issueReview.emit('praimate:chat-stream', {chatId:'running-chat',turnId:8,sequence:4,type:'text',text:' and more'});
+    resolveHistory([{Role:'user',Content:'Keep working'}]);
+  `)
+  await until("document.querySelector('.thread')?.textContent.includes('first chunk and more')")
+  assert.equal(await evaluate("document.querySelector('.thread').textContent.split('thinking between pages').length"),2)
+  assert.equal(await evaluate("document.querySelector('.composer textarea').disabled"),true)
+  await execute(`
+    issueReview.data.ChatLiveState={turnId:0,events:[]};
+    issueReview.data.ChatMessages=[{Role:'user',Content:'Keep working'},{Role:'assistant',Content:'Saved final response'}];
+    issueReview.emit('praimate:chat-finished',{chatId:'running-chat'});
+  `)
+  await until("document.querySelector('.thread')?.textContent.includes('Saved final response') && !document.querySelector('.composer textarea')?.disabled")
+  assert.equal(await evaluate("document.querySelector('.thread').textContent.includes('first chunk and more')"),false)
+
+  // Document replies retain inspectable activity without expanding it on load.
+  await call('browsingContext.setViewport', { context, viewport: { width: 1200, height: 800 }, devicePixelRatio: 1 })
+  await execute(`
+    issueReview.data.EditorListFiles=[];
+    issueReview.data.ChatMessages=[{Role:'assistant',Content:'Document answer',Meta:{activity:[{type:'reasoning',text:'internal progress'}]}}];
+    issueReview.show('editor',{folder:'/fixture',chatId:'running-chat'});
+  `)
+  await until("document.querySelector('.thread details.activity-block')")
+  assert.equal(await evaluate("document.querySelector('.thread details.activity-block').open"),false)
+  assert.equal(await evaluate("document.querySelector('.thread').innerText.includes('internal progress')"),false)
+  await execute("document.querySelector('.thread details.activity-block summary').click();")
+  await until("document.querySelector('.thread').innerText.includes('internal progress')")
+  await screenshot('document-activity-expanded')
+  console.log('PASS: restored live chat after remount, deduplicated activity, guarded the composer, loaded the saved response, and collapsed Document activity.')
   console.log('PASS: both themes; Studio models, board, picker, live scroll, persisted run, Markdown, collapsed followups; GUI chat find across markup and hidden activity; review/merge actions.')
 } catch (error) {
   await screenshot('failure')

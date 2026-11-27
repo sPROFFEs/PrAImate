@@ -69,6 +69,7 @@ type App struct {
 	chatCancels            map[string]context.CancelFunc
 	chatCancelIDs          map[string]uint64
 	chatCancelSeq          uint64
+	chatLive               map[string]*liveChatTurn // guarded by chatCancelMu
 	workflowCancelMu       sync.Mutex
 	workflowCancels        map[string]context.CancelFunc
 	managedCancelMu        sync.Mutex

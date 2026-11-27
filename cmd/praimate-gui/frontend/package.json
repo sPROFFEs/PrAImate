@@ -21,7 +21,7 @@
     "test:mobile": "node --test src/lib/androidTransport.test.js src/lib/mobileNavigation.test.js src/lib/mobileDialogs.test.js src/lib/editionNavigation.test.js src/lib/mobileTerminalInput.test.js src/lib/mobileViewport.test.js src/lib/composerKeyboard.test.js",
     "test:mobile-layout": "node tests/mobile-layout.mjs",
     "test:chat-search": "node --test src/lib/chatSearch.test.js",
-    "test:chat-activity": "node --test src/lib/chatActivity.test.js src/lib/chatActivityPref.test.js"
+    "test:chat-activity": "node --test src/lib/chatActivity.test.js src/lib/chatActivityPref.test.js src/lib/chatLiveState.test.js"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",

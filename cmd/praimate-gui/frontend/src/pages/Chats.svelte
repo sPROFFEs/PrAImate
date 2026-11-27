@@ -13,7 +13,7 @@
   import ChatTools from '../lib/ChatTools.svelte'
   import ChatActivityToggle from '../lib/ChatActivityToggle.svelte'
   import { hideChatActivity } from '../lib/chatActivityPref.js'
-  import { applyChatStreamEvent } from '../lib/chatActivity.js'
+  import { applyLiveChatEvent, restoreLiveChat } from '../lib/chatLiveState.js'
   import { toolLevelsForCli, normalizeToolsForCli } from '../lib/chatTools.js'
   import { findTerminalForChat } from '../lib/terminal.js'
   import { localRoutingUnavailableMessage, supportsLocalRouting } from '../lib/localRouting.js'
@@ -44,24 +44,44 @@
   let detachedChats = new Set()
   let unsubDetached = () => {}
   let serverEdition = !!window.praimateRemote
-  let ownTurnId = ''
-  let remoteUnsubs = []
+  const ownTurns = new Set()
+  const eventUnsubs = []
+  let disposed = false
+  let liveView = null
+  let threadSync = null
 
-  async function syncRemoteThread() {
-    if (!serverEdition) return
+  async function syncThread() {
     const id = selected?.ID
+    if (!id || disposed) return
+    const request = { id, events: [] }
+    threadSync = request
+    const current = () => !disposed && selected?.ID === id && threadSync === request
     try {
-      const activity = await api.remoteActivity()
-      if (!id || selected?.ID !== id) return
-      if (ownTurnId !== id) {
-        const history = await api.chatMessages(id)
-        if (selected?.ID !== id) return
-        messages = history || []
-        sending = activity.chats.includes(id)
-        if (!sending) stream = null
+      // Read active state first. If the turn just completed, the saved
+      // transcript is already available when we fetch messages.
+      const snapshot = await api.chatLiveState(id).catch(() => null)
+      const activeIDs = snapshot ? [] : await api.activeChatIDs().catch(() => [])
+      if (!current()) return
+      const history = (await api.chatMessages(id)) || []
+      if (!current()) return
+      messages = history
+      if (snapshot) liveView = restoreLiveChat(snapshot, request.events)
+      else if (!activeIDs.includes(id) && !request.events.length) liveView = null
+      sending = !!liveView || activeIDs.includes(id) || ownTurns.has(id)
+      stream = liveView?.stream || null
+      error = threadErrors[id] || history.at(-1)?.Meta?.error || ''
+
+      if (serverEdition && window.praimateRemote?.status.identity.role !== 'viewer') {
+        const activity = await api.remoteActivity().catch(() => null)
+        if (current() && activity) {
+          approvals = activity.approvals.filter(item => item.chatId === id)
+        }
       }
-      approvals = window.praimateRemote?.status.identity.role === 'viewer' ? [] : activity.approvals.filter(request => request.chatId === id)
-    } catch (e) { if (selected?.ID === id) error = String(e) }
+    } catch (e) {
+      if (current()) error = String(e)
+    } finally {
+      if (current()) threadSync = null
+    }
   }
   function isOpenCodeLikeCli(cli) { return cli === 'opencode' || cli === 'praimate-code' }
 
@@ -399,21 +419,21 @@
       error = 'This chat is open in a detached window. Close that window to reattach it here.'
       return
     }
+    if (selected?.ID !== chat.ID) {
+      threadSync = null
+      liveView = null
+      stream = null
+      sending = false
+      messages = []
+      approvals = []
+      attachments = []
+    }
     selected = chat
+    openChatId.set(chat.ID)
     error = threadErrors[chat.ID] || ''
     toolsLevel = normalizeToolsForCli(chat.CLIAgent, chat.Settings?.tools)
-    attachments = []
-    approvals = []
-    try {
-      const history = (await api.chatMessages(chat.ID)) || []
-      if (selected?.ID !== chat.ID) return
-      messages = history
-      error = threadErrors[chat.ID] || history.at(-1)?.Meta?.error || ''
-      await syncRemoteThread()
-      await scrollToBottom(true)
-    } catch (e) {
-      if (selected?.ID === chat.ID) error = String(e)
-    }
+    await syncThread()
+    if (!disposed && selected?.ID === chat.ID) await scrollToBottom(true)
   }
 
   function back() {
@@ -423,6 +443,9 @@
     approvals = []
     error = ''
     stream = null
+    liveView = null
+    threadSync = null
+    sending = false
     selected = null
     messages = []
     draft = ''
@@ -457,19 +480,16 @@
   }
 
   function handleStreamEvent(ev) {
-    if (!selected || ev.chatId !== selected.ID || (!sending && !serverEdition)) return
-    if (serverEdition && !sending) { sending = true; syncRemoteThread() }
-    stream = applyChatStreamEvent(stream, ev)
+    if (disposed || !selected || ev.chatId !== selected.ID) return
+    if (threadSync?.id === ev.chatId) threadSync.events.push(ev)
+    liveView = applyLiveChatEvent(liveView, ev)
+    sending = true
+    stream = liveView.stream
     scrollToBottom()
   }
 
   async function stop() {
     if (!selected) return
-    // Immediate UI feedback — the backend cancellation can lag while
-    // the wrapped CLI tears down its own process tree; users don't
-    // want to wait for that to see the spinner disappear.
-    sending = false
-    stream = null
     try { await api.cancelChatTurn(selected.ID) } catch {}
   }
 
@@ -497,12 +517,13 @@
   async function send(override = null) {
     const compact = override === '/compact'
     const text = compact ? override : draft.trim()
-    if ((!text && attachments.length === 0) || sending || !selected) return
+    if ((!text && attachments.length === 0) || sending || threadSync || !selected) return
     const chatID = selected.ID
-    ownTurnId = chatID
+    ownTurns.add(chatID)
     sending = true
     error = ''
     delete threadErrors[chatID]
+    liveView = null
     stream = null
     const isCommand = text.startsWith('!')
     const staged = compact ? [] : attachments
@@ -544,9 +565,10 @@
       }
       if (!compact && selected?.ID === chatID) attachments = staged
     } finally {
-      if (ownTurnId === chatID) ownTurnId = ''
-      if (!serverEdition || selected?.ID === chatID) sending = false
+      ownTurns.delete(chatID)
       if (selected?.ID === chatID) {
+        sending = false
+        liveView = null
         stream = null
         approvals = [] // turn is over; anything unanswered was denied/cancelled
         await scrollToBottom()
@@ -728,38 +750,39 @@
   }
 
   onMount(async () => {
-    try { serverEdition = (await api.about()).edition === 'server' } catch {}
     unsubStream = onChatStream(handleStreamEvent)
     unsubApproval = onApproval(handleApproval)
-    try { detachedChats = new Set(((await api.detachedWindows()) || []).filter((item) => item.kind === 'chat').map((item) => item.sessionId)) } catch {}
     if (window.runtime?.EventsOn) {
-      if (serverEdition) {
-        remoteUnsubs.push(window.runtime.EventsOn('praimate:remote-resync', () => { load(); syncRemoteThread() }))
-        remoteUnsubs.push(window.runtime.EventsOn('praimate:chat-finished', event => {
-          load()
-          if (event.chatId === selected?.ID) { if (event.error) error = event.error; syncRemoteThread() }
-        }))
-        remoteUnsubs.push(window.runtime.EventsOn('praimate:approval-resolved', request => { approvals = approvals.filter(item => item.id !== request.id) }))
-      }
-      window.runtime.EventsOn('praimate:detached-windows', (items) => {
-        detachedChats = new Set((items || []).filter((item) => item.kind === 'chat').map((item) => item.sessionId))
-        // A detached window may have changed tools. Reattach from current DB
-        // metadata rather than the list captured before it was opened.
+      eventUnsubs.push(window.runtime.EventsOn('praimate:remote-resync', () => { load(); if (!ownTurns.has(selected?.ID)) syncThread() }))
+      eventUnsubs.push(window.runtime.EventsOn('praimate:chat-finished', event => {
+        if (event.chatId !== selected?.ID || ownTurns.has(event.chatId)) return
+        if (event.error) threadErrors[event.chatId] = event.error
+        syncThread()
+      }))
+      eventUnsubs.push(window.runtime.EventsOn('praimate:approval-resolved', request => {
+        approvals = approvals.filter(item => item.id !== request.id)
+      }))
+      unsubDetached = window.runtime.EventsOn('praimate:detached-windows', items => {
+        detachedChats = new Set((items || []).filter(item => item.kind === 'chat').map(item => item.sessionId))
         load()
-      })
-      unsubDetached = () => window.runtime.EventsOff('praimate:detached-windows')
+      }) || (() => {})
     }
+    try { serverEdition = (await api.about()).edition === 'server' } catch {}
+    try { detachedChats = new Set(((await api.detachedWindows()) || []).filter(item => item.kind === 'chat').map(item => item.sessionId)) } catch {}
+    if (disposed) return
     ensureLocalOptions()
     await load()
     // If Agents started a chat and routed us here, open it.
     const id = $openChatId
-    if (id) {
+    if (!disposed && id) {
       const c = chats.find((x) => x.ID === id)
       if (c) await open(c)
     }
   })
 
   onDestroy(() => {
+    disposed = true
+    threadSync = null
     clearHighlights()
     clearTimeout(findTimer)
     cancelAnimationFrame(scrollFrame)
@@ -768,7 +791,7 @@
     unsubStream()
     unsubApproval()
     unsubDetached()
-    remoteUnsubs.forEach(unsubscribe => unsubscribe())
+    eventUnsubs.forEach(unsubscribe => unsubscribe?.())
   })
 </script>
 
@@ -1028,21 +1051,21 @@
     </div>
   {/if}
   <div class="composer" data-voice-composer>
-    <button class="btn composer-action" on:click={attach} disabled={sending} title="Attach images, PDFs or documents" aria-label="Add files">📎 <span>Add files</span></button>
+    <button class="btn composer-action" on:click={attach} disabled={sending || !!threadSync} title="Attach images, PDFs or documents" aria-label="Add files">📎 <span>Add files</span></button>
     <textarea
       class="field"
       rows="2"
       placeholder={window.praimateMobile ? 'Message…' : 'Message the agent…  (Enter sends · Shift+Enter newline · !cmd runs a shell command in the chat folder)'}
       bind:value={draft}
       on:keydown={onKey}
-      disabled={sending}></textarea>
-    <VoiceButton disabled={sending || approvals.length > 0} context={{chat_id: selected?.ID || '', page:'chats'}} on:transcript={event => { draft = [draft,event.detail.text].filter(Boolean).join(' '); if (event.detail.autoSend) send() }} />
-    <button class="btn composer-action" on:click={() => send('/compact')} disabled={sending || approvals.length > 0} title="Compact saved conversation context" aria-label="Compact context">◫ <span>Compact</span></button>
+      disabled={sending || !!threadSync}></textarea>
+    <VoiceButton disabled={sending || !!threadSync || approvals.length > 0} context={{chat_id: selected?.ID || '', page:'chats'}} on:transcript={event => { draft = [draft,event.detail.text].filter(Boolean).join(' '); if (event.detail.autoSend) send() }} />
+    <button class="btn composer-action" on:click={() => send('/compact')} disabled={sending || !!threadSync || approvals.length > 0} title="Compact saved conversation context" aria-label="Compact context">◫ <span>Compact</span></button>
     {#if !window.praimateMobile}<button class="btn composer-action" on:click={detachChat} disabled={approvals.length > 0} title="Move this chat into its own window">↗ <span>Detach</span></button>{/if}
     {#if sending}
       <button class="btn danger composer-action stop-action" on:click={stop} title="Interrupt the turn — text streamed so far is kept">■ <span>Stop</span></button>
     {:else}
-      <button class="btn primary" on:click={send} disabled={!draft.trim() && attachments.length === 0}>Send</button>
+      <button class="btn primary" on:click={send} disabled={!!threadSync || (!draft.trim() && attachments.length === 0)}>Send</button>
     {/if}
   </div>
   </section>

@@ -24,6 +24,7 @@ func (a *App) remoteMethods() *remote.Registry {
 	r.Register("api.About", "read", false, a.About)
 	r.Register("api.AcceptPrivacyNotice", "control", true, a.AcceptPrivacyNotice)
 	r.Register("api.ActiveChatIDs", "read", false, a.ActiveChatIDs)
+	r.Register("api.ChatLiveState", "read", false, a.ChatLiveState)
 	r.Register("api.AddCronSchedule", "admin", true, a.AddCronSchedule)
 	r.Register("api.AddCustomMCP", "admin", true, a.AddCustomMCP)
 	r.Register("api.AddCustomMCPWithHeaders", "admin", true, a.AddCustomMCPWithHeaders)

@@ -49,7 +49,7 @@ jobs:
       - name: Verify release and edition contracts
         run: |
           go test ./internal/studio ./cmd/praimate ./internal/installer ./internal/launcher ./internal/remote ./internal/cloudflared ./internal/serverboot ./internal/updater ./internal/orchestrator
-          go test ./internal/core -run '^(TestRegisterManagedREAUsesSharedCatalogueAndPreservesDisabledState|TestManagedKnowledgeFallsBackWhenGraphifyQueryFails)$'
+          go test ./internal/core -run '^(TestRegisterManagedREAUsesSharedCatalogueAndPreservesDisabledState|TestManagedKnowledgeFallsBackWhenGraphifyQueryFails|TestNativeIdleTimeoutResetsOnActivity|TestNativeIdleTimeoutCutsSilentStream|TestNativeCompletionPreservesCallerDeadline)$'
           go test ./internal/store -run '^TestVerifyPasswordDoesNotOpenOrChangeDatabase$'
           go test -tags server ./internal/updater
           python3 scripts/edition_test.py
