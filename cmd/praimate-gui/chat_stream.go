@@ -9,10 +9,12 @@ package main
 
 import (
 	"context"
+	"errors"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/sPROFFEs/PrAImate/internal/core"
 )
@@ -20,13 +22,15 @@ import (
 // ChatStreamEvent is what the frontend receives on the
 // "praimate:chat-stream" event channel.
 type ChatStreamEvent struct {
-	ChatID string `json:"chatId"`
-	Type   string `json:"type"` // "text" | "reasoning" | "step_*" | "tool_*" | "error"
-	Text   string `json:"text,omitempty"`
-	Tool   string `json:"tool,omitempty"`
-	Detail string `json:"detail,omitempty"`
-	ID     string `json:"id,omitempty"`
-	OK     bool   `json:"ok,omitempty"`
+	ChatID   string `json:"chatId"`
+	TurnID   uint64 `json:"turnId,omitempty"`
+	Sequence uint64 `json:"sequence,omitempty"`
+	Type     string `json:"type"` // "text" | "reasoning" | "step_*" | "tool_*" | "error"
+	Text     string `json:"text,omitempty"`
+	Tool     string `json:"tool,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+	ID       string `json:"id,omitempty"`
+	OK       bool   `json:"ok,omitempty"`
 }
 
 type ChatFinishedEvent struct {
@@ -73,33 +77,44 @@ func (a *App) SendChatStream(chatID, message string, attachments []string) (*cor
 
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.chatCancelMu.Lock()
-	if old, ok := a.chatCancels[chatID]; ok {
-		old() // one in-flight turn per chat; a racing second send wins
+	if _, active := a.chatCancels[chatID]; active {
+		a.chatCancelMu.Unlock()
+		cancel()
+		return nil, errors.New("this chat already has a turn in progress")
 	}
 	a.chatCancelSeq++
 	runID := a.chatCancelSeq
 	a.chatCancels[chatID] = cancel
 	a.chatCancelIDs[chatID] = runID
+	if a.chatLive == nil {
+		a.chatLive = make(map[string]*liveChatTurn)
+	}
+	a.chatLive[chatID] = &liveChatTurn{turnID: runID}
 	a.chatCancelMu.Unlock()
 	cleanup := func() {
 		cancel()
 		a.chatCancelMu.Lock()
-		// A newer racing send may already own this chat ID. Do not erase its
-		// cancellation handle while the older turn unwinds.
 		if a.chatCancelIDs[chatID] == runID {
 			delete(a.chatCancels, chatID)
 			delete(a.chatCancelIDs, chatID)
+			delete(a.chatLive, chatID)
 		}
 		a.chatCancelMu.Unlock()
 	}
 
 	emitImmediate := func(streamEvent ChatStreamEvent) {
-		wruntime.EventsEmit(a.ctx, "praimate:chat-stream", streamEvent)
+		a.chatCancelMu.Lock()
+		if live := a.chatLive[chatID]; live != nil && live.turnID == runID {
+			live.record(&streamEvent)
+		}
+		a.chatCancelMu.Unlock()
+		a.emitUIEvent("praimate:chat-stream", streamEvent)
 		if a.detached != nil {
 			a.detached.publish("chat", chatID, "praimate:chat-stream", streamEvent)
 			a.detached.publish("studio", chatID, "praimate:chat-stream", streamEvent)
 		}
 	}
+	emitImmediate(ChatStreamEvent{ChatID: chatID, Type: "started"})
 	coalescer := newStreamCoalescer(20*time.Millisecond, emitImmediate)
 	defer coalescer.Flush()
 
@@ -118,11 +133,12 @@ func (a *App) SendChatStream(chatID, message string, attachments []string) (*cor
 	turn, streamErr := c.ContinueChatStream(ctx, chatID, message, chat.WorkspacePath, systemPrompt, attachments, onEvent)
 	coalescer.Flush()
 	cleanup()
+	finished := ChatFinishedEvent{ChatID: chatID}
+	if streamErr != nil {
+		finished.Error = streamErr.Error()
+	}
+	a.emitUIEvent("praimate:chat-finished", finished)
 	if a.detached != nil {
-		finished := ChatFinishedEvent{ChatID: chatID}
-		if streamErr != nil {
-			finished.Error = streamErr.Error()
-		}
 		a.detached.publish("chat", chatID, "praimate:chat-finished", finished)
 		a.detached.publish("studio", chatID, "praimate:chat-finished", finished)
 	}
@@ -150,6 +166,64 @@ func (a *App) ActiveChatIDs() []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+// ChatLiveSnapshot restores an active turn when a renderer opens its chat.
+// The replay is transient and capped. The transcript remains authoritative
+// once the final message is saved.
+type ChatLiveSnapshot struct {
+	TurnID uint64            `json:"turnId"`
+	Events []ChatStreamEvent `json:"events"`
+}
+
+type liveChatTurn struct {
+	turnID   uint64
+	sequence uint64
+	events   []ChatStreamEvent
+	size     int
+}
+
+func (a *App) ChatLiveState(chatID string) ChatLiveSnapshot {
+	a.chatCancelMu.Lock()
+	defer a.chatCancelMu.Unlock()
+	if turn := a.chatLive[chatID]; turn != nil {
+		return ChatLiveSnapshot{TurnID: turn.turnID, Events: slices.Clone(turn.events)}
+	}
+	return ChatLiveSnapshot{}
+}
+
+const (
+	chatReplayBytes  = 512 << 10
+	chatReplayEvents = 2048
+	chatReplayChunk  = 16 << 10
+)
+
+func (t *liveChatTurn) record(event *ChatStreamEvent) {
+	t.sequence++
+	event.TurnID, event.Sequence = t.turnID, t.sequence
+	replay := *event
+	replay.Text = replayTail(replay.Text)
+	replay.Detail = replayTail(replay.Detail)
+	t.size += len(replay.Text) + len(replay.Detail)
+	if n := len(t.events); n > 0 && (replay.Type == "text" || replay.Type == "reasoning") &&
+		t.events[n-1].Type == replay.Type && replay.Detail == "" && t.events[n-1].Detail == "" && len(t.events[n-1].Text)+len(replay.Text) <= chatReplayChunk {
+		t.events[n-1].Text += replay.Text
+		t.events[n-1].Sequence = replay.Sequence
+	} else {
+		t.events = append(t.events, replay)
+	}
+	for t.size > chatReplayBytes || len(t.events) > chatReplayEvents {
+		t.size -= len(t.events[0].Text) + len(t.events[0].Detail)
+		t.events[0] = ChatStreamEvent{}
+		t.events = t.events[1:]
+	}
+}
+
+func replayTail(text string) string {
+	if len(text) <= chatReplayChunk {
+		return text
+	}
+	return "… " + strings.ToValidUTF8(text[len(text)-chatReplayChunk:], "")
 }
 
 // CancelChatTurn interrupts the chat's in-flight streamed turn. No-op

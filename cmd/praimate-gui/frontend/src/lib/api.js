@@ -231,6 +231,7 @@ export const api = {
   openSkillInStudio: (ref, digest) => call('OpenSkillInStudio', ref, digest),
   createSkillInStudio: (name) => call('CreateSkillInStudio', name),
   activeChatIDs: () => call('ActiveChatIDs'),
+  chatLiveState: chatId => call('ChatLiveState', chatId),
   openEditorFolder: () => call('OpenEditorFolder'),
   openExternalURL: url => {
     const open = systemLinkOpener()

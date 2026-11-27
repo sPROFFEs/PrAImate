@@ -18,7 +18,7 @@
     "test:api-events": "node --test src/lib/apiEvents.test.js",
     "test:surfaces": "node --test src/pages/surfaceNavigation.test.js",
     "test:chat-search": "node --test src/lib/chatSearch.test.js",
-    "test:chat-activity": "node --test src/lib/chatActivity.test.js src/lib/chatActivityPref.test.js"
+    "test:chat-activity": "node --test src/lib/chatActivity.test.js src/lib/chatActivityPref.test.js src/lib/chatLiveState.test.js"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",

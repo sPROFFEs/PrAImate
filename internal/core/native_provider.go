@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sPROFFEs/PrAImate/internal/hosttls"
@@ -53,6 +54,7 @@ type nativeProvider struct {
 	http         *http.Client
 	withoutUsage bool
 	onEvent      StreamHandler
+	idleTimeout  time.Duration // override the completion inactivity budget in tests
 }
 
 type nativeHTTPError struct {
@@ -79,6 +81,97 @@ func nativeBaseURL(endpoint string) (string, error) {
 	return strings.TrimRight(u.String(), "/"), nil
 }
 
+const (
+	nativeMetadataTimeout   = 3 * time.Minute
+	nativeStreamIdleTimeout = 5 * time.Minute
+)
+
+// nativeIdle cancels a completion only after the backend has been silent.
+// Checking the deadline under the lock prevents a delayed timer callback
+// from cancelling a request that has already received more data.
+type nativeIdle struct {
+	mu       sync.Mutex
+	timer    *time.Timer
+	after    time.Duration
+	deadline time.Time
+	cancel   context.CancelCauseFunc
+	err      error
+	closed   bool
+}
+
+func newNativeIdle(ctx context.Context, after time.Duration) (context.Context, *nativeIdle) {
+	child, cancel := context.WithCancelCause(ctx)
+	idle := &nativeIdle{after: after, cancel: cancel, err: fmt.Errorf("model backend sent no data for %s", after)}
+	idle.mu.Lock()
+	idle.deadline = time.Now().Add(after)
+	idle.timer = time.AfterFunc(after, idle.expire)
+	idle.mu.Unlock()
+	return child, idle
+}
+
+func (i *nativeIdle) expire() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.closed {
+		return
+	}
+	if remaining := time.Until(i.deadline); remaining > 0 {
+		i.timer.Reset(remaining)
+		return
+	}
+	i.closed = true
+	i.cancel(i.err)
+}
+
+func (i *nativeIdle) refresh() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if !i.closed {
+		i.deadline = time.Now().Add(i.after)
+		i.timer.Reset(i.after)
+	}
+}
+
+func (i *nativeIdle) stop() {
+	if i == nil {
+		return
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.closed = true
+	i.timer.Stop()
+	i.cancel(nil)
+}
+
+func (i *nativeIdle) failure(ctx context.Context, err error) error {
+	if i != nil && context.Cause(ctx) == i.err {
+		return i.err
+	}
+	return err
+}
+
+type nativeIdleBody struct {
+	io.ReadCloser
+	ctx  context.Context
+	idle *nativeIdle
+}
+
+func (b *nativeIdleBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.idle.refresh()
+	}
+	if err != nil && err != io.EOF {
+		err = b.idle.failure(b.ctx, err)
+	}
+	return n, err
+}
+
+func (b *nativeIdleBody) Close() error {
+	b.idle.stop()
+	return b.ReadCloser.Close()
+}
+
 func (p nativeProvider) request(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
 	base, err := nativeBaseURL(p.route.Endpoint)
 	if err != nil {
@@ -86,7 +179,7 @@ func (p nativeProvider) request(ctx context.Context, method, path string, body [
 	}
 	client := p.http
 	if client == nil {
-		client, err = hosttls.Client(p.route.Endpoint, p.route.TLSCertificate, 3*time.Minute)
+		client, err = hosttls.Client(p.route.Endpoint, p.route.TLSCertificate, nativeMetadataTimeout)
 		if err != nil {
 			return nil, err
 		}
@@ -96,11 +189,27 @@ func (p nativeProvider) request(ctx context.Context, method, path string, body [
 	}
 	// Do not forward prompts or credentials to a redirect target.
 	copyClient := *client
+	completion := method == http.MethodPost && path == "/chat/completions"
+	idleBudget := p.idleTimeout
+	if idleBudget <= 0 {
+		idleBudget = nativeStreamIdleTimeout
+	}
+	if completion {
+		// Client.Timeout includes the response body. Completions use the
+		// caller's deadline and an inactivity budget for headers and body.
+		copyClient.Timeout = 0
+	}
 	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	var lastHTTPError *nativeHTTPError
 	for attempt := 0; attempt < 3; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(body))
+		reqCtx := ctx
+		var idle *nativeIdle
+		if completion {
+			reqCtx, idle = newNativeIdle(ctx, idleBudget)
+		}
+		req, err := http.NewRequestWithContext(reqCtx, method, base+path, bytes.NewReader(body))
 		if err != nil {
+			idle.stop()
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
@@ -110,17 +219,26 @@ func (p nativeProvider) request(ctx context.Context, method, path string, body [
 		}
 		res, err := copyClient.Do(req)
 		if err != nil {
+			err = idle.failure(reqCtx, err)
+			idle.stop()
 			requestErr := fmt.Errorf("native model request: %w", err)
 			if lastHTTPError != nil {
 				return nil, errors.Join(requestErr, lastHTTPError)
 			}
 			return nil, requestErr
 		}
+		if idle != nil {
+			idle.refresh() // Waiting for headers and reading the body are separate activity intervals.
+			res.Body = &nativeIdleBody{ReadCloser: res.Body, ctx: reqCtx, idle: idle}
+		}
 		if res.StatusCode >= 200 && res.StatusCode < 300 {
 			return res, nil
 		}
-		raw, _ := io.ReadAll(io.LimitReader(res.Body, 8192))
+		raw, readErr := io.ReadAll(io.LimitReader(res.Body, 8192))
 		res.Body.Close()
+		if readErr != nil && idle != nil && context.Cause(reqCtx) == idle.err {
+			return nil, fmt.Errorf("native model HTTP %d: %w", res.StatusCode, readErr)
+		}
 		message := string(raw)
 		if p.route.APIKey != "" {
 			message = strings.ReplaceAll(message, p.route.APIKey, "[redacted]")
